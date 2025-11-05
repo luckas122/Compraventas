@@ -250,7 +250,7 @@
     },
     "section": {
       "productos": {
-        "agregar": "F1",
+        "agregar": "A",
         "editar": "E",
         "eliminar": "Delete",
         "imprimir_codigo": "I"

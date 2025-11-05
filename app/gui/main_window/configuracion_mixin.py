@@ -362,10 +362,43 @@ class ConfiguracionMixin:
         # Estado (informativo)
         info_state = QLabel("Estado actual: ver esquina inferior derecha (Ctrl+Shift ON/OFF).")
         lay_acc.addWidget(info_state)
+        
+        
 
         from app.config import load as _load_cfg
         _sc = (_load_cfg().get("shortcuts") or {})
         _sec = dict((_sc.get("section") or {}))
+        
+        
+        from app.gui.shortcuts import DEFAULT_GLOBAL_MAP  # para resetear si hiciera falta
+        _glob = dict((_sc.get("global") or {}))
+
+        # Grupo: Globales (F-keys)
+        gb_glob = QGroupBox("Globales (F-keys: cambian de pestaña)")
+        lg = QGridLayout(gb_glob)
+        lg.setHorizontalSpacing(12)
+        lg.setVerticalSpacing(8)
+
+        self.ed_glob_prod = QLineEdit(_glob.get("productos", "F1"))
+        self.ed_glob_prov = QLineEdit(_glob.get("proveedores", "F2"))
+        self.ed_glob_vent = QLineEdit(_glob.get("ventas", "F3"))
+        self.ed_glob_hist = QLineEdit(_glob.get("historial", "F4"))
+        self.ed_glob_conf = QLineEdit(_glob.get("configuraciones", "F5"))
+        self.ed_glob_user = QLineEdit(_glob.get("usuarios", "F6"))
+
+        for w_ in (self.ed_glob_prod, self.ed_glob_prov, self.ed_glob_vent, self.ed_glob_hist, self.ed_glob_conf, self.ed_glob_user):
+            w_.setMaxLength(10)
+            w_.setPlaceholderText("F1–F12")
+
+        lg.addWidget(QLabel("Productos"),       0, 0); lg.addWidget(self.ed_glob_prod, 0, 1)
+        lg.addWidget(QLabel("Proveedores"),     1, 0); lg.addWidget(self.ed_glob_prov, 1, 1)
+        lg.addWidget(QLabel("Ventas"),          2, 0); lg.addWidget(self.ed_glob_vent, 2, 1)
+        lg.addWidget(QLabel("Historial"),       3, 0); lg.addWidget(self.ed_glob_hist, 3, 1)
+        lg.addWidget(QLabel("Configuraciones"), 4, 0); lg.addWidget(self.ed_glob_conf, 4, 1)
+        lg.addWidget(QLabel("Usuarios"),        5, 0); lg.addWidget(self.ed_glob_user, 5, 1)
+
+        lay_acc.addWidget(gb_glob)
+
 
         # Grupo: Productos
         gb_prod = QGroupBox("Productos")
@@ -456,7 +489,12 @@ class ConfiguracionMixin:
         # Instalar el filtro en TODOS los QLineEdit de accesos rápidos
         self._sc_keycap = _SCKeyCapture(self)
         for w_ in (
+            # Globales:
+            self.ed_glob_prod, self.ed_glob_prov, self.ed_glob_vent,
+            self.ed_glob_hist, self.ed_glob_conf, self.ed_glob_user,
+            # Sección: Productos
             self.ed_sc_prod_A, self.ed_sc_prod_E, self.ed_sc_prod_D, self.ed_sc_prod_I,
+            # Sección: Ventas
             self.ed_sc_ven_V, self.ed_sc_ven_E, self.ed_sc_ven_T, self.ed_sc_ven_D, self.ed_sc_ven_W, self.ed_sc_ven_F
         ):
             try:
@@ -495,23 +533,43 @@ class ConfiguracionMixin:
                 "whatsapp": _normalize(self.ed_sc_ven_W.text(), "W"),
                 "imprimir": _normalize(self.ed_sc_ven_F.text(), "F"),
             }
+            # — Globales —
+            global_map = {
+                "productos": _normalize(self.ed_glob_prod.text(), "F1"),
+                "proveedores": _normalize(self.ed_glob_prov.text(), "F2"),
+                "ventas": _normalize(self.ed_glob_vent.text(), "F3"),
+                "historial": _normalize(self.ed_glob_hist.text(), "F4"),
+                "configuraciones": _normalize(self.ed_glob_conf.text(), "F5"),
+                "usuarios": _normalize(self.ed_glob_user.text(), "F6"),
+            }
+            sc["global"] = global_map
+
+            # Persistir + hot reload
             sc["section"] = section
             cfg["shortcuts"] = sc
             save_config(cfg)
             try:
                 if getattr(self, "shortcut_manager", None):
-                    # Recarga mapas y re-registra todo sin reiniciar
                     self.shortcut_manager.reload_from_config(reapply_current=True)
                 self.statusBar().showMessage("Accesos rápidos guardados y aplicados.", 3000)
             except Exception:
                 pass
 
         def _reset_shortcuts_to_defaults():
-            from app.gui.shortcuts import DEFAULT_SECTION_MAP
+            from app.gui.shortcuts import DEFAULT_SECTION_MAP, DEFAULT_GLOBAL_MAP
+            # Globales
+            self.ed_glob_prod.setText(DEFAULT_GLOBAL_MAP["productos"])
+            self.ed_glob_prov.setText(DEFAULT_GLOBAL_MAP["proveedores"])
+            self.ed_glob_vent.setText(DEFAULT_GLOBAL_MAP["ventas"])
+            self.ed_glob_hist.setText(DEFAULT_GLOBAL_MAP["historial"])
+            self.ed_glob_conf.setText(DEFAULT_GLOBAL_MAP["configuraciones"])
+            self.ed_glob_user.setText(DEFAULT_GLOBAL_MAP["usuarios"])
+            # Sección: Productos
             self.ed_sc_prod_A.setText(DEFAULT_SECTION_MAP["productos"]["agregar"])
             self.ed_sc_prod_E.setText(DEFAULT_SECTION_MAP["productos"]["editar"])
             self.ed_sc_prod_D.setText(DEFAULT_SECTION_MAP["productos"]["eliminar"])
             self.ed_sc_prod_I.setText(DEFAULT_SECTION_MAP["productos"]["imprimir_codigo"])
+            # Sección: Ventas
             self.ed_sc_ven_V.setText(DEFAULT_SECTION_MAP["ventas"]["finalizar"])
             self.ed_sc_ven_E.setText(DEFAULT_SECTION_MAP["ventas"]["efectivo"])
             self.ed_sc_ven_T.setText(DEFAULT_SECTION_MAP["ventas"]["tarjeta"])
