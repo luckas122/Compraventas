@@ -1,0 +1,269 @@
+{
+  "business": {
+    "nombre": "Mi Negocio",
+    "cuit": "00-00000000-0",
+    "iva_responsable": "Consumidor Final",
+    "telefono": "+54 11 0000-0000",
+    "sucursales": {
+      "Sarmiento": "Pte. Sarmiento 1695, Gerli",
+      "Salta": "Salta 1694, Gerli"
+    },
+    "general": {
+      "timezone": "America/Argentina/Buenos_Aires",
+      "default_send_time": "20:30"
+    }
+  },
+  "theme": {
+    "dark_mode": false,
+    "dark_variant": "soft",
+    "background": "#2B2D31",
+    "panel_bg": "#32343A",
+    "tab_bg": "#3A3D44",
+    "border": "#4A4D55",
+    "accent_title": "#9CC4FF",
+    "accent_text": "#ECEFF1",
+    "muted_text": "#BFC5CF",
+    "light_background": "#F5F6F8",
+    "light_panel_bg": "#FFFFFF",
+    "light_tab_bg": "#ECEFF1",
+    "light_border": "#D0D4DB",
+    "light_title": "#4F6B95",
+    "light_text": "#222222",
+    "font_family": "Arial",
+    "font_size": 12
+  },
+  "printers": {
+    "ticket_printer": null,
+    "barcode_printer": "Microsoft Print to PDF",
+    "ask_each_time": true
+  },
+  "ticket": {
+    "paper": {
+      "width_mm": 80,
+      "height_mm": 200,
+      "dynamic_height": true
+    },
+    "margins_mm": 12,
+    "fonts": {
+      "title_px": 18,
+      "head_px": 12,
+      "text_px": 11,
+      "total_px": 20
+    },
+    "color": {
+      "total_hex": "#2e7d32"
+    },
+    "show_interest_line": false,
+    "slots": {
+      "slot1": "{{ticket.numero}}",
+      "slot2": "",
+      "slot3": ""
+    },
+    "placeholders": [
+      "{{ticket.numero}}",
+      "{{ticket.fecha_hora}}",
+      "{{sucursal}}",
+      "{{cliente.nombre}}",
+      "{{cliente.doc}}",
+      "{{pago.modo}}",
+      "{{pago.cuotas}}",
+      "{{pago.monto_cuota}}",
+      "{{totales.subtotal}}",
+      "{{totales.interes}}",
+      "{{totales.total}}",
+      "{{abonado}}",
+      "{{vuelto}}"
+    ],
+    "template": "{{ticket.numero}}"
+  },
+  "backup": {
+    "enabled": true,
+    "dir": "C:/Users/Lucas-PC/Desktop/DCIM",
+    "daily_times": [],
+    "weekly": {
+      "enabled": false,
+      "weekday": 7,
+      "time": "23:30"
+    },
+    "retention_days": {
+      "daily": 40,
+      "weekly": 180
+    },
+    "compress": {
+      "format": "zip",
+      "level": 9
+    },
+    "times_daily": [
+      "13:00",
+      "20:00"
+    ],
+    "retention": {
+      "daily_days": 30,
+      "weekly_weeks": 26
+    },
+    "days": [
+      1
+    ],
+    "times": [
+      "00:00",
+      "19:22",
+      "19:24",
+      "20:17",
+      "20:19"
+    ]
+  },
+  "export": {
+    "default_dir": null,
+    "ticket_pdf": {
+      "dpi": 203,
+      "abrir_al_finalizar": true
+    }
+  },
+  "whatsapp": {
+    "usar_web": true,
+    "preguntar_antes": true,
+    "formato_ticket": "pdf"
+  },
+  "email": {
+    "sender": "perfumeria.susi65@gmail.com",
+    "recipients": [
+      "lucasg1392@gmail.com"
+    ],
+    "bcc": [],
+    "subject_prefix": "[Historial]",
+    "smtp": {
+      "host": "smtp.gmail.com",
+      "port": 587,
+      "use_tls": true,
+      "username": "perfumeria.susi65@gmail.com",
+      "password": "hqho iwys xsrm grpu"
+    },
+    "attach_format": "xlsx",
+    "enabled": false
+  },
+  "reports": {
+    "historial": {
+      "excel_content": {
+        "Diario": [
+          "ventas_diarias"
+        ],
+        "Semanal": [
+          "ventas_diarias",
+          "resumen_semanal",
+          "productos_mas_vendidos"
+        ],
+        "Mensual": [
+          "ventas_semanales",
+          "productos_mas_vendidos"
+        ]
+      },
+      "default_filters": {
+        "sucursal": "*",
+        "forma_pago": "*",
+        "desde": "hoy",
+        "hasta": "hoy",
+        "auto_send": {
+          "enabled": false,
+          "freq": "Diario",
+          "time": "21:00",
+          "last_sent": null
+        },
+        "export_content": {
+          "daily": [
+            "ventas_diarias",
+            "productos_mas_vendidos"
+          ],
+          "weekly": [
+            "ventas_diarias",
+            "resumen_semanal",
+            "productos_mas_vendidos",
+            "comparativa_2_semanas"
+          ],
+          "monthly": [
+            "ventas_por_dia",
+            "resumen_semanal_del_mes",
+            "productos_mas_vendidos",
+            "comparativa_2_meses"
+          ]
+        }
+      },
+      "startup": {
+        "default_sucursal": "ask"
+      },
+      "auto_send": {
+        "enabled": true,
+        "freq": "Diario",
+        "time": "11:34",
+        "time_daily": "21:00",
+        "time_weekly": "21:00",
+        "time_monthly": "21:00",
+        "weekdays": [
+          6
+        ],
+        "week_end_to_saturday": true,
+        "month_day": 31,
+        "last_sent": "2025-10-06"
+      },
+      "export_content": {
+        "daily": [
+          "ventas_diarias",
+          "productos_mas_vendidos"
+        ],
+        "weekly": [
+          "ventas_diarias",
+          "resumen_semanal",
+          "productos_mas_vendidos",
+          "comparativa_2_semanas"
+        ],
+        "monthly": [
+          "ventas_por_dia",
+          "resumen_semanal_del_mes",
+          "productos_mas_vendidos",
+          "comparativa_2_meses"
+        ]
+      },
+      "shortcuts": {
+        "enabled": true
+      }
+    }
+  },
+  "startup": {
+    "default_sucursal": "Sarmiento"
+  },
+  "scanner": {
+    "source": null,
+    "url": ""
+  },
+  "general": {
+    "timezone": "Europe/Madrid",
+    "default_send_time": "20:30"
+  },
+  "shortcuts": {
+    "enabled": true,
+    "global": {
+      "productos": "F1",
+      "proveedores": "F2",
+      "ventas": "F3",
+      "historial": "F4",
+      "configuraciones": "F5",
+      "usuarios": "F6"
+    },
+    "section": {
+      "productos": {
+        "agregar": "F1",
+        "editar": "E",
+        "eliminar": "Delete",
+        "imprimir_codigo": "I"
+      },
+      "ventas": {
+        "finalizar": "V",
+        "efectivo": "E",
+        "tarjeta": "T",
+        "devolucion": "D",
+        "whatsapp": "W",
+        "imprimir": "F"
+      }
+    },
+    "section_mode_enabled": true
+  }
+}

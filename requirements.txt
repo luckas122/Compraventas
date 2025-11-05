@@ -1,0 +1,7 @@
+PyQt5
+SQLAlchemy
+pandas
+python-barcode
+pillow
+openpyxl
+Werkzeug
