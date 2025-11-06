@@ -1,76 +1,60 @@
 @echo off
-REM Script de compilación para TuLocal V1 - App Compras y Ventas
-REM Ejecutar: build.bat
+setlocal enabledelayedexpansion
 
 echo ========================================
 echo    BUILD - App Compras y Ventas
 echo ========================================
 echo.
 
-REM Limpiar compilaciones anteriores
-echo [1/5] Limpiando builds anteriores...
+REM 0) Crear/activar venv
+if not exist .venv (
+  echo [0/6] Creando entorno .venv...
+  py -m venv .venv
+)
+call .venv\Scripts\activate
+
+REM 1) Instalar dependencias
+echo [1/6] Instalando dependencias...
+py -m pip install --upgrade pip
+py -m pip install -r requirements.txt
+py -m pip install -r requirements-dev.txt
+
+REM 2) Limpiar compilaciones anteriores
+echo [2/6] Limpiando builds anteriores...
 if exist build rmdir /s /q build
 if exist dist rmdir /s /q dist
-echo OK
 
-REM Generar archivo de versión
-echo.
-echo [2/5] Generando archivo de versión...
-python create_version_file.py
+REM 3) Generar archivo de version (opcional)
+echo [3/6] Generando archivo de versión...
+py create_version_file.py
+
+REM 4) Detectar versión
+echo [4/6] Detectando versión...
+for /f "tokens=*" %%i in ('py -c "from version import __version__; print(__version__)"') do set VERSION=%%i
+echo Version: %VERSION%
+
+REM 5) Compilar con PyInstaller (USAR -m)
+echo [5/6] Compilando con PyInstaller...
+py -m PyInstaller build.spec --clean
 if errorlevel 1 (
-    echo ERROR: No se pudo generar version_info.txt
-    pause
+    echo ERROR: Compilacion fallida
     exit /b 1
 )
-echo OK
 
-REM Obtener versión actual
-echo.
-echo [3/5] Detectando versión...
-for /f "tokens=*" %%i in ('python -c "from version import __version__; print(__version__)"') do set VERSION=%%i
-echo Versión: %VERSION%
-
-REM Compilar con PyInstaller
-echo.
-echo [4/5] Compilando con PyInstaller...
-echo (Esto puede tardar varios minutos)
-pyinstaller build.spec --clean
-if errorlevel 1 (
-    echo ERROR: Compilación fallida
-    pause
-    exit /b 1
-)
-echo OK
-
-REM Verificar resultado
-echo.
-echo [5/5] Verificando resultado...
-if exist dist\*.exe (
-    echo ========================================
-    echo    BUILD COMPLETADO
-    echo ========================================
-    echo.
-    echo Ejecutable generado en: dist\
-    dir /b dist\*.exe
-    echo.
-    echo Presiona cualquier tecla para abrir la carpeta...
-    pause >nul
-    explorer dist
-) else (
-    echo ERROR: No se encontró el ejecutable
-    pause
-    exit /b 1
+REM 6) Verificar resultado
+echo [6/6] Verificando resultado...
+if not exist dist (
+  echo ERROR: No se genero la carpeta dist
+  exit /b 1
 )
 
 echo.
 echo ========================================
-echo Siguiente paso: Crear release en GitHub
+echo Build OK. Siguiente paso: crear release en GitHub
 echo ========================================
-echo.
-echo 1. Actualiza version.py con la nueva versión
-echo 2. Commit y push a GitHub
-echo 3. Crea un tag: git tag v%VERSION%
-echo 4. Push del tag: git push origin v%VERSION%
-echo 5. GitHub Actions compilará y creará el release automáticamente
-echo.
+echo 1. Edita version.py (si corresponde)
+echo 2. git add/commit/push
+echo 3. git tag v%VERSION%
+echo 4. git push origin v%VERSION%
+echo 5. El release subira el .exe
 pause

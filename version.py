@@ -6,7 +6,7 @@ Control de versiones para App Compras y Ventas
 
 __version__ = "1.0.0"
 __app_name__ = "TuLocalV12025"
-__github_repo__ = "TU-USUARIO/TU-REPOSITORIO"  # 🔴 CAMBIAR ESTO
+__github_repo__ = "luckas122/Compraventas"
 __release_url__ = f"https://api.github.com/repos/{__github_repo__}/releases/latest"
 
 def get_version_tuple():
@@ -16,3 +16,4 @@ def get_version_tuple():
 if __name__ == "__main__":
     print(f"{__app_name__} v{__version__}")
     print(f"Repositorio: {__github_repo__}")
+    
