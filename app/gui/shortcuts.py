@@ -374,5 +374,5 @@ class StatusToggleWidget(QWidget):
     def _apply_off_style(self):
         self._pill.setStyleSheet(
             "QLabel { padding: 2px 8px; border-radius: 10px; "
-            "background: #ff0000; color: white; font-weight: 600; }"
+            "background: #6f6fff; color: white; font-weight: 600; }"
         )

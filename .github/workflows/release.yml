@@ -25,7 +25,7 @@ jobs:
           python -m pip install -r requirements.txt
           python -m pip install pyinstaller
 
-      - name: Build with PyInstaller
+      - name: Build with PyInstaller (ONEDIR)
         shell: bash
         run: |
           python -m PyInstaller build.spec --clean
@@ -47,7 +47,18 @@ jobs:
           echo "name=$A"
           echo "name=$A" >> "$GITHUB_OUTPUT"
 
-      - name: Create Release and Upload EXE
+      - name: Zip ONEDIR folder
+        shell: pwsh
+        run: |
+          $app = "${{ steps.app.outputs.name }}"
+          $ver = "${{ steps.ver.outputs.version }}"
+          $src = "dist/$app/*"
+          $zip = "Compraventas-v$ver-onedir.zip"
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          Compress-Archive -Path $src -DestinationPath $zip -Force
+          Write-Host "Created $zip"
+
+      - name: Create Release and Upload assets (EXE + ZIP)
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.ver.outputs.version }}
@@ -56,5 +67,6 @@ jobs:
           prerelease: false
           files: |
             dist/${{ steps.app.outputs.name }}/${{ steps.app.outputs.name }}-v${{ steps.ver.outputs.version }}.exe
+            Compraventas-v${{ steps.ver.outputs.version }}-onedir.zip
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
