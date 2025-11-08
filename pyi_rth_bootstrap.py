@@ -1,128 +1,64 @@
 # pyi_rth_bootstrap.py
 import os
 import sys
-import shutil
+import subprocess
+import tempfile
 from pathlib import Path
 
-APP_NAME = "TuLocalV12025"
-
-def get_resource_path(relative_path):
-    """Obtiene la ruta correcta para recursos empaquetados."""
-    if getattr(sys, 'frozen', False):
-        # Si está congelado, buscar en _MEIPASS (onefile) o carpeta del exe (onedir)
-        if hasattr(sys, '_MEIPASS'):
-            # Modo ONEFILE
-            base_path = Path(sys._MEIPASS)
-        else:
-            # Modo ONEDIR
-            base_path = Path(sys.executable).parent
-    else:
-        # Modo desarrollo
-        base_path = Path(__file__).resolve().parent
-    
-    return base_path / relative_path
-
-# Establecer directorio base
-if getattr(sys, 'frozen', False):
-    if hasattr(sys, '_MEIPASS'):
-        # ONEFILE: trabajar desde carpeta temporal
-        BASE = Path(sys._MEIPASS)
-        EXE_DIR = Path(sys.executable).parent
-    else:
-        # ONEDIR: trabajar desde carpeta del exe
-        BASE = Path(sys.executable).parent
-        EXE_DIR = BASE
-else:
-    BASE = Path(__file__).resolve().parent
-    EXE_DIR = BASE
-
-# Cambiar al directorio del ejecutable (importante para rutas relativas)
-os.chdir(EXE_DIR)
-
-# 1) Configurar QT_PLUGIN_PATH para plugins de Qt
-plugin_candidates = [
-    BASE / "PyQt5" / "Qt" / "plugins",
-    BASE / "PyQt5" / "Qt5" / "plugins",
-    BASE / "_internal" / "PyQt5" / "Qt" / "plugins",
-    EXE_DIR / "PyQt5" / "Qt" / "plugins",
-]
-
-for plugin_path in plugin_candidates:
-    if plugin_path.exists() and plugin_path.is_dir():
-        os.environ.setdefault("QT_PLUGIN_PATH", str(plugin_path))
-        break
-
-# 2) En ONEFILE, copiar recursos críticos al directorio del exe si es necesario
-if hasattr(sys, '_MEIPASS') and getattr(sys, 'frozen', False):
-    # Copiar assets e icons si no existen en la carpeta del exe
-    for resource_dir in ['assets', 'icons']:
-        src = BASE / resource_dir
-        dst = EXE_DIR / resource_dir
-        if src.exists() and not dst.exists():
-            try:
-                if src.is_dir():
-                    shutil.copytree(src, dst, dirs_exist_ok=True)
-            except Exception as e:
-                pass  # Silencioso en producción
-
-# 3) Manejar base de datos - copiar a APPDATA si no existe
-def get_appdata_dir() -> Path:
-    """Obtiene el directorio de datos de aplicación."""
-    appdata = os.environ.get("APPDATA")
-    if appdata:
-        return Path(appdata) / "CompraventasV2"
-    return Path.home() / ".compraventasv2"
-
-# Buscar DB semilla
-db_candidates = [
-    BASE / "db",
-    BASE / "_internal" / "db",
-    EXE_DIR / "db",
-]
-
-seed_db = None
-for db_dir in db_candidates:
-    if db_dir.exists() and db_dir.is_dir():
-        # Buscar appcomprasventas.db o cualquier .db
-        db_files = list(db_dir.glob("appcomprasventas.db"))
-        if not db_files:
-            db_files = list(db_dir.glob("*.db"))
-        if db_files:
-            seed_db = db_files[0]
-            break
-
-if seed_db and seed_db.exists():
-    target_dir = get_appdata_dir()
-    target_dir.mkdir(parents=True, exist_ok=True)
-    target_db = target_dir / "appcomprasventas.db"
-    
-    if not target_db.exists():
-        try:
-            shutil.copy2(seed_db, target_db)
-        except Exception:
-            pass
-    
-    # Establecer variable de entorno
-    os.environ.setdefault("TULOCAL_DB_PATH", str(target_db))
-
-# 4) Log de diagnóstico
 try:
-    log_file = EXE_DIR / "startup.log"
-    with open(log_file, "a", encoding="utf-8") as f:
-        f.write(f"\n{'='*60}\n")
-        f.write(f"Fecha: {__import__('datetime').datetime.now()}\n")
-        f.write(f"Frozen: {getattr(sys, 'frozen', False)}\n")
-        f.write(f"_MEIPASS: {getattr(sys, '_MEIPASS', 'N/A')}\n")
-        f.write(f"EXE: {sys.executable}\n")
-        f.write(f"CWD: {os.getcwd()}\n")
-        f.write(f"BASE: {BASE}\n")
-        f.write(f"EXE_DIR: {EXE_DIR}\n")
-        f.write(f"Assets exists: {(BASE / 'assets').exists()}\n")
-        f.write(f"Icons exists: {(BASE / 'icons').exists()}\n")
-        f.write(f"QT_PLUGIN_PATH: {os.environ.get('QT_PLUGIN_PATH', 'N/A')}\n")
-        f.write(f"TULOCAL_DB_PATH: {os.environ.get('TULOCAL_DB_PATH', 'N/A')}\n")
+    from version import __app_name__, __version__
 except Exception:
-    pass
+    __app_name__ = "Tu local 2025"
+    __version__ = "0.0.0"
 
-# 5) Añadir función helper global para que tu código la use
-sys.get_resource_path = get_resource_path
+APP_DIRNAME = "Compraventas"     # carpeta raíz de la app de usuario
+SUBDIR_APP  = "app"              # donde vive ONEDIR
+# Destino final: %LocalAppData%\Compraventas\app\
+def _target_root() -> Path:
+    base = os.environ.get("LOCALAPPDATA") or os.environ.get("APPDATA") or str(Path.home())
+    return Path(base) / APP_DIRNAME / SUBDIR_APP
+
+def _ensure_user_install():
+    """
+    Si el ejecutable NO está en %LocalAppData%\Compraventas\app,
+    copia toda la carpeta ONEDIR ahí y relanza desde ese lugar.
+    """
+    if sys.platform != "win32":
+        return  # solo hacemos esto en Windows
+
+    cur_exe  = Path(sys.executable)
+    cur_dir  = cur_exe.parent
+    tgt_dir  = _target_root()
+
+    # Normaliza a minúsculas para comparar rutas en Windows
+    if str(cur_dir).lower() == str(tgt_dir).lower():
+        return  # ya estamos en el lugar correcto
+
+    # Crear destino
+    tgt_dir.mkdir(parents=True, exist_ok=True)
+
+    # Script temporal para copiar y relanzar
+    temp_dir = Path(tempfile.gettempdir()) / __app_name__
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    script = temp_dir / "self_install.bat"
+
+    # Relanzar el mismo exe pero desde el destino
+    relaunch_exe = tgt_dir / cur_exe.name
+
+    script.write_text(f"""@echo off
+echo Instalando {__app_name__} en %LocalAppData%...
+timeout /t 2 /nobreak >nul
+robocopy "{cur_dir}" "{tgt_dir}" /MIR /NFL /NDL /NJH /NJS /NP
+echo Instalacion completada
+start "" "{relaunch_exe}"
+del "%~f0"
+""", encoding="utf-8")
+
+    # Ejecutar y salir del proceso actual
+    subprocess.Popen(['cmd', '/c', str(script)], creationflags=subprocess.CREATE_NO_WINDOW)
+    sys.exit(0)
+
+# --- Ejecutar auto-instalación al inicio ---
+_ensure_user_install()
+
+# (Aquí puedes dejar el bootstrap que ya tuvieras para preparar DB, etc.)

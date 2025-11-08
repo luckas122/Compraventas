@@ -52,9 +52,7 @@ qt_datas = collect_data_files("PyQt5", includes=[
 # Ficheros individuales
 app_datas = [
     ("app/app_config.json", "app"),
-    # 🆕 Incluir archivos del sistema de actualizaciones
-    ("version.py", "."),
-    ("updater.py", "."),
+    
 ]
 
 # RECURSOS: añadir como datas en vez de trees
