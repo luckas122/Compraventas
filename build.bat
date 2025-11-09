@@ -9,15 +9,15 @@ echo.
 REM 0) Crear/activar venv
 if not exist .venv (
   echo [0/6] Creando entorno .venv...
-  py -m venv .venv
+  py  -3.11 -m venv .venv
 )
 call .venv\Scripts\activate
 
 REM 1) Instalar dependencias
 echo [1/6] Instalando dependencias...
-py -m pip install --upgrade pip
-py -m pip install -r requirements.txt
-py -m pip install -r requirements-dev.txt
+py -3.11 -m pip install --upgrade pip
+py -3.11 -m pip install -r requirements.txt
+py -3.11 -m pip install -r requirements-dev.txt
 
 REM 2) Limpiar compilaciones anteriores
 echo [2/6] Limpiando builds anteriores...
@@ -35,7 +35,7 @@ echo Version: %VERSION%
 
 REM 5) Compilar con PyInstaller (USAR -m)
 echo [5/6] Compilando con PyInstaller...
-py -m PyInstaller build.spec --clean
+py -3.11 -m PyInstaller build.spec --clean --noconfirm
 if errorlevel 1 (
     echo ERROR: Compilacion fallida
     exit /b 1
