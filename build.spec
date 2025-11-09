@@ -17,7 +17,9 @@ ENTRY       = "main.py"
 ICON_PATH   = os.path.join("assets", "shop_106574.ico")
 
 hiddenimports = list(set(
-    collect_submodules("PyQt5") + [
+    collect_submodules("PyQt5")
+     + collect_submodules("app")
+     + [
         "barcode", "barcode.writer",
         "openpyxl",
         "PyQt5.QtSvg",
