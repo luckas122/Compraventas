@@ -5,8 +5,8 @@ permissions:
 
 on:
   push:
-    tags:
-      - 'v*.*.*'
+    tags: ['v*.*.*']     # Ejecuta solo cuando se pushea un tag vX.Y.Z
+  workflow_dispatch:      # (Opcional) Permite lanzarlo manualmente
 
 jobs:
   build-windows:
@@ -24,7 +24,7 @@ jobs:
       - name: Install dependencies
         shell: bash
         run: |
-          python -m pip install --upgrade pip
+          python -m pip install -U pip
           python -m pip install -r requirements.txt
           python -m pip install pyinstaller
 
@@ -32,7 +32,7 @@ jobs:
         shell: pwsh
         run: |
           if (Test-Path "dist")  { Remove-Item -Recurse -Force "dist" }
-          if (Test-Path "build") { Remove-Item -Recurse -Force "build" } 
+          if (Test-Path "build") { Remove-Item -Recurse -Force "build" }
 
       - name: Build with PyInstaller (ONEDIR)
         shell: bash
@@ -40,42 +40,39 @@ jobs:
           python -m PyInstaller build.spec --clean --noconfirm
           ls -la dist || dir dist
 
-      - name: Resolve version
-        id: ver
+      # ⚠️ Tomamos la versión desde el TAG (github.ref_name) y el nombre de la app desde version.py
+      - name: Resolve app & version (from TAG)
+        id: meta
         shell: bash
         run: |
-          V=$(python -c "from version import __version__; print(__version__)")
-          echo "version=$V"
-          echo "version=$V" >> "$GITHUB_OUTPUT"
+          APP="$(python -c "from version import __app_name__; print(__app_name__)")"
+          VER="${GITHUB_REF_NAME#v}"   # e.g. v1.2.3 -> 1.2.3
+          echo "APP=$APP" >> "$GITHUB_OUTPUT"
+          echo "VER=$VER" >> "$GITHUB_OUTPUT"
+          echo "Ref=$GITHUB_REF  Name=$GITHUB_REF_NAME  App=$APP  Ver=$VER"
 
-      - name: Resolve app name
-        id: app
-        shell: bash
-        run: |
-          A=$(python -c "from version import __app_name__; print(__app_name__)")
-          echo "name=$A"
-          echo "name=$A" >> "$GITHUB_OUTPUT"
-
-      - name: Zip ONEDIR folder
+      - name: Zip ONEDIR folder (handles spaces)
         shell: pwsh
         run: |
-          $app = "${{ steps.app.outputs.name }}"
-          $ver = "${{ steps.ver.outputs.version }}"
-          $src = "dist/$app/*"
+          $app = "${{ steps.meta.outputs.APP }}"
+          $ver = "${{ steps.meta.outputs.VER }}"
+          $src = Join-Path "dist" $app
           $zip = "Compraventas-v$ver-onedir.zip"
           if (Test-Path $zip) { Remove-Item $zip -Force }
-          Compress-Archive -Path $src -DestinationPath $zip -Force
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          [System.IO.Compression.ZipFile]::CreateFromDirectory($src, $zip, [System.IO.Compression.CompressionLevel]::Optimal, $false)
           Write-Host "Created $zip"
 
-      - name: Create Release and Upload assets (EXE + ZIP)
+      - name: Create Release and Upload assets
+        if: startsWith(github.ref, 'refs/tags/')   # Solo cuando sea un TAG
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ steps.ver.outputs.version }}
-          name: v${{ steps.ver.outputs.version }}
+          tag_name: ${{ github.ref_name }}         # Usa exactamente el tag que disparó el run
+          name: ${{ github.ref_name }}
           draft: false
           prerelease: false
           files: |
-            dist/${{ steps.app.outputs.name }}/${{ steps.app.outputs.name }}-v${{ steps.ver.outputs.version }}.exe
-            Compraventas-v${{ steps.ver.outputs.version }}-onedir.zip
+            Compraventas-v${{ steps.meta.outputs.VER }}-onedir.zip
+            dist/${{ steps.meta.outputs.APP }}/*-v${{ steps.meta.outputs.VER }}.exe
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
