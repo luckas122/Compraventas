@@ -5,8 +5,8 @@ permissions:
 
 on:
   push:
-    tags: ['v*.*.*']     # Ejecuta solo cuando se pushea un tag vX.Y.Z
-  workflow_dispatch:      # (Opcional) Permite lanzarlo manualmente
+    tags: ['v*.*.*']     # corre sólo al pushear un tag vX.Y.Z
+  workflow_dispatch:      # opcional: ejecutarlo manualmente
 
 jobs:
   build-windows:
@@ -40,7 +40,7 @@ jobs:
           python -m PyInstaller build.spec --clean --noconfirm
           ls -la dist || dir dist
 
-      # ⚠️ Tomamos la versión desde el TAG (github.ref_name) y el nombre de la app desde version.py
+      # Tomamos el nombre de la app desde version.py y la versión desde el TAG
       - name: Resolve app & version (from TAG)
         id: meta
         shell: bash
@@ -61,18 +61,25 @@ jobs:
           if (Test-Path $zip) { Remove-Item $zip -Force }
           Add-Type -AssemblyName System.IO.Compression.FileSystem
           [System.IO.Compression.ZipFile]::CreateFromDirectory($src, $zip, [System.IO.Compression.CompressionLevel]::Optimal, $false)
-          Write-Host "Created $zip"
+          Write-Host "Created $zip at $(Resolve-Path $zip)"
 
-      - name: Create Release and Upload assets
-        if: startsWith(github.ref, 'refs/tags/')   # Solo cuando sea un TAG
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: ${{ github.ref_name }}         # Usa exactamente el tag que disparó el run
-          name: ${{ github.ref_name }}
-          draft: false
-          prerelease: false
-          files: |
-            Compraventas-v${{ steps.meta.outputs.VER }}-onedir.zip
-            dist/${{ steps.meta.outputs.APP }}/*-v${{ steps.meta.outputs.VER }}.exe
+      # Crear el release y subir ambos assets con GH CLI
+      - name: Create Release and Upload assets (gh)
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          TAG="${GITHUB_REF_NAME}"
+          VER="${{ steps.meta.outputs.VER }}"
+          APP="${{ steps.meta.outputs.APP }}"
+          ZIP="Compraventas-v${VER}-onedir.zip"
+          EXE="$(ls dist/"$APP"/*-v${VER}.exe)"
+          echo "Creating release $TAG with assets:"
+          echo " - $ZIP"
+          echo " - $EXE"
+          gh release create "$TAG" "$ZIP" "$EXE" \
+            --title "$TAG" \
+            --notes "Release $TAG" \
+            --latest
