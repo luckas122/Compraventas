@@ -940,15 +940,20 @@ class ConfiguracionMixin:
         """)
         from app.gui.common import CELL_BUTTONS_CSS, BASE_ICONS_PATH
         app.setStyleSheet(app.styleSheet() + CELL_BUTTONS_CSS)
+
+        # --- FIX: evitar backslashes dentro de f-strings ---
+        from pathlib import Path
         up_png   = os.path.join(BASE_ICONS_PATH, "up.svg")
         down_png = os.path.join(BASE_ICONS_PATH, "down.svg")
         if os.path.exists(up_png) and os.path.exists(down_png):
+            up_url = Path(up_png).as_posix()
+            down_url = Path(down_png).as_posix()
             arrows_css = f"""
             QSpinBox::up-arrow, QDoubleSpinBox::up-arrow {{
-                image: url("{up_png.replace('\\','/')}");
+                image: url("{up_url}");
             }}
             QSpinBox::down-arrow, QDoubleSpinBox::down-arrow {{
-                image: url("{down_png.replace('\\','/')}");
+                image: url("{down_url}");
             }}
             """
             app.setStyleSheet(app.styleSheet() + arrows_css)
@@ -1163,6 +1168,5 @@ class ConfiguracionMixin:
         save_config(cfg)
         self._tpl_build_slot_combo()
         self.statusBar().showMessage("Plantilla guardada en el slot.", 3000)
-    
     
     
