@@ -31,6 +31,8 @@ hiddenimports = list(set(
         "json",
         "tempfile",
         "subprocess",
+        "app.gui.main_window.configuracion_mixin",
+        "app.gui.main_window.core",
     ]
 ))
 
