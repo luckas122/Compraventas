@@ -13,6 +13,10 @@ if not exist .venv (
 )
 call .venv\Scripts\activate
 
+REM 0.5) Resetear configuracion, logs y backups a estado limpio
+echo [0.5/6] Reseteando configuracion, logs y backups para el build...
+py -3.11 reset_config_for_build.py
+
 REM 1) Instalar dependencias
 echo [1/6] Instalando dependencias...
 py -3.11 -m pip install --upgrade pip
