@@ -1,6 +1,6 @@
 import sys
 from PyQt5.QtWidgets import QApplication, QDialog
-from PyQt5.QtGui import QFont
+from PyQt5.QtGui import QFont, QIcon
 from PyQt5.QtCore import QTimer
 
 from app.database import init_db, SessionLocal
@@ -30,6 +30,34 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     app.setApplicationName(__app_name__)
     app.setApplicationVersion(__version__)
+    
+    
+    # Icono global de la aplicación (para ventanas y barra de tareas)
+    try:
+        from pathlib import Path
+
+        # Modo congelado (EXE con PyInstaller)
+        if getattr(sys, "frozen", False):
+            base = Path(sys.executable).parent
+            candidates = [
+                base / "assets" / "shop_106574.ico",
+                base / "_internal" / "assets" / "shop_106574.ico",
+            ]
+        else:
+            # Modo desarrollo (python main.py desde el repo)
+            here = Path(__file__).resolve().parent
+            candidates = [
+                here / "assets" / "shop_106574.ico",
+                here / "app" / "assets" / "shop_106574.ico",
+            ]
+
+        for p in candidates:
+            if p.exists():
+                app.setWindowIcon(QIcon(str(p)))
+                break
+    except Exception as e:
+        print(f"[ICON] No se pudo asignar icono global: {e}")
+        
 
     # (mantengo tu estilo de checkbox)
     app.setStyleSheet("""

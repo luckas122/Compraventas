@@ -14,8 +14,10 @@ except ImportError:
 APP_NAME    = __app_name__
 VERSION     = __version__
 ENTRY       = "main.py"
-ICON_PATH   = os.path.join("assets", "shop_106574.ico")
 
+# Ruta absoluta al icono, relativa al propio .spec
+BASE_DIR   = os.path.abspath(os.path.dirname(__name__))
+ICON_PATH  = os.path.join(BASE_DIR, "assets", "shop_106574.ico")
 hiddenimports = list(set(
     collect_submodules("PyQt5")
      + collect_submodules("app")

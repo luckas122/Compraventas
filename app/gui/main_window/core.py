@@ -70,6 +70,13 @@ class MainWindow(ProductosMixin, VentasMixin ,ProveedoresMixin, UsuariosMixin, C
         self.vuelto = 0.0
         self.setWindowTitle('App Compras y Ventas')
         self.setGeometry(100, 100, 1000, 700)
+        # Usar el mismo icono que tiene la aplicación
+        try:
+            app = QApplication.instance()
+            if app is not None and not app.windowIcon().isNull():
+                self.setWindowIcon(app.windowIcon())
+        except Exception:
+            pass
         self.productos_pagina_actual = 0
         self.productos_filtro = ""
         self._comp_inicializado = False

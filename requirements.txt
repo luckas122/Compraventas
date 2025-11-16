@@ -5,3 +5,5 @@ python-barcode
 pillow
 openpyxl
 Werkzeug
+certifi>=2024.2.0
+

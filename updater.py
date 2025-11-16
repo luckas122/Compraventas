@@ -15,6 +15,26 @@ import tempfile
 from pathlib import Path
 from typing import Optional, Tuple
 
+import ssl
+try:
+    import certifi
+except Exception:
+    certifi = None
+
+
+def _get_ssl_context():
+    """
+    Devuelve un SSLContext que use el bundle de certifi si está disponible.
+    Esto evita errores de CERTIFICATE_VERIFY_FAILED en ejecutables PyInstaller.
+    """
+    try:
+        if certifi is not None:
+            return ssl.create_default_context(cafile=certifi.where())
+    except Exception:
+        pass
+    # Fallback: contexto por defecto del sistema
+    return ssl.create_default_context()
+
 from PyQt5.QtWidgets import QMessageBox, QProgressDialog
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 
@@ -52,8 +72,11 @@ class DownloadThread(QThread):
                     percent = int((block_num * block_size / total_size) * 100)
                     self.progress.emit(min(percent, 100))
 
-            # Cabecera para evitar rate-limit anónimo
-            opener = urllib.request.build_opener()
+            # Cabecera + contexto SSL para evitar problemas de certificados
+            ctx = _get_ssl_context()
+            opener = urllib.request.build_opener(
+                urllib.request.HTTPSHandler(context=ctx)
+            )
             opener.addheaders = [('User-Agent', f'{__app_name__}/{__version__}')]
             urllib.request.install_opener(opener)
 
@@ -109,7 +132,8 @@ class Updater:
                 __release_url__,
                 headers={'User-Agent': f'{__app_name__}/{__version__}'}
             )
-            with urllib.request.urlopen(req, timeout=15) as resp:
+            ctx = _get_ssl_context()
+            with urllib.request.urlopen(req, timeout=15, context=ctx) as resp:
                 data = json.loads(resp.read().decode('utf-8'))
 
             tag_name = data.get('tag_name', '').strip()
