@@ -30,7 +30,7 @@
         "imprimir_codigo": "I"
       },
       "ventas": {
-        "finalizar": "V",
+        "finalizar": "F1",
         "efectivo": "E",
         "tarjeta": "T",
         "devolucion": "D",
@@ -61,7 +61,8 @@
   },
   "printers": {
     "ticket_printer": null,
-    "barcode_printer": null
+    "barcode_printer": "Microsoft Print to PDF",
+    "ask_each_time": true
   },
   "ticket": {
     "paper": {
@@ -99,7 +100,8 @@
       "{{totales.total}}",
       "{{abonado}}",
       "{{vuelto}}"
-    ]
+    ],
+    "template": ""
   },
   "backup": {
     "enabled": true,
@@ -194,5 +196,9 @@
         ]
       }
     }
+  },
+  "scanner": {
+    "source": null,
+    "url": ""
   }
 }

@@ -223,7 +223,7 @@ class MainWindow(ProductosMixin, VentasMixin ,ProveedoresMixin, UsuariosMixin, C
                 "productos.imprimir_codigo":  self.imprimir_codigos,
 
                 # --- Ventas (letras) ---
-                "ventas.finalizar":           self.finalizar_venta,
+                "ventas.finalizar":           self._shortcut_finalizar_venta_dialog,
                 "ventas.efectivo":            self._shortcut_set_efectivo,
                 "ventas.tarjeta":             self._shortcut_set_tarjeta_dialog,  # pide cuotas + interés
                 "ventas.devolucion":          self._on_devolucion,
@@ -1091,28 +1091,48 @@ class MainWindow(ProductosMixin, VentasMixin ,ProveedoresMixin, UsuariosMixin, C
             pass
 
     def _shortcut_set_tarjeta_dialog(self):
-        """Activa Tarjeta y pide (cuotas, interés%) en dos pasos rápidos."""
+        """Activa Tarjeta y pide (cuotas, interés%) en dos pasos rápidos.
+
+        Devuelve True si el usuario confirmó todo, False si canceló en algún paso.
+        """
         try:
             from PyQt5.QtWidgets import QInputDialog
+
+            # Marcar tarjeta como modo activo
             if hasattr(self, 'rb_tarjeta'):
                 self.rb_tarjeta.setChecked(True)
-            cuotas, ok = QInputDialog.getInt(self, "Tarjeta", "Cuotas (1–12):", 1, 1, 12, 1)
+
+            # 1) Cuotas
+            cuotas, ok = QInputDialog.getInt(
+                self, "Tarjeta", "Cuotas (1–12):", 1, 1, 12, 1
+            )
             if not ok:
-                return
+                return False
+
             if hasattr(self, 'spin_cuotas'):
                 self.spin_cuotas.setEnabled(True)
                 self.spin_cuotas.setValue(int(cuotas))
-            # Interés por defecto 0%
-            interes, ok2 = QInputDialog.getDouble(self, "Tarjeta", "Interés (%)", 0.0, -100.0, 1000.0, 2)
-            if ok2 and hasattr(self, "_aplicar_interes_a_cesta"):
+
+            # 2) Interés
+            interes, ok2 = QInputDialog.getDouble(
+                self, "Tarjeta", "Interés (%)", 0.0, -100.0, 1000.0, 2
+            )
+            if not ok2:
+                return False
+
+            if hasattr(self, "_aplicar_interes_a_cesta"):
                 self._aplicar_interes_a_cesta(float(interes))
-            # refrescos
+
+            # Refrescos de UI
             if hasattr(self, '_update_cuota_label'):
                 self._update_cuota_label(int(cuotas))
             if hasattr(self, '_refrescar_interes_btn'):
                 self._refrescar_interes_btn()
+
+            return True
         except Exception:
-            pass
+            return False
+
 
     def _imprimir_ticket_via_shortcut(self):
         """Si hay una fila seleccionada en 'Ventas del día', reimprime esa.
@@ -1251,3 +1271,102 @@ class MainWindow(ProductosMixin, VentasMixin ,ProveedoresMixin, UsuariosMixin, C
         except Exception:
             # En caso de error inesperado, no romper la navegación
             self._last_tab_index = idx
+            
+            
+    def _shortcut_finalizar_venta_dialog(self):
+        """
+        Atajo de 'finalizar venta' con popup previo:
+        - Lee las letras configuradas para ventas.efectivo / ventas.tarjeta.
+        - Pregunta Efectivo / Tarjeta.
+        - Ajusta el modo de pago (y cuotas/interés si es tarjeta).
+        - Luego llama a finalizar_venta() como siempre.
+        """
+        try:
+            from PyQt5.QtWidgets import (
+                QDialog, QVBoxLayout, QHBoxLayout,
+                QLabel, QPushButton
+            )
+            from PyQt5.QtCore import Qt
+            from app.config import load as load_config
+
+            # 1) Leer teclas desde la configuración
+            cfg = load_config()
+            sc = (cfg.get("shortcuts") or {})
+            section_map = sc.get("section") or {}
+            ventas_map = section_map.get("ventas", {}) or {}
+
+            key_ef = (ventas_map.get("efectivo") or "E").strip().upper()
+            key_tj = (ventas_map.get("tarjeta") or "T").strip().upper()
+            if not key_ef:
+                key_ef = "E"
+            if not key_tj:
+                key_tj = "T"
+
+            # 2) Si no hay productos en la cesta, llamar flujo viejo
+            if not hasattr(self, "table_cesta") or self.table_cesta.rowCount() == 0:
+                self.finalizar_venta()
+                return
+
+            # 3) Construir diálogo
+            dlg = QDialog(self)
+            dlg.setWindowTitle("Forma de pago")
+            layout = QVBoxLayout(dlg)
+
+            lbl = QLabel("Elegí cómo se cobra la venta:")
+            layout.addWidget(lbl)
+
+            fila_botones = QHBoxLayout()
+            btn_ef = QPushButton(f"({key_ef}) Efectivo")
+            btn_tj = QPushButton(f"({key_tj}) Tarjeta")
+            for b in (btn_ef, btn_tj):
+                b.setMinimumWidth(140)
+                fila_botones.addWidget(b)
+            layout.addLayout(fila_botones)
+
+            elegido = {"modo": None}
+
+            def elegir_ef():
+                elegido["modo"] = "efectivo"
+                dlg.accept()
+
+            def elegir_tj():
+                elegido["modo"] = "tarjeta"
+                dlg.accept()
+
+            btn_ef.clicked.connect(elegir_ef)
+            btn_tj.clicked.connect(elegir_tj)
+
+            # 4) Tecla rápida dentro del popup: usa las letras configuradas (p.ej. X / Y)
+            def _on_key(ev):
+                ch = ev.text().upper()
+                if ch == key_ef:
+                    elegir_ef()
+                elif ch == key_tj:
+                    elegir_tj()
+                elif ev.key() == Qt.Key_Escape:
+                    dlg.reject()
+                else:
+                    QDialog.keyPressEvent(dlg, ev)
+
+            dlg.keyPressEvent = _on_key
+
+            if dlg.exec_() != QDialog.Accepted or elegido["modo"] is None:
+                return  # cancelado
+
+            # 5) Sincronizar con la UI antes de cerrar la venta
+            if elegido["modo"] == "efectivo":
+                self._shortcut_set_efectivo()
+            else:
+                ok_tarjeta = self._shortcut_set_tarjeta_dialog()
+                if not ok_tarjeta:
+                    return  # canceló cuotas/interés
+
+            # 6) Ahora sí, flujo normal de cierre
+            self.finalizar_venta()
+
+        except Exception:
+            # Si algo raro pasa, no bloqueamos la venta: usamos el flujo viejo
+            try:
+                self.finalizar_venta()
+            except Exception:
+                pass

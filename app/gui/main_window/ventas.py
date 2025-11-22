@@ -213,7 +213,8 @@ class VentasMixin:
         btn_fin.setToolTip('Finalizar Venta')
         btn_fin.setAutoDefault(True)
         btn_fin.setDefault(True)
-        btn_fin.clicked.connect(self.finalizar_venta)
+        btn_fin.clicked.connect(self._shortcut_finalizar_venta_dialog)
+
 
         btn_dev = QPushButton()
         btn_dev.setIcon(icon('return.svg'))

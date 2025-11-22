@@ -286,11 +286,20 @@ class ShortcutManager(QObject):
                 return i
         return None
 
-    # ---------- Invocador ----------
+    # ---------- INDICADOR ----------
+    
+    
     def _invoke(self, key: str):
-        # Evitar disparos cuando se está escribiendo en inputs si el modo letras está ON
+        """
+        Invoca el callback asociado a 'key'.
+
+        - Si el modo por sección está activo, evitamos que las letras "roben"
+          teclas mientras el usuario escribe en un input.
+        - PERO dejamos pasar siempre los atajos globales nav.* (F1..F6),
+          aunque el foco esté en el buscador.
+        """
         try:
-            if self._section_mode_enabled:
+            if self._section_mode_enabled and not key.startswith("nav."):
                 from PyQt5.QtWidgets import QLineEdit, QTextEdit, QPlainTextEdit
                 fw = QApplication.focusWidget()
                 if isinstance(fw, (QLineEdit, QTextEdit, QPlainTextEdit)):
