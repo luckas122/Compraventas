@@ -31,7 +31,7 @@ from PyQt5.QtWidgets import (
     QHBoxLayout, QLabel, QLineEdit, QPushButton, QComboBox,
     QTableWidget, QTableWidgetItem, QMessageBox, QTabWidget,
     QRadioButton, QButtonGroup, QSpinBox, QInputDialog, QMenu, QFileDialog,
-    QCheckBox, QStyle, QHeaderView, QDialog, QDoubleSpinBox,QCompleter,QApplication,QSizePolicy,QScrollArea,QTabWidget,QMessageBox, QInputDialog
+    QCheckBox, QStyle, QHeaderView, QDialog, QDoubleSpinBox,QCompleter,QApplication,QSizePolicy,QScrollArea,QTabWidget,QMessageBox, QInputDialog,QSystemTrayIcon,QAction,QSystemTrayIcon, QAction
 )
 from PyQt5 import QtCore
 from PyQt5.QtCore import Qt, QSize, QEvent, QObject, QRect,QSortFilterProxyModel, QModelIndex,QTimer,QSignalBlocker,QStringListModel,QDate,QTime,QUrl
@@ -70,6 +70,13 @@ class MainWindow(ProductosMixin, VentasMixin ,ProveedoresMixin, UsuariosMixin, C
         self.vuelto = 0.0
         self.setWindowTitle('App Compras y Ventas')
         self.setGeometry(100, 100, 1000, 700)
+        # Bandeja del sistema
+        self.tray = None
+        cfg = load_config()
+        gen_cfg = cfg.get("general") or {}
+        self._minimize_to_tray_on_close = bool(gen_cfg.get("minimize_to_tray_on_close", False))
+
+        
         # Usar el mismo icono que tiene la aplicación
         try:
             app = QApplication.instance()
@@ -96,14 +103,10 @@ class MainWindow(ProductosMixin, VentasMixin ,ProveedoresMixin, UsuariosMixin, C
         self._total_actual = 0.0
 
         # Selección de sucursal al iniciar (lee config)
-        from app.config import load as load_config
-        _cfg = load_config()
-        _pref = ((_cfg.get("startup") or {}).get("default_sucursal") or "ask")
+        _pref = ((cfg.get("startup") or {}).get("default_sucursal") or "ask")
 
-        
-        
         # direcciones desde config (si no, usa fallback actual)
-        self.direcciones = ((_cfg.get("business") or {}).get("sucursales") or {
+        self.direcciones = ((cfg.get("business") or {}).get("sucursales") or {
             'Sarmiento': 'Pte. Sarmiento 1695, Gerli',
             'Salta':     'Salta 1694, Gerli'
         })
@@ -191,8 +194,12 @@ class MainWindow(ProductosMixin, VentasMixin ,ProveedoresMixin, UsuariosMixin, C
 
 # Aplicar tema al arrancar
         self._apply_theme_stylesheet()
+## Backups programados       
         self._setup_backups()
     
+ # Icono en bandeja (si está activado en config)
+        self._init_tray_icon()
+
 # 🆕 Sistema de actualizaciones
         try:
             from updater import Updater
@@ -235,7 +242,137 @@ class MainWindow(ProductosMixin, VentasMixin ,ProveedoresMixin, UsuariosMixin, C
         except Exception as e:
             self.shortcut_manager = None
             print(f"[SHORTCUTS] Error inicializando atajos: {e}")
-        
+    
+    # ============================
+    #  Icono en bandeja del sistema
+    # ============================
+    def _init_tray_icon(self):
+        """Crea el icono en la bandeja si la opción está activada."""
+        if not getattr(self, "_minimize_to_tray_on_close", False):
+            return  # opción desactivada: nada que hacer
+
+        try:
+            app = QApplication.instance()
+        except Exception:
+            app = None
+
+        icon = None
+        try:
+            if app is not None and not app.windowIcon().isNull():
+                icon = app.windowIcon()
+            elif not self.windowIcon().isNull():
+                icon = self.windowIcon()
+        except Exception:
+            icon = None
+
+        self.tray = QSystemTrayIcon(self)
+        if icon is not None:
+            self.tray.setIcon(icon)
+        self.tray.setToolTip("TuLocal 2025 - Compras y Ventas")
+
+        menu = QMenu(self)
+
+        act_show   = QAction("Mostrar ventana", self)
+        act_backup = QAction("Hacer backup ahora", self)
+        act_exit   = QAction("Salir", self)
+
+        act_show.triggered.connect(self._restore_from_tray)
+        act_backup.triggered.connect(self._backup_now_from_tray)
+        act_exit.triggered.connect(self._quit_from_tray)
+
+        menu.addAction(act_show)
+        menu.addSeparator()
+        menu.addAction(act_backup)
+        menu.addSeparator()
+        menu.addAction(act_exit)
+
+        self.tray.setContextMenu(menu)
+        self.tray.activated.connect(self._on_tray_activated)
+
+        self._tray_notified = False
+        self.tray.show()
+
+    def _on_tray_activated(self, reason):
+        """Restaurar ventana al hacer clic en el icono de bandeja."""
+        try:
+            if reason in (QSystemTrayIcon.Trigger, QSystemTrayIcon.DoubleClick):
+                self._restore_from_tray()
+        except Exception:
+            pass
+
+    def _restore_from_tray(self):
+        """Muestra la ventana si está oculta/minimizada."""
+        try:
+            self.showNormal()
+            self.show()
+            self.raise_()
+            self.activateWindow()
+        except Exception:
+            pass
+
+    def _backup_now_from_tray(self):
+        """Lanza un backup manual desde el menú de bandeja."""
+        try:
+            if hasattr(self, "_backup_now_from_ui"):
+                self._backup_now_from_ui()
+            else:
+                self._run_backup(tag="manual")
+        except Exception as e:
+            try:
+                QMessageBox.warning(self, "Backup", f"No se pudo ejecutar el backup:\n{e}")
+            except Exception:
+                pass
+
+    def _quit_from_tray(self):
+        """Sale completamente de la aplicación (cierra hilos de backup y timers)."""
+        try:
+            if hasattr(self, "_stop_backups"):
+                self._stop_backups()
+        except Exception:
+            pass
+
+        try:
+            QApplication.quit()
+        except Exception:
+            import sys
+            sys.exit(0)
+
+    def closeEvent(self, event):
+        """
+        Al cerrar con la X:
+        - Si la opción 'minimizar a bandeja' está activa y hay icono de tray → se oculta.
+        - Si no, se cierra la aplicación normalmente.
+        """
+        if not getattr(self, "_minimize_to_tray_on_close", False):
+            # Comportamiento normal
+            try:
+                super().closeEvent(event)
+            except Exception:
+                event.accept()
+            return
+
+        tray = getattr(self, "tray", None)
+        if tray is not None and tray.isVisible():
+            event.ignore()
+            self.hide()
+            try:
+                if not getattr(self, "_tray_notified", False):
+                    tray.showMessage(
+                        "TuLocal 2025",
+                        "La aplicación sigue ejecutándose en la bandeja del sistema.\n"
+                        "Usá clic derecho → 'Salir' para cerrarla por completo.",
+                        QSystemTrayIcon.Information,
+                        4000,
+                    )
+                    self._tray_notified = True
+            except Exception:
+                pass
+        else:
+            # Fallback: si por alguna razón no hay bandeja, cerrar normal
+            try:
+                super().closeEvent(event)
+            except Exception:
+                event.accept()
         
 #SONIDO
 

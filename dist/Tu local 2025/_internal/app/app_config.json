@@ -11,7 +11,8 @@
   },
   "general": {
     "timezone": "America/Argentina/Buenos_Aires",
-    "default_send_time": "20:30"
+    "default_send_time": "20:30",
+    "minimize_to_tray_on_close": true
   },
   "shortcuts": {
     "global": {

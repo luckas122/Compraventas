@@ -11,7 +11,8 @@
   },
   "general": {
     "timezone": "America/Argentina/Buenos_Aires",
-    "default_send_time": "20:30"
+    "default_send_time": "20:30",
+    "minimize_to_tray_on_close": true
   },
   "shortcuts": {
     "global": {
@@ -30,7 +31,7 @@
         "imprimir_codigo": "I"
       },
       "ventas": {
-        "finalizar": "F1",
+        "finalizar": "V",
         "efectivo": "E",
         "tarjeta": "T",
         "devolucion": "D",
@@ -61,8 +62,7 @@
   },
   "printers": {
     "ticket_printer": null,
-    "barcode_printer": "Microsoft Print to PDF",
-    "ask_each_time": true
+    "barcode_printer": null
   },
   "ticket": {
     "paper": {
@@ -100,8 +100,7 @@
       "{{totales.total}}",
       "{{abonado}}",
       "{{vuelto}}"
-    ],
-    "template": ""
+    ]
   },
   "backup": {
     "enabled": true,
@@ -196,9 +195,5 @@
         ]
       }
     }
-  },
-  "scanner": {
-    "source": null,
-    "url": ""
   }
 }

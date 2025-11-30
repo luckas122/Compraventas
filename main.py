@@ -30,8 +30,18 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     app.setApplicationName(__app_name__)
     app.setApplicationVersion(__version__)
-    
-    
+
+    # Configuración general: minimizar a bandeja al cerrar
+    try:
+        from app.config import load as load_config
+        cfg_main = load_config()
+        gen_main = cfg_main.get("general") or {}
+        if gen_main.get("minimize_to_tray_on_close", False):
+            # Si está activado, que NO se cierre el proceso cuando se cierra la última ventana
+            app.setQuitOnLastWindowClosed(False)
+    except Exception as e:
+        print(f"[CONFIG] No se pudo aplicar minimize_to_tray_on_close: {e}")
+
     # Icono global de la aplicación (para ventanas y barra de tareas)
     try:
         from pathlib import Path
@@ -57,7 +67,6 @@ if __name__ == "__main__":
                 break
     except Exception as e:
         print(f"[ICON] No se pudo asignar icono global: {e}")
-        
 
     # (mantengo tu estilo de checkbox)
     app.setStyleSheet("""
@@ -67,6 +76,10 @@ if __name__ == "__main__":
 
     # (mantengo tu fuente global)
     app.setFont(QFont("Arial", 10))
+
+    # 4) Sesión y chequeo de primer usuario
+    session = SessionLocal()
+    ...
 
     # 4) Sesión y chequeo de primer usuario
     session = SessionLocal()

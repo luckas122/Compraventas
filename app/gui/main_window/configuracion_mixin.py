@@ -49,6 +49,7 @@ class ConfiguracionMixin:
         prn = cfg.get("printers") or {}
         tk  = cfg.get("ticket") or {}
         sc  = cfg.get("scanner") or {}
+        gen = cfg.get("general") or {}
 
         # Raíz
         w = QWidget()
@@ -115,6 +116,16 @@ class ConfiguracionMixin:
         lay_est.addRow("Fuente:", row_fuente)
 
         lay_gen.addWidget(gb_estilos)
+        # --- Comportamiento de la ventana ---
+        gb_beh = QGroupBox("Comportamiento", parent=page_general)
+        lay_beh = QFormLayout(gb_beh)
+        lay_beh.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
+        self.cfg_chk_tray = QCheckBox("Minimizar a la bandeja al cerrar (X)", parent=gb_beh)
+        self.cfg_chk_tray.setChecked(bool(gen.get("minimize_to_tray_on_close", False)))
+        lay_beh.addRow("", self.cfg_chk_tray)
+
+        lay_gen.addWidget(gb_beh)
 
         # --- Sucursal por defecto ---
         gb_suc = QGroupBox("Sucursal predeterminada", parent=page_general)
@@ -597,10 +608,16 @@ class ConfiguracionMixin:
         cfg = load_config()
 
         # ---------- GENERAL: zona horaria ----------
+        
         gen = cfg.get("general") or {}
         try:
             if hasattr(self, "cmb_tz") and self.cmb_tz is not None:
                 gen["timezone"] = self.cmb_tz.currentData() or "America/Argentina/Buenos_Aires"
+        except Exception:
+            pass
+        try:
+            if hasattr(self, "cfg_chk_tray"):
+                gen["minimize_to_tray_on_close"] = bool(self.cfg_chk_tray.isChecked())
         except Exception:
             pass
         cfg["general"] = gen

@@ -32,7 +32,9 @@ DEFAULTS: Dict[str, Any] = {
 
     "general": {
         "timezone": "America/Argentina/Buenos_Aires",
-        "default_send_time": "20:30"  # HH:MM
+        "default_send_time": "20:30",# HH:MM
+        # Si está en True: al cerrar con la X, la ventana se oculta y la app queda en la bandeja
+        "minimize_to_tray_on_close": True
     },
 
     "shortcuts": {
