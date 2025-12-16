@@ -1231,8 +1231,17 @@ class MainWindow(ProductosMixin, VentasMixin ,ProveedoresMixin, UsuariosMixin, C
         """Activa Tarjeta y pide (cuotas, interés%) en dos pasos rápidos.
 
         Devuelve True si el usuario confirmó todo, False si canceló en algún paso.
+
+        NUEVO: Si ya se configuró con el nuevo diálogo unificado, usar esos datos.
         """
         try:
+            # NUEVO: Si ya se usó el nuevo diálogo unificado, no pedir nada más
+            if hasattr(self, '_datos_tarjeta') and self._datos_tarjeta:
+                # Ya está todo configurado desde el diálogo unificado
+                if hasattr(self, 'rb_tarjeta'):
+                    self.rb_tarjeta.setChecked(True)
+                return True
+
             from PyQt5.QtWidgets import QInputDialog
 
             # Marcar tarjeta como modo activo
@@ -1417,8 +1426,17 @@ class MainWindow(ProductosMixin, VentasMixin ,ProveedoresMixin, UsuariosMixin, C
         - Pregunta Efectivo / Tarjeta.
         - Ajusta el modo de pago (y cuotas/interés si es tarjeta).
         - Luego llama a finalizar_venta() como siempre.
+
+        NUEVO: Si ya se usó el diálogo unificado de tarjeta (_datos_tarjeta existe),
+        salta directamente a finalizar_venta() sin preguntar nada más.
         """
         try:
+            # NUEVO: Si ya se configuró con el diálogo unificado, finalizar directamente
+            if hasattr(self, '_datos_tarjeta') and self._datos_tarjeta:
+                # Ya está todo configurado, solo llamar finalizar_venta
+                self.finalizar_venta()
+                return
+
             from PyQt5.QtWidgets import (
                 QDialog, QVBoxLayout, QHBoxLayout,
                 QLabel, QPushButton
@@ -1494,9 +1512,30 @@ class MainWindow(ProductosMixin, VentasMixin ,ProveedoresMixin, UsuariosMixin, C
             if elegido["modo"] == "efectivo":
                 self._shortcut_set_efectivo()
             else:
-                ok_tarjeta = self._shortcut_set_tarjeta_dialog()
-                if not ok_tarjeta:
-                    return  # canceló cuotas/interés
+                # NUEVO: Verificar si ya se configuró con el diálogo unificado
+                if hasattr(self, '_datos_tarjeta') and self._datos_tarjeta:
+                    # Ya está configurado, solo marcar el radio button
+                    if hasattr(self, 'rb_tarjeta'):
+                        self.rb_tarjeta.setChecked(True)
+                else:
+                    # No está configurado, abrir el diálogo unificado
+                    # IMPORTANTE: Abrir el diálogo ANTES de marcar el radio button
+                    # para evitar que el evento toggled abra el diálogo otra vez
+                    if hasattr(self, '_abrir_dialogo_tarjeta'):
+                        self._abrir_dialogo_tarjeta()
+                        # Si el usuario canceló el diálogo, no continuar
+                        if not (hasattr(self, '_datos_tarjeta') and self._datos_tarjeta):
+                            return
+                        # Ahora sí marcar el radio button (ya está configurado)
+                        if hasattr(self, 'rb_tarjeta'):
+                            self.rb_tarjeta.setChecked(True)
+                    else:
+                        # Fallback a popups viejos solo si no existe el método nuevo
+                        if hasattr(self, 'rb_tarjeta'):
+                            self.rb_tarjeta.setChecked(True)
+                        ok_tarjeta = self._shortcut_set_tarjeta_dialog()
+                        if not ok_tarjeta:
+                            return  # canceló cuotas/interés
 
             # 6) Ahora sí, flujo normal de cierre
             self.finalizar_venta()

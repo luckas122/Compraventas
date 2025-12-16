@@ -366,6 +366,234 @@ class AfipSDKClient:
                 error_message=str(e)
             )
 
+    def emitir_factura_a(
+        self,
+        items: List[Dict],
+        total: float,
+        subtotal: float,
+        iva: float,
+        fecha: Optional[datetime] = None,
+        doc_tipo: int = DOC_CUIT,
+        doc_numero: int = 0
+    ) -> AfipResponse:
+        """
+        Emite una Factura A electrónica en AFIP (Responsable Inscripto a Responsable Inscripto).
+
+        Args:
+            items: Lista de ítems de la venta
+            total: Total de la venta con IVA
+            subtotal: Subtotal sin IVA (neto gravado)
+            iva: Monto de IVA discriminado (21%)
+            fecha: Fecha del comprobante (default: hoy)
+            doc_tipo: Tipo de documento del cliente (default: CUIT)
+            doc_numero: Número de CUIT del cliente
+
+        Returns:
+            AfipResponse con el CAE y datos del comprobante
+        """
+        # Factura A requiere CUIT del cliente
+        if doc_numero == 0:
+            return AfipResponse(
+                success=False,
+                error_message="Factura A requiere CUIT del cliente"
+            )
+
+        return self._emitir_comprobante_generico(
+            tipo_cbte=self.FACTURA_A,
+            items=items,
+            total=total,
+            subtotal=subtotal,
+            iva=iva,
+            fecha=fecha,
+            condicion_iva_receptor=self.IVA_RESPONSABLE_INSCRIPTO,
+            doc_tipo=doc_tipo,
+            doc_numero=doc_numero,
+            nombre_tipo="Factura A"
+        )
+
+    def emitir_factura_c(
+        self,
+        items: List[Dict],
+        total: float,
+        fecha: Optional[datetime] = None,
+        doc_tipo: int = DOC_SIN_IDENTIFICAR,
+        doc_numero: int = 0
+    ) -> AfipResponse:
+        """
+        Emite una Factura C electrónica en AFIP (Consumidor Final, sin IVA discriminado).
+
+        Args:
+            items: Lista de ítems de la venta
+            total: Total de la venta (IVA incluido pero no discriminado)
+            fecha: Fecha del comprobante (default: hoy)
+            doc_tipo: Tipo de documento del cliente (default: Sin identificar)
+            doc_numero: Número de documento del cliente (default: 0)
+
+        Returns:
+            AfipResponse con el CAE y datos del comprobante
+        """
+        # Factura C no discrimina IVA
+        return self._emitir_comprobante_generico(
+            tipo_cbte=self.FACTURA_C,
+            items=items,
+            total=total,
+            subtotal=total,  # En Factura C, subtotal = total
+            iva=0.0,  # No se discrimina IVA
+            fecha=fecha,
+            condicion_iva_receptor=self.IVA_CONSUMIDOR_FINAL,
+            doc_tipo=doc_tipo,
+            doc_numero=doc_numero,
+            nombre_tipo="Factura C"
+        )
+
+    def _emitir_comprobante_generico(
+        self,
+        tipo_cbte: int,
+        items: List[Dict],
+        total: float,
+        subtotal: float,
+        iva: float,
+        fecha: Optional[datetime],
+        condicion_iva_receptor: int,
+        doc_tipo: int,
+        doc_numero: int,
+        nombre_tipo: str
+    ) -> AfipResponse:
+        """
+        Método genérico para emitir cualquier tipo de comprobante.
+        """
+        if not self.config.enabled:
+            logger.warning("AFIP deshabilitado en configuración, saltando emisión")
+            return AfipResponse(success=False, error_message="AFIP deshabilitado")
+
+        logger.info(f"Emitiendo {nombre_tipo} - Total: ${total:.2f}")
+
+        try:
+            # 1. Obtener autenticación
+            token, sign = self.get_auth_token()
+
+            # 2. Obtener próximo número de comprobante
+            ultimo_nro = self.get_ultimo_comprobante(tipo_cbte)
+            proximo_nro = ultimo_nro + 1
+
+            # 3. Preparar fecha (usar timezone de Argentina)
+            if fecha is None:
+                if PYTZ_AVAILABLE:
+                    tz_arg = pytz.timezone('America/Argentina/Buenos_Aires')
+                    fecha = datetime.now(tz_arg).date()
+                else:
+                    from datetime import timedelta
+                    utc_now = datetime.now(timezone.utc)
+                    arg_now = utc_now - timedelta(hours=3)
+                    fecha = arg_now.date()
+                fecha_str = fecha.strftime("%Y%m%d")
+            else:
+                if hasattr(fecha, 'strftime'):
+                    fecha_str = fecha.strftime("%Y%m%d")
+                else:
+                    fecha_str = str(fecha)
+
+            # 4. Preparar payload de factura
+            payload = {
+                "environment": self.config.environment,
+                "method": "FECAESolicitar",
+                "wsid": self.WSID,
+                "params": {
+                    "Auth": {
+                        "Token": token,
+                        "Sign": sign,
+                        "Cuit": self.config.cuit
+                    },
+                    "FeCAEReq": {
+                        "FeCabReq": {
+                            "CantReg": 1,
+                            "PtoVta": self.config.punto_venta,
+                            "CbteTipo": tipo_cbte
+                        },
+                        "FeDetReq": {
+                            "FECAEDetRequest": {
+                                "Concepto": 1,
+                                "DocTipo": doc_tipo,
+                                "DocNro": doc_numero,
+                                "CbteDesde": proximo_nro,
+                                "CbteHasta": proximo_nro,
+                                "CbteFch": fecha_str,
+                                "ImpTotal": round(total, 2),
+                                "ImpTotConc": 0,
+                                "ImpNeto": round(subtotal, 2),
+                                "ImpOpEx": 0,
+                                "ImpIVA": round(iva, 2),
+                                "ImpTrib": 0,
+                                "MonId": "PES",
+                                "MonCotiz": 1,
+                                "CondicionIVAReceptorId": condicion_iva_receptor,
+                                "Iva": {
+                                    "AlicIva": [{
+                                        "Id": 5,
+                                        "BaseImp": round(subtotal, 2),
+                                        "Importe": round(iva, 2)
+                                    }]
+                                } if iva > 0 else None
+                            }
+                        }
+                    }
+                }
+            }
+
+            # Remover Iva si es None (Factura C)
+            if payload["params"]["FeCAEReq"]["FeDetReq"]["FECAEDetRequest"]["Iva"] is None:
+                del payload["params"]["FeCAEReq"]["FeDetReq"]["FECAEDetRequest"]["Iva"]
+
+            # 5. Emitir factura
+            logger.info(f"Emitiendo comprobante Nº {proximo_nro} tipo {tipo_cbte} con fecha {fecha_str}")
+            response = self._make_request("requests", payload)
+
+            # 6. Parsear respuesta
+            result = response.get("FECAESolicitarResult", {})
+            fe_det_resp = result.get("FeDetResp", {})
+            fe_det_list = fe_det_resp.get("FECAEDetResponse", [])
+            fe_det = fe_det_list[0] if fe_det_list else {}
+
+            cae = fe_det.get("CAE", "")
+            cae_vto = fe_det.get("CAEFchVto", "")
+            resultado = fe_det.get("Resultado", "")
+
+            if resultado == "A" and cae:
+                logger.info(f"{nombre_tipo} emitida exitosamente - CAE: {cae}, Vto: {cae_vto}")
+                return AfipResponse(
+                    success=True,
+                    cae=cae,
+                    cae_vencimiento=cae_vto,
+                    numero_comprobante=proximo_nro,
+                    raw_response=response
+                )
+            else:
+                errors = result.get("Errors", {})
+                err_list = errors.get("Err", [])
+
+                if err_list:
+                    error_msg = "; ".join([f"[{e.get('Code')}] {e.get('Msg', '')}" for e in err_list])
+                else:
+                    observaciones = fe_det.get("Observaciones", {}).get("Obs", [])
+                    if observaciones:
+                        error_msg = "; ".join([f"[{o.get('Code')}] {o.get('Msg', '')}" for o in observaciones])
+                    else:
+                        error_msg = "Error desconocido"
+
+                logger.error(f"AFIP rechazó {nombre_tipo}: {error_msg}")
+                return AfipResponse(
+                    success=False,
+                    error_message=error_msg,
+                    raw_response=response
+                )
+
+        except Exception as e:
+            logger.error(f"Error al emitir {nombre_tipo} en AFIP: {e}", exc_info=True)
+            return AfipResponse(
+                success=False,
+                error_message=str(e)
+            )
+
     def emitir_nota_credito_b(
         self,
         total: float,

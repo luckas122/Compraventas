@@ -4,7 +4,8 @@
       "Bash(python migrate_afip_fields.py:*)",
       "Bash(chcp:*)",
       "Bash(python:*)",
-      "Bash(dir:*)"
+      "Bash(dir:*)",
+      "Bash(cat:*)"
     ],
     "deny": [],
     "ask": []

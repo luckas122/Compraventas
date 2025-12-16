@@ -11,6 +11,7 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
     QFormLayout, QRadioButton, QButtonGroup, QSpinBox, QTableWidget,
     QTableWidgetItem, QHeaderView, QMessageBox, QInputDialog, QFileDialog,
+    QDialog,
 )
 from PyQt5.QtPrintSupport import QPrinter
 from PyQt5.QtGui import QPdfWriter, QPainter, QFont
@@ -708,6 +709,9 @@ class VentasMixin:
                 self.spin_cuotas.setValue(1)
             if hasattr(self, '_update_cuota_label'):
                 self._update_cuota_label(0)
+            # Limpiar datos del diálogo de tarjeta
+            if hasattr(self, '_datos_tarjeta'):
+                self._datos_tarjeta = None
         except Exception:
             pass
         
@@ -772,10 +776,24 @@ class VentasMixin:
             
     def _on_pago_method_changed(self, checked):
         is_tarj = bool(getattr(self, 'rb_tarjeta', None) and self.rb_tarjeta.isChecked())
+
         if hasattr(self, 'spin_cuotas'):
             self.spin_cuotas.setEnabled(is_tarj)
         if hasattr(self, 'cuota_label'):
             self.cuota_label.setVisible(is_tarj)
+
+        # Si se seleccionó tarjeta, abrir diálogo configuración
+        # NUEVO: Solo abrir si NO hay datos configurados ya
+        if is_tarj and checked:
+            # Solo abrir diálogo si no está configurado
+            if not (hasattr(self, '_datos_tarjeta') and self._datos_tarjeta):
+                self._abrir_dialogo_tarjeta()
+        elif not is_tarj:
+            # Si se deseleccionó tarjeta, limpiar datos
+            if hasattr(self, 'spin_cuotas'):
+                self.spin_cuotas.setValue(1)
+            if hasattr(self, '_datos_tarjeta'):
+                self._datos_tarjeta = None
 
         if is_tarj:
             try:
@@ -783,7 +801,38 @@ class VentasMixin:
             except Exception:
                 self.cuota_label.clear()
         self._refrescar_interes_btn()
-    
+
+    def _abrir_dialogo_tarjeta(self):
+        """Abre el diálogo para configurar pago con tarjeta."""
+        from app.gui.dialogs import PagoTarjetaDialog
+
+        # Obtener total actual
+        try:
+            txt = (self.lbl_total.text() or "").replace("Total:", "").replace("$", "").strip()
+            total = float(txt.replace(",", ""))
+        except Exception:
+            total = 0.0
+
+        dlg = PagoTarjetaDialog(total_actual=total, parent=self)
+        if dlg.exec_() == QDialog.Accepted:
+            datos = dlg.get_datos()
+            if datos:
+                # Guardar datos para usar al finalizar venta
+                self._datos_tarjeta = datos
+
+                # Actualizar UI
+                self.spin_cuotas.setValue(datos["cuotas"])
+
+                # Aplicar interés si hay
+                if datos["interes_pct"] > 0:
+                    self._aplicar_interes_a_cesta(datos["interes_pct"])
+
+                print(f"[Tarjeta] Configurado: {datos['cuotas']} cuotas, {datos['interes_pct']}% interés, {datos['tipo_comprobante']}")
+                if datos["cuit_cliente"]:
+                    print(f"[Tarjeta] CUIT cliente: {datos['cuit_cliente']}")
+        else:
+            # Usuario canceló, volver a efectivo
+            self.rb_efectivo.setChecked(True)
 
     def _update_cuota_label(self, cuotas):
         try:
@@ -972,19 +1021,57 @@ class VentasMixin:
 
         # Calcular total, subtotal e IVA para AFIP
         total = float(getattr(venta, 'total', 0.0) or 0.0)
-        # Asumimos IVA 21% (puedes ajustar según tu lógica)
+        # IVA 21% (puedes ajustar según tu lógica)
         iva_rate = 0.21
         subtotal = round(total / (1.0 + iva_rate), 2)
         iva = round(total - subtotal, 2)
 
-        # Emitir factura
+        # Obtener tipo de comprobante y CUIT del cliente (si hay datos del diálogo)
+        datos_tarjeta = getattr(self, '_datos_tarjeta', None)
+
+        if datos_tarjeta and modo_pago.lower() == "tarjeta":
+            # Usar tipo de comprobante del diálogo
+            tipo_cbte = datos_tarjeta.get("tipo_comprobante", "FACTURA_B")
+            cuit_cliente = datos_tarjeta.get("cuit_cliente", "")
+        else:
+            # Usar tipo de comprobante configurado por defecto
+            tipo_cbte = fisc.get("tipo_cbte", "FACTURA_B")
+            cuit_cliente = ""
+
+        # Emitir factura según el tipo configurado
         try:
-            response = client.emitir_factura_b(
-                items=items,
-                total=total,
-                subtotal=subtotal,
-                iva=iva
-            )
+            if tipo_cbte == "FACTURA_A":
+                # Factura A requiere CUIT del cliente
+                if not cuit_cliente:
+                    print(f"[AFIP] ADVERTENCIA: Factura A sin CUIT del cliente", file=sys.stderr)
+                    cuit_cliente = 0
+
+                try:
+                    cuit_num = int(cuit_cliente) if cuit_cliente else 0
+                except ValueError:
+                    cuit_num = 0
+
+                response = client.emitir_factura_a(
+                    items=items,
+                    total=total,
+                    subtotal=subtotal,
+                    iva=iva,
+                    doc_numero=cuit_num
+                )
+            elif tipo_cbte == "FACTURA_C":
+                # Factura C no discrimina IVA
+                response = client.emitir_factura_c(
+                    items=items,
+                    total=total
+                )
+            else:
+                # Factura B (default) o Ticket B
+                response = client.emitir_factura_b(
+                    items=items,
+                    total=total,
+                    subtotal=subtotal,
+                    iva=iva
+                )
         except Exception as e:
             print(f"[AFIP] Error al emitir factura: {e}", file=sys.stderr)
             QMessageBox.warning(

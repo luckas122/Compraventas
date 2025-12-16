@@ -1002,3 +1002,189 @@ class QuickEditProductoDialog(QDialog):
 
     def datos(self):
         return getattr(self, "_result", None)
+
+# Diálogo temporal para agregar a dialogs.py
+
+from PyQt5.QtWidgets import *
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QFont, QIntValidator
+
+
+class PagoTarjetaDialog(QDialog):
+    """
+    Diálogo unificado para configurar pago con tarjeta.
+    Incluye:
+    - Número de cuotas
+    - Porcentaje de interés
+    - Tipo de comprobante fiscal (Factura A, B, C)
+    - CUIT del cliente (si es Factura A)
+    """
+
+    def __init__(self, total_actual=0.0, parent=None):
+        super().__init__(parent)
+        self.total_actual = total_actual
+        self._result = None
+        self.setWindowTitle("Pago con Tarjeta")
+        self.setMinimumWidth(450)
+
+        layout = QVBoxLayout(self)
+
+        # Título
+        titulo = QLabel("Configuración de Pago con Tarjeta")
+        titulo_font = QFont()
+        titulo_font.setPointSize(12)
+        titulo_font.setBold(True)
+        titulo.setFont(titulo_font)
+        layout.addWidget(titulo)
+
+        # Separador
+        line = QFrame()
+        line.setFrameShape(QFrame.HLine)
+        line.setFrameShadow(QFrame.Sunken)
+        layout.addWidget(line)
+
+        # Formulario
+        form = QFormLayout()
+        form.setSpacing(12)
+
+        # Cuotas
+        self.spin_cuotas = QSpinBox()
+        self.spin_cuotas.setRange(1, 12)
+        self.spin_cuotas.setValue(1)
+        self.spin_cuotas.setSuffix(" cuota(s)")
+        self.spin_cuotas.valueChanged.connect(self._actualizar_resumen)
+        form.addRow("Número de cuotas:", self.spin_cuotas)
+
+        # Interés
+        self.spin_interes = QDoubleSpinBox()
+        self.spin_interes.setRange(0.0, 100.0)
+        self.spin_interes.setValue(0.0)
+        self.spin_interes.setSuffix(" %")
+        self.spin_interes.setDecimals(2)
+        self.spin_interes.setSingleStep(0.5)
+        self.spin_interes.valueChanged.connect(self._actualizar_resumen)
+        form.addRow("Interés por cuotas:", self.spin_interes)
+
+        # Tipo de comprobante
+        self.cmb_tipo_cbte = QComboBox()
+        self.cmb_tipo_cbte.addItem("Factura A - Resp. Inscripto", "FACTURA_A")
+        self.cmb_tipo_cbte.addItem("Factura B - Consumidor Final", "FACTURA_B")
+        self.cmb_tipo_cbte.addItem("Factura C - Sin IVA discriminado", "FACTURA_C")
+        self.cmb_tipo_cbte.addItem("Ticket Factura B", "TICKET_B")
+
+        # Por defecto Factura A (índice 0)
+        self.cmb_tipo_cbte.setCurrentIndex(0)
+        self.cmb_tipo_cbte.currentIndexChanged.connect(self._on_tipo_cbte_changed)
+
+        form.addRow("Tipo de comprobante:", self.cmb_tipo_cbte)
+
+        # CUIT del cliente (solo visible si es Factura A)
+        self.lbl_cuit = QLabel("CUIT del cliente:")
+        self.edt_cuit = QLineEdit()
+        self.edt_cuit.setPlaceholderText("Ej: 20123456789 (solo números)")
+        self.edt_cuit.setMaxLength(11)
+
+        # Validar que solo se ingresen números (usar QRegExpValidator para números grandes)
+        from PyQt5.QtGui import QRegExpValidator
+        from PyQt5.QtCore import QRegExp
+        regex = QRegExp("[0-9]{0,11}")
+        validator = QRegExpValidator(regex)
+        self.edt_cuit.setValidator(validator)
+
+        form.addRow(self.lbl_cuit, self.edt_cuit)
+
+        layout.addLayout(form)
+
+        # Separador
+        line2 = QFrame()
+        line2.setFrameShape(QFrame.HLine)
+        line2.setFrameShadow(QFrame.Sunken)
+        layout.addWidget(line2)
+
+        # Resumen
+        self.lbl_resumen = QLabel()
+        self.lbl_resumen.setStyleSheet("QLabel { background-color: #f0f0f0; padding: 12px; border-radius: 4px; }")
+        layout.addWidget(self.lbl_resumen)
+
+        # Botones
+        btn_layout = QHBoxLayout()
+        btn_layout.addStretch()
+
+        btn_cancelar = QPushButton("Cancelar")
+        btn_cancelar.clicked.connect(self.reject)
+        btn_layout.addWidget(btn_cancelar)
+
+        btn_aceptar = QPushButton("Aceptar")
+        btn_aceptar.setDefault(True)
+        btn_aceptar.clicked.connect(self._aceptar)
+        btn_layout.addWidget(btn_aceptar)
+
+        layout.addLayout(btn_layout)
+
+        # Inicializar visibilidad de CUIT
+        self._on_tipo_cbte_changed()
+        self._actualizar_resumen()
+
+    def _on_tipo_cbte_changed(self):
+        """Muestra/oculta el campo CUIT según el tipo de comprobante."""
+        tipo = self.cmb_tipo_cbte.currentData()
+        es_factura_a = (tipo == "FACTURA_A")
+
+        self.lbl_cuit.setVisible(es_factura_a)
+        self.edt_cuit.setVisible(es_factura_a)
+
+        if es_factura_a:
+            self.edt_cuit.setFocus()
+
+    def _actualizar_resumen(self):
+        """Actualiza el resumen de totales."""
+        cuotas = self.spin_cuotas.value()
+        interes_pct = self.spin_interes.value()
+
+        subtotal = self.total_actual
+        interes_monto = subtotal * (interes_pct / 100.0)
+        total_con_interes = subtotal + interes_monto
+
+        if cuotas > 0:
+            monto_cuota = total_con_interes / cuotas
+        else:
+            monto_cuota = 0.0
+
+        resumen = f"""<b>Resumen:</b><br>
+Subtotal: ${subtotal:,.2f}<br>
+Interés ({interes_pct}%): ${interes_monto:,.2f}<br>
+<b>Total: ${total_con_interes:,.2f}</b><br>
+<br>
+<b>{cuotas} cuota(s) de ${monto_cuota:,.2f}</b>"""
+
+        self.lbl_resumen.setText(resumen)
+
+    def _aceptar(self):
+        """Valida y acepta el diálogo."""
+        tipo = self.cmb_tipo_cbte.currentData()
+
+        # Si es Factura A, validar CUIT
+        if tipo == "FACTURA_A":
+            cuit = self.edt_cuit.text().strip()
+            if not cuit or len(cuit) != 11:
+                QMessageBox.warning(
+                    self,
+                    "CUIT requerido",
+                    "Para Factura A es obligatorio ingresar el CUIT del cliente (11 dígitos)."
+                )
+                self.edt_cuit.setFocus()
+                return
+
+        # Guardar resultado
+        self._result = {
+            "cuotas": self.spin_cuotas.value(),
+            "interes_pct": self.spin_interes.value(),
+            "tipo_comprobante": tipo,
+            "cuit_cliente": self.edt_cuit.text().strip() if tipo == "FACTURA_A" else ""
+        }
+
+        self.accept()
+
+    def get_datos(self):
+        """Retorna los datos ingresados o None si se canceló."""
+        return self._result
