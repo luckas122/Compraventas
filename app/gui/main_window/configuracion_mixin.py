@@ -50,6 +50,7 @@ class ConfiguracionMixin:
         tk  = cfg.get("ticket") or {}
         sc  = cfg.get("scanner") or {}
         gen = cfg.get("general") or {}
+        fisc = cfg.get("fiscal") or {}
 
         # Raíz
         w = QWidget()
@@ -322,6 +323,96 @@ class ConfiguracionMixin:
         self._wire_reportes_guardar_programacion(page_rep_cfg)
         
 
+
+
+# ===== PÁGINA: FACTURACIÓN ELECTRÓNICA =====
+        page_fiscal = QWidget(tabs_cfg)
+        lay_fisc = QVBoxLayout(page_fiscal)
+
+        gb_fisc = QGroupBox("AFIP / ARCA - Facturación electrónica", parent=page_fiscal)
+        lay_fisc_form = QFormLayout(gb_fisc)
+        lay_fisc_form.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
+        # ON/OFF integración
+        self.cfg_chk_fiscal_enabled = QCheckBox("Habilitar facturación electrónica con AfipSDK",
+                                                parent=gb_fisc)
+        self.cfg_chk_fiscal_enabled.setChecked(bool(fisc.get("enabled", False)))
+        lay_fisc_form.addRow("Integración AFIP:", self.cfg_chk_fiscal_enabled)
+
+        # Modo: test / prod
+        self.cfg_cmb_fiscal_mode = QComboBox(gb_fisc)
+        self.cfg_cmb_fiscal_mode.addItem("Pruebas", "test")
+        self.cfg_cmb_fiscal_mode.addItem("Producción", "prod")
+        cur_mode = (fisc.get("mode") or "test")
+        idx_mode = 1 if cur_mode == "prod" else 0
+        self.cfg_cmb_fiscal_mode.setCurrentIndex(idx_mode)
+        lay_fisc_form.addRow("Modo:", self.cfg_cmb_fiscal_mode)
+
+        # Solo tarjeta
+        self.cfg_chk_fiscal_only_card = QCheckBox(
+            "Solo emitir cuando el pago sea con tarjeta",
+            parent=gb_fisc
+        )
+        self.cfg_chk_fiscal_only_card.setChecked(bool(fisc.get("only_card", True)))
+        lay_fisc_form.addRow("Disparador:", self.cfg_chk_fiscal_only_card)
+
+        # CUIT
+        self.cfg_edt_fiscal_cuit = QLineEdit(gb_fisc)
+        self.cfg_edt_fiscal_cuit.setPlaceholderText("CUIT del comercio (solo números)")
+        self.cfg_edt_fiscal_cuit.setText(str(fisc.get("cuit", "")))
+        self.cfg_edt_fiscal_cuit.setMaxLength(13)
+        lay_fisc_form.addRow("CUIT:", self.cfg_edt_fiscal_cuit)
+
+        # Punto de venta
+        self.cfg_spn_fiscal_pv = QSpinBox(gb_fisc)
+        self.cfg_spn_fiscal_pv.setRange(1, 9999)
+        try:
+            self.cfg_spn_fiscal_pv.setValue(int(fisc.get("punto_venta", 1) or 1))
+        except Exception:
+            self.cfg_spn_fiscal_pv.setValue(1)
+        lay_fisc_form.addRow("Punto de venta:", self.cfg_spn_fiscal_pv)
+
+        # Tipo de comprobante
+        self.cfg_cmb_fiscal_tipo = QComboBox(gb_fisc)
+        self.cfg_cmb_fiscal_tipo.addItem("Factura B", "FACTURA_B")
+        self.cfg_cmb_fiscal_tipo.addItem("Ticket Factura B", "TICKET_B")
+        cur_tipo = fisc.get("tipo_cbte") or "FACTURA_B"
+        idx_tipo = self.cfg_cmb_fiscal_tipo.findData(cur_tipo)
+        if idx_tipo < 0:
+            idx_tipo = 0
+        self.cfg_cmb_fiscal_tipo.setCurrentIndex(idx_tipo)
+        lay_fisc_form.addRow("Tipo de comprobante:", self.cfg_cmb_fiscal_tipo)
+
+        # Datos específicos de AfipSDK
+        af = fisc.get("afipsdk") or {}
+
+        self.cfg_edt_fiscal_api_key = QLineEdit(gb_fisc)
+        self.cfg_edt_fiscal_api_key.setPlaceholderText("API Key / token de AfipSDK")
+        self.cfg_edt_fiscal_api_key.setText(af.get("api_key", ""))
+        lay_fisc_form.addRow("API key AfipSDK:", self.cfg_edt_fiscal_api_key)
+
+        self.cfg_edt_fiscal_url_test = QLineEdit(gb_fisc)
+        self.cfg_edt_fiscal_url_test.setPlaceholderText("URL base sandbox (AfipSDK)")
+        self.cfg_edt_fiscal_url_test.setText(af.get("base_url_test", ""))
+        lay_fisc_form.addRow("URL sandbox:", self.cfg_edt_fiscal_url_test)
+
+        self.cfg_edt_fiscal_url_prod = QLineEdit(gb_fisc)
+        self.cfg_edt_fiscal_url_prod.setPlaceholderText("URL base producción (AfipSDK)")
+        self.cfg_edt_fiscal_url_prod.setText(af.get("base_url_prod", ""))
+        lay_fisc_form.addRow("URL producción:", self.cfg_edt_fiscal_url_prod)
+
+        lay_fisc.addWidget(gb_fisc)
+        lay_fisc.addStretch(1)
+
+        scr_fisc = QScrollArea(tabs_cfg)
+        scr_fisc.setWidget(page_fiscal)
+        scr_fisc.setWidgetResizable(True)
+        scr_fisc.setFrameShape(QFrame.NoFrame)
+        scr_fisc.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scr_fisc.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        tabs_cfg.addTab(scr_fisc, "Facturación")
+        
+        
         # Agregar tabs y botón de guardar
         root.addWidget(tabs_cfg, 1)
         btn_apply = QPushButton("Aplicar cambios / Guardar")
@@ -716,6 +807,44 @@ class ConfiguracionMixin:
         if hasattr(self, "cfg_txt_tpl"):
             tk["template"] = self.cfg_txt_tpl.toPlainText()
         cfg["ticket"] = tk
+
+        # ---------- fiscal / AFIP ----------
+        fisc = cfg.get("fiscal") or {}
+
+        try:
+            fisc["enabled"] = bool(self.cfg_chk_fiscal_enabled.isChecked())
+        except Exception:
+            pass
+        try:
+            fisc["mode"] = self.cfg_cmb_fiscal_mode.currentData() or "test"
+        except Exception:
+            pass
+        try:
+            fisc["only_card"] = bool(self.cfg_chk_fiscal_only_card.isChecked())
+        except Exception:
+            pass
+        try:
+            fisc["cuit"] = (self.cfg_edt_fiscal_cuit.text() or "").strip()
+        except Exception:
+            pass
+        try:
+            fisc["punto_venta"] = int(self.cfg_spn_fiscal_pv.value())
+        except Exception:
+            pass
+        try:
+            fisc["tipo_cbte"] = self.cfg_cmb_fiscal_tipo.currentData() or "FACTURA_B"
+        except Exception:
+            pass
+
+        af = fisc.get("afipsdk") or {}
+        try:
+            af["api_key"] = (self.cfg_edt_fiscal_api_key.text() or "").strip()
+            af["base_url_test"] = (self.cfg_edt_fiscal_url_test.text() or "").strip()
+            af["base_url_prod"] = (self.cfg_edt_fiscal_url_prod.text() or "").strip()
+        except Exception:
+            pass
+        fisc["afipsdk"] = af
+        cfg["fiscal"] = fisc
 
         
 

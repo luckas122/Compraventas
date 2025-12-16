@@ -36,6 +36,8 @@ DEFAULTS: Dict[str, Any] = {
         # Si está en True: al cerrar con la X, la ventana se oculta y la app queda en la bandeja
         "minimize_to_tray_on_close": True
     },
+    
+    
 
     "shortcuts": {
         "global": {
@@ -118,7 +120,20 @@ DEFAULTS: Dict[str, Any] = {
             "{{abonado}}", "{{vuelto}}"
         ]
     },
-
+        "fiscal": {
+            "enabled": False,
+            "provider": "afipsdk",
+            "mode": "test",
+            "only_card": True,
+            "cuit": "",
+            "punto_venta": 1,
+            "tipo_cbte": "FACTURA_B",
+            "afipsdk": {
+            "api_key": "",
+            "base_url_test": "",
+            "base_url_prod": ""
+            }
+        },
     # BACKUP
     "backup": {
         "enabled": True,
@@ -182,6 +197,25 @@ DEFAULTS: Dict[str, Any] = {
         },
         "attach_format": "xlsx"   # por ahora sólo xlsx
     },
+
+
+ # Facturación electrónica (AFIP / ARCA vía AfipSDK)
+    "fiscal": {
+        "enabled": False,          # Master switch
+        "provider": "afipsdk",     # Por si más adelante usas otro proveedor
+        "mode": "test",            # "test" o "prod"
+        "only_card": True,         # Solo dispara AFIP cuando el pago es con tarjeta
+        "cuit": "",                # CUIT del comercio (solo números o con guiones, como prefieras)
+        "punto_venta": 1,          # Punto de venta AFIP
+        "tipo_cbte": "FACTURA_B",  # Identificador interno para el tipo de comprobante
+
+        "afipsdk": {
+            "api_key": "",         # Token / API key de AfipSDK
+            "base_url_test": "",   # URL base del entorno de pruebas (sandbox)
+            "base_url_prod": ""    # URL base del entorno de producción
+        }
+    },
+
 
     # Preferencias generales
     "startup": {

@@ -201,10 +201,10 @@ class HistorialVentasWidget(QWidget):
         self.cmb_forma.currentIndexChanged.connect(lambda *_: self.refrescar())
         
         # --- Tabla ---
-        self.tbl = QTableWidget(0, 13)
+        self.tbl = QTableWidget(0, 15)
         self.tbl.setHorizontalHeaderLabels([
             "Nº Ticket", "Fecha/Hora", "Sucursal", "Forma Pago",
-            "Cuotas","Interés", "Descuento", "Monto x cuota", "Total", "Pagado", "Vuelto", "Comentario", "ID"
+            "Cuotas","Interés", "Descuento", "Monto x cuota", "Total", "Pagado", "Vuelto", "CAE", "Vto CAE", "Comentario", "ID"
         ])
         hdr = self.tbl.horizontalHeader()
         hdr.setSectionResizeMode(QHeaderView.Stretch)
@@ -295,13 +295,13 @@ class HistorialVentasWidget(QWidget):
         self._pintar_tabla()
 
     def _pintar_tabla(self):
-        # Asegurar 13 columnas y headers (por si no se hizo en __init__)
-        if self.tbl.columnCount() != 13:
-            self.tbl.setColumnCount(13)
+        # Asegurar 15 columnas y headers (por si no se hizo en __init__)
+        if self.tbl.columnCount() != 15:
+            self.tbl.setColumnCount(15)
             self.tbl.setHorizontalHeaderLabels([
                 "Nº Ticket", "Fecha/Hora", "Sucursal", "Forma Pago",
                 "Cuotas", "Interés", "Descuento", "Monto x cuota",
-                "Total", "Pagado", "Vuelto", "Comentario", "ID"
+                "Total", "Pagado", "Vuelto", "CAE", "Vto CAE", "Comentario", "ID"
             ])
 
         self.tbl.setRowCount(0)
@@ -369,6 +369,10 @@ class HistorialVentasWidget(QWidget):
             # Comentario
             coment = self._obtener_comentario(v)
 
+            # Campos AFIP
+            cae = getattr(v, "afip_cae", None) or "-"
+            cae_vto = getattr(v, "afip_cae_vencimiento", None) or "-"
+
             # Orden EXACTO de columnas (coincide con headers)
             data = [
                 nro,                                  # Nº Ticket
@@ -382,6 +386,8 @@ class HistorialVentasWidget(QWidget):
                 f"${tot:.2f}",                        # Total
                 pagado_txt,                           # Pagado
                 vuelto_txt,                           # Vuelto
+                str(cae),                             # CAE
+                str(cae_vto),                         # Vto CAE
                 coment,                               # Comentario
                 str(getattr(v, "id", ""))             # ID
             ]
@@ -397,7 +403,7 @@ class HistorialVentasWidget(QWidget):
         )
 
         # Ocultar ID (última columna)
-        self.tbl.setColumnHidden(12, True)
+        self.tbl.setColumnHidden(14, True)
 
     def _obtener_comentario(self, v) -> str:
         # 1) Atributos directos de la venta

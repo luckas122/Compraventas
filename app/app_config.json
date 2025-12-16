@@ -195,5 +195,40 @@
         ]
       }
     }
+  },
+  "afip": {
+    "enabled": true,
+    "environment": "dev",
+    "access_token": "ad0CQyVUncfQPShiBH9Gu1SDuK1CONxA3y5Ug1dCaEkfKbPe6LPWYzwiA95VvOz0",
+    "cuit": "20409378472",
+    "punto_venta": 1,
+    "only_card_payments": true,
+    "test_mode": {
+      "use_test_cuit": true,
+      "test_cuit": "20409378472"
+    },
+    "certificados": {
+      "cert_path": "",
+      "key_path": ""
+    },
+    "facturacion": {
+      "tipo_comprobante_default": 6,
+      "incluir_cae_en_ticket": true,
+      "guardar_cae_en_bd": true
+    }
+  },
+  "fiscal": {
+    "enabled": true,
+    "provider": "afipsdk",
+    "mode": "test",
+    "only_card": true,
+    "cuit": "20409378472",
+    "punto_venta": 1,
+    "tipo_cbte": "FACTURA_B",
+    "afipsdk": {
+      "api_key": "ad0CQyVUncfQPShiBH9Gu1SDuK1CONxA3y5Ug1dCaEkfKbPe6LPWYzwiA95VvOz0",
+      "base_url_test": "https://app.afipsdk.com/api/v1",
+      "base_url_prod": "https://app.afipsdk.com/api/v1"
+    }
   }
 }

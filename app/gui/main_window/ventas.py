@@ -901,10 +901,13 @@ class VentasMixin:
         if modo == 'Efectivo':
             QMessageBox.information(self, 'Vuelto', f'Vuelto: ${self.vuelto:.2f}')
 
+        # Integración AFIP / ARCA (solo si está habilitada en Configuración)
+        self._afip_emitir_si_corresponde(venta, modo)
+
         # Guardar último id para exportar a PNG
         self._last_venta_id = venta.id
 
-        # --- ¿Enviar por WhatsApp en lugar de imprimir? ---
+        # --- ¿Enviar el ticket por WhatsApp Web en lugar de imprimir? ---
         resp = QMessageBox.question(
             self, "Ticket",
             "¿Enviar el ticket por WhatsApp Web en lugar de imprimir?",
@@ -925,7 +928,103 @@ class VentasMixin:
         self.recargar_ventas_dia()
         if hasattr(self, 'historial') and self.historial is not None:
             self.historial.recargar_historial()
-            
+    
+    
+    def _afip_emitir_si_corresponde(self, venta, modo_pago: str):
+        """
+        Integra con AFIP/ARCA vía AfipSDK si:
+          - está habilitado en Configuración → Facturación
+          - y (por defecto) la venta es con tarjeta.
+        No lanza excepciones hacia afuera: cualquier error se avisa pero no rompe la venta.
+        """
+        try:
+            from app.config import load as _load_cfg
+            cfg = _load_cfg()
+        except Exception:
+            # Si no se puede leer config, no hacemos nada
+            return
+
+        fisc = (cfg.get("fiscal") or {})
+        if not fisc.get("enabled", False):
+            return
+
+        # Por defecto solo tarjeta; si desmarcas la opción, también facturaría efectivo
+        only_card = bool(fisc.get("only_card", True))
+        if only_card and modo_pago.lower() != "tarjeta":
+            return
+
+        # Intentamos construir los ítems de forma normalizada
+        try:
+            items = self._items_para_ticket(venta.id)
+        except Exception:
+            items = []
+
+        # Cliente AfipSDK
+        try:
+            from app.afip_integration import crear_cliente_afip
+            cfg = _load_cfg()
+            client = crear_cliente_afip(cfg.get("afip", {}))
+            if not client:
+                return  # AFIP deshabilitado
+        except Exception as e:
+            print(f"[AFIP] No se pudo inicializar AfipSDKClient: {e}", file=sys.stderr)
+            return
+
+        # Calcular total, subtotal e IVA para AFIP
+        total = float(getattr(venta, 'total', 0.0) or 0.0)
+        # Asumimos IVA 21% (puedes ajustar según tu lógica)
+        iva_rate = 0.21
+        subtotal = round(total / (1.0 + iva_rate), 2)
+        iva = round(total - subtotal, 2)
+
+        # Emitir factura
+        try:
+            response = client.emitir_factura_b(
+                items=items,
+                total=total,
+                subtotal=subtotal,
+                iva=iva
+            )
+        except Exception as e:
+            print(f"[AFIP] Error al emitir factura: {e}", file=sys.stderr)
+            QMessageBox.warning(
+                self,
+                "AFIP",
+                f"Error al emitir comprobante electrónico:\n{e}"
+            )
+            return
+
+        # Guardar CAE si fue exitoso
+        if response.success:
+            venta.afip_cae = response.cae
+            venta.afip_cae_vencimiento = response.cae_vencimiento
+            venta.afip_numero_comprobante = response.numero_comprobante
+            try:
+                self.session.commit()
+            except Exception as e:
+                print(f"[AFIP] Error al guardar CAE: {e}", file=sys.stderr)
+
+        # Mostramos feedback al usuario
+        try:
+            if response.success:
+                QMessageBox.information(
+                    self,
+                    "AFIP - Factura Electrónica",
+                    "Comprobante electrónico emitido correctamente.\n\n"
+                    f"CAE: {response.cae}\n"
+                    f"Vencimiento: {response.cae_vencimiento}\n"
+                    f"Número de comprobante: {response.numero_comprobante}"
+                )
+            else:
+                QMessageBox.warning(
+                    self,
+                    "AFIP - Error",
+                    "No se pudo emitir el comprobante electrónico.\n\n"
+                    f"Detalle:\n{response.error_message}"
+                )
+        except Exception as e:
+            print(f"[AFIP] Error mostrando mensaje AFIP: {e}", file=sys.stderr)
+        
             
     def _items_para_ticket(self, venta_id):
         """

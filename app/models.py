@@ -46,6 +46,11 @@ class Venta(Base):
     vuelto          = Column(Float, nullable=True)
     items      = relationship("VentaItem", back_populates="venta")
     numero_ticket = Column(Integer, unique=True, index=True, nullable=False)
+    # Campos AFIP
+    afip_cae = Column(String, nullable=True)
+    afip_cae_vencimiento = Column(String, nullable=True)
+    afip_numero_comprobante = Column(Integer, nullable=True)
+    
     __table_args__ = (
         Index('ix_ventas_sucursal_fecha', 'sucursal', 'fecha'),
     )
