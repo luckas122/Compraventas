@@ -256,11 +256,12 @@ class Updater:
                 with zipfile.ZipFile(download_path, 'r') as zf:
                     zf.extractall(extract_dir)
 
-                expected_new_exe = install_dir / f"{__app_name__}-v{new_version}.exe"
+                # 🔄 Nombre sin versión para mantener accesos directos funcionando
+                relaunch_exe = install_dir / f"{__app_name__}.exe"
                 update_script = self._create_update_script_dir(
                     source_dir=str(extract_dir),
                     dest_dir=str(install_dir),
-                    relaunch_exe=str(expected_new_exe)
+                    relaunch_exe=str(relaunch_exe)
                 )
 
                 QMessageBox.information(

@@ -1,5 +1,34 @@
 # CHANGELOG - Versión 2.0
 
+---
+
+## 🔄 Versión 2.0.1 (Diciembre 2024)
+
+### Corrección Crítica: Actualizaciones Automáticas
+
+**Problema**: Después de actualizar la aplicación, los accesos directos dejaban de funcionar porque apuntaban al ejecutable antiguo con nombre versionado.
+
+**Causa**:
+- El ejecutable se nombraba con versión: `Tu local 2025-v2.0.0.exe`
+- Al actualizar a v2.0.1, el nuevo ejecutable se llamaba `Tu local 2025-v2.0.1.exe`
+- Los accesos directos seguían apuntando a `Tu local 2025-v2.0.0.exe` (que ya no existe)
+- Al ejecutar desde el acceso directo, la app detectaba que había actualización disponible nuevamente
+
+**Solución**:
+- ✅ Ejecutable ahora se llama simplemente `Tu local 2025.exe` (sin versión)
+- ✅ Al actualizar, se reemplaza el mismo archivo
+- ✅ Los accesos directos funcionan correctamente después de actualizar
+- ✅ Sistema de actualizaciones ahora funciona de forma transparente
+
+**Archivos modificados**:
+- `build.spec:117` - Nombre sin versión: `name=APP_NAME`
+- `updater.py:260` - Relanza ejecutable sin versión
+- `version.py:7` - Bump versión a 2.0.1
+
+**Importante**: A partir de esta versión, puedes crear un acceso directo al `.exe` y seguirá funcionando después de las actualizaciones automáticas.
+
+---
+
 ## 🎉 Nuevas Funcionalidades
 
 ### 1. Sistema de Facturación AFIP Completo

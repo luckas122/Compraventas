@@ -114,7 +114,7 @@ exe = EXE(
     a.scripts,
     [],  # NO incluir a.binaries, a.zipfiles, a.datas aquí
     exclude_binaries=True,  # IMPORTANTE: esto hace que sea onedir
-    name=f"{APP_NAME}-v{VERSION}",  # 🆕 Nombre con versión
+    name=APP_NAME,  # 🔄 Nombre sin versión (para actualizaciones automáticas)
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
