@@ -288,7 +288,23 @@ def _draw_ticket(p, page_rect, prn, venta, sucursal, direcciones, width_mm=75.0,
             draw_lr("Abonado", money(getattr(venta, "pagado", 0.0)), f_norm)
             draw_lr("Vuelto",  money(getattr(venta, "vuelto", 0.0)),  f_norm)
 
-    # ===== Plantilla 100% editable (sin “footer” automático) =====
+    # ===== AFIP / CAE (si existe) =====
+    afip_cae = getattr(venta, "afip_cae", None)
+    afip_cae_venc = getattr(venta, "afip_cae_vencimiento", None)
+    afip_num_cbte = getattr(venta, "afip_numero_comprobante", None)
+
+    if afip_cae:
+        gap(1.0)
+        line()
+        draw_text("COMPROBANTE ELECTRÓNICO AFIP", f_head, Qt.AlignCenter)
+        gap(0.5)
+        if afip_num_cbte:
+            draw_lr("Nº Comprobante", str(afip_num_cbte), f_norm)
+        draw_lr("CAE", str(afip_cae), f_norm)
+        if afip_cae_venc:
+            draw_lr("Vencimiento CAE", str(afip_cae_venc), f_norm)
+
+    # ===== Plantilla 100% editable (sin "footer" automático) =====
     _tpl_draw_block(p, px, draw_text, line, gap, f_norm, f_head, venta, sucursal, direcciones, template_override=template_override)
 
 
@@ -347,9 +363,29 @@ def _compute_ticket_height_mm(venta, prn, width_mm=75.0, template_override: str 
     # Forma/efectivo (abonado y vuelto si aplica)
     total += h_n
     forma_raw = (getattr(venta, "forma_pago", "") or getattr(venta, "modo_pago", "") or getattr(venta, "modo", "")).lower()
-    if "tarj" not in forma_raw and getattr(venta, "pagado", None) is not None:
-        total += h_n
-        total += h_n
+    is_card = ("tarj" in forma_raw)
+    if is_card:
+        cuotas = int(getattr(venta, "cuotas", 0) or 0)
+        if cuotas > 0:
+            total += h_n  # línea de cuotas
+    else:
+        if getattr(venta, "pagado", None) is not None:
+            total += h_n
+            total += h_n
+
+    # AFIP / CAE (si existe)
+    afip_cae = getattr(venta, "afip_cae", None)
+    if afip_cae:
+        total += GAP_MM + SEP_MM  # gap + line
+        total += h_h  # título "COMPROBANTE ELECTRÓNICO AFIP"
+        total += GAP_MM * 0.5
+        afip_num_cbte = getattr(venta, "afip_numero_comprobante", None)
+        if afip_num_cbte:
+            total += h_n  # Nº Comprobante
+        total += h_n  # CAE
+        afip_cae_venc = getattr(venta, "afip_cae_vencimiento", None)
+        if afip_cae_venc:
+            total += h_n  # Vencimiento CAE
 
     # Comentario (envuelto)
     com = getattr(venta, "comentario", None) or getattr(venta, "motivo", None) or getattr(venta, "nota", None)
