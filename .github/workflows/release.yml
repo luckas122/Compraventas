@@ -75,7 +75,8 @@ jobs:
           VER="${{ steps.meta.outputs.VER }}"
           APP="${{ steps.meta.outputs.APP }}"
           ZIP="Compraventas-v${VER}-onedir.zip"
-          EXE="$(ls dist/"$APP"/*-v${VER}.exe)"
+          # 🔄 Nombre sin versión (v2.0.1+)
+          EXE="dist/$APP/$APP.exe"
           echo "Creating release $TAG with assets:"
           echo " - $ZIP"
           echo " - $EXE"
