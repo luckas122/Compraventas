@@ -14,7 +14,7 @@ class SectionMap:
 
 DEFAULT_SECTION_MAP = {
     "productos": {"agregar": "A", "editar": "E", "eliminar": "Delete", "imprimir_codigo": "I"},
-    "ventas":    {"finalizar": "V", "efectivo": "E", "tarjeta": "T", "devolucion": "D", "whatsapp": "W", "imprimir": "F"},
+    "ventas":    {"finalizar": "V", "efectivo": "E", "tarjeta": "T", "devolucion": "D", "whatsapp": "W", "imprimir": "F", "guardar_borrador": "G", "abrir_borradores": "B"},
 }
 
 DEFAULT_GLOBAL_MAP = {
@@ -297,9 +297,17 @@ class ShortcutManager(QObject):
           teclas mientras el usuario escribe en un input.
         - PERO dejamos pasar siempre los atajos globales nav.* (F1..F6),
           aunque el foco esté en el buscador.
+        - También permitimos ciertos atajos específicos (borradores) que son útiles
+          incluso cuando se está editando.
         """
+        # Lista blanca de atajos que siempre funcionan, incluso con foco en input
+        ALWAYS_ALLOWED = [
+            "ventas.guardar_borrador",
+            "ventas.abrir_borradores",
+        ]
+
         try:
-            if self._section_mode_enabled and not key.startswith("nav."):
+            if self._section_mode_enabled and not key.startswith("nav.") and key not in ALWAYS_ALLOWED:
                 from PyQt5.QtWidgets import QLineEdit, QTextEdit, QPlainTextEdit
                 fw = QApplication.focusWidget()
                 if isinstance(fw, (QLineEdit, QTextEdit, QPlainTextEdit)):

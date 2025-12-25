@@ -85,4 +85,40 @@ class VentaLog(Base):
 
     venta = relationship('Venta')
 
+class VentaBorrador(Base):
+    __tablename__ = 'ventas_borradores'
+    id = Column(Integer, primary_key=True)
+    nombre = Column(String, nullable=False)  # Nombre del borrador
+    sucursal = Column(String, nullable=False)
+    fecha_creacion = Column(DateTime, default=datetime.datetime.now, nullable=False)
+
+    # Datos de la venta (copiados de Venta)
+    modo_pago = Column(String, nullable=False, default='Efectivo')
+    cuotas = Column(Integer, nullable=True)
+    total = Column(Float, nullable=False, default=0.0)
+    subtotal_base = Column(Float, nullable=False, default=0.0)
+    interes_pct = Column(Float, nullable=False, default=0.0)
+    interes_monto = Column(Float, nullable=False, default=0.0)
+    descuento_pct = Column(Float, nullable=False, default=0.0)
+    descuento_monto = Column(Float, nullable=False, default=0.0)
+
+    # Relación con items
+    items = relationship("VentaBorradorItem", back_populates="borrador", cascade="all, delete-orphan")
+
+class VentaBorradorItem(Base):
+    __tablename__ = "venta_borrador_items"
+    id = Column(Integer, primary_key=True)
+    borrador_id = Column(Integer, ForeignKey("ventas_borradores.id"), nullable=False)
+    producto_id = Column(Integer, ForeignKey("productos.id"), nullable=True)
+
+    # Guardamos también código y nombre por si el producto se elimina
+    codigo_barra = Column(String, nullable=False)
+    nombre = Column(String, nullable=False)
+
+    cantidad = Column(Integer, nullable=False, default=1)
+    precio_unit = Column(Float, nullable=False, default=0.0)
+
+    borrador = relationship("VentaBorrador", back_populates="items")
+    producto = relationship("Producto")
+
 

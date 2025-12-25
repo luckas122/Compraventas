@@ -36,7 +36,9 @@
         "tarjeta": "T",
         "devolucion": "D",
         "whatsapp": "W",
-        "imprimir": "F"
+        "imprimir": "F",
+        "guardar_borrador": "G",
+        "abrir_borradores": "B"
       }
     },
     "section_mode_enabled": true

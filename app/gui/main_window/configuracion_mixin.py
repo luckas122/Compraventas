@@ -548,7 +548,9 @@ class ConfiguracionMixin:
         self.ed_sc_ven_D = QLineEdit((_sec.get("ventas", {}) or {}).get("devolucion", "D"))
         self.ed_sc_ven_W = QLineEdit((_sec.get("ventas", {}) or {}).get("whatsapp", "W"))
         self.ed_sc_ven_F = QLineEdit((_sec.get("ventas", {}) or {}).get("imprimir", "F"))
-        for w_ in (self.ed_sc_ven_V, self.ed_sc_ven_E, self.ed_sc_ven_T, self.ed_sc_ven_D, self.ed_sc_ven_W, self.ed_sc_ven_F):
+        self.ed_sc_ven_G = QLineEdit((_sec.get("ventas", {}) or {}).get("guardar_borrador", "G"))
+        self.ed_sc_ven_B = QLineEdit((_sec.get("ventas", {}) or {}).get("abrir_borradores", "B"))
+        for w_ in (self.ed_sc_ven_V, self.ed_sc_ven_E, self.ed_sc_ven_T, self.ed_sc_ven_D, self.ed_sc_ven_W, self.ed_sc_ven_F, self.ed_sc_ven_G, self.ed_sc_ven_B):
             w_.setMaxLength(10)
             w_.setPlaceholderText("A–Z, F1–F12 o Delete")
         lv.addWidget(QLabel("V = Finalizar"), 0, 0); lv.addWidget(self.ed_sc_ven_V, 0, 1)
@@ -557,6 +559,8 @@ class ConfiguracionMixin:
         lv.addWidget(QLabel("D = Devolución"), 3, 0);lv.addWidget(self.ed_sc_ven_D, 3, 1)
         lv.addWidget(QLabel("W = WhatsApp"), 4, 0);  lv.addWidget(self.ed_sc_ven_W, 4, 1)
         lv.addWidget(QLabel("F = Imprimir"), 5, 0);  lv.addWidget(self.ed_sc_ven_F, 5, 1)
+        lv.addWidget(QLabel("G = Guardar Borrador"), 6, 0); lv.addWidget(self.ed_sc_ven_G, 6, 1)
+        lv.addWidget(QLabel("B = Abrir Borradores"), 7, 0); lv.addWidget(self.ed_sc_ven_B, 7, 1)
         lay_acc.addWidget(gb_ven)
         
         
@@ -614,7 +618,8 @@ class ConfiguracionMixin:
             # Sección: Productos
             self.ed_sc_prod_A, self.ed_sc_prod_E, self.ed_sc_prod_D, self.ed_sc_prod_I,
             # Sección: Ventas
-            self.ed_sc_ven_V, self.ed_sc_ven_E, self.ed_sc_ven_T, self.ed_sc_ven_D, self.ed_sc_ven_W, self.ed_sc_ven_F
+            self.ed_sc_ven_V, self.ed_sc_ven_E, self.ed_sc_ven_T, self.ed_sc_ven_D, self.ed_sc_ven_W, self.ed_sc_ven_F,
+            self.ed_sc_ven_G, self.ed_sc_ven_B
         ):
             try:
                 w_.installEventFilter(self._sc_keycap)
@@ -651,6 +656,8 @@ class ConfiguracionMixin:
                 "devolucion": _normalize(self.ed_sc_ven_D.text(), "D"),
                 "whatsapp": _normalize(self.ed_sc_ven_W.text(), "W"),
                 "imprimir": _normalize(self.ed_sc_ven_F.text(), "F"),
+                "guardar_borrador": _normalize(self.ed_sc_ven_G.text(), "G"),
+                "abrir_borradores": _normalize(self.ed_sc_ven_B.text(), "B"),
             }
             # — Globales —
             global_map = {
@@ -695,6 +702,8 @@ class ConfiguracionMixin:
             self.ed_sc_ven_D.setText(DEFAULT_SECTION_MAP["ventas"]["devolucion"])
             self.ed_sc_ven_W.setText(DEFAULT_SECTION_MAP["ventas"]["whatsapp"])
             self.ed_sc_ven_F.setText(DEFAULT_SECTION_MAP["ventas"]["imprimir"])
+            self.ed_sc_ven_G.setText(DEFAULT_SECTION_MAP["ventas"]["guardar_borrador"])
+            self.ed_sc_ven_B.setText(DEFAULT_SECTION_MAP["ventas"]["abrir_borradores"])
 
         btn_save_sc.clicked.connect(_save_shortcuts_from_ui)
         btn_reset_sc.clicked.connect(_reset_shortcuts_to_defaults)

@@ -243,6 +243,8 @@ class MainWindow(ProductosMixin, VentasMixin ,ProveedoresMixin, UsuariosMixin, C
                 "ventas.devolucion":          self._on_devolucion,
                 "ventas.whatsapp":            self.enviar_ticket_whatsapp,     # usa la última venta si existe
                 "ventas.imprimir":            self._imprimir_ticket_via_shortcut, # reimprime ticket seleccionado/último
+                "ventas.guardar_borrador":    self._guardar_borrador,          # guarda la cesta como borrador
+                "ventas.abrir_borradores":    self._abrir_borradores,          # abre diálogo de borradores
             }
             self.shortcut_manager = ShortcutManager(self, callbacks=cb)
             logger.info("[SHORTCUTS] Sistema de atajos inicializado")

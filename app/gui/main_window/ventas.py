@@ -65,11 +65,27 @@ class VentasMixin:
 
         # Botón "Vaciar Cesta"
         btn_vaciar = QPushButton(' Vaciar Cesta')
-        btn_vaciar.setIcon(icon('delete.svg'))  # o 'trash.svg' si existe
+        btn_vaciar.setIcon(icon('delete.svg'))
         btn_vaciar.setIconSize(ICON_SIZE)
         btn_vaciar.setToolTip('Vaciar toda la cesta')
         btn_vaciar.clicked.connect(self._vaciar_cesta)
         h1.addWidget(btn_vaciar)
+
+        # Botón "Guardar Borrador"
+        btn_guardar_borr = QPushButton(' Guardar')
+        btn_guardar_borr.setIcon(icon('save.svg'))  # o 'draft.svg' si existe
+        btn_guardar_borr.setIconSize(ICON_SIZE)
+        btn_guardar_borr.setToolTip('Guardar cesta como borrador')
+        btn_guardar_borr.clicked.connect(self._guardar_borrador)
+        h1.addWidget(btn_guardar_borr)
+
+        # Botón "Cargar Borradores"
+        btn_cargar_borr = QPushButton(' Borradores')
+        btn_cargar_borr.setIcon(icon('folder.svg'))  # o 'drafts.svg'
+        btn_cargar_borr.setIconSize(ICON_SIZE)
+        btn_cargar_borr.setToolTip('Cargar borrador guardado')
+        btn_cargar_borr.clicked.connect(self._abrir_borradores)
+        h1.addWidget(btn_cargar_borr)
 
         layout.addLayout(h1)
         self.input_venta_buscar.setMinimumWidth(360)  # ajusta a gusto
@@ -285,6 +301,10 @@ class VentasMixin:
 
         # Final
         w.setLayout(layout)
+
+        # Los atajos de teclado G y B se manejan centralizadamente
+        # en el ShortcutManager (core.py), no aquí
+
         self.recargar_ventas_dia()
         self._reset_ajustes_globales()
         self.actualizar_total()
@@ -716,6 +736,277 @@ class VentasMixin:
 
             # Actualizar totales generales
             self.actualizar_total()
+
+    #---------- BORRADORES ----------
+
+    def _guardar_borrador(self):
+        """Guarda la cesta actual como borrador"""
+        from app.models import VentaBorrador, VentaBorradorItem
+
+        # Verificar que hay items en la cesta
+        if self.table_cesta.rowCount() == 0:
+            QMessageBox.information(self, "Cesta vacía", "No hay items para guardar como borrador.")
+            return
+
+        try:
+            # Contar borradores existentes para asignar número
+            count = self.session.query(VentaBorrador).filter_by(sucursal=self.sucursal).count()
+
+            # Si hay 5, eliminar el más antiguo
+            if count >= 5:
+                oldest = (self.session.query(VentaBorrador)
+                         .filter_by(sucursal=self.sucursal)
+                         .order_by(VentaBorrador.fecha_creacion.asc())
+                         .first())
+                if oldest:
+                    self.session.delete(oldest)
+                    count = 4  # Ahora hay 4
+
+            # Nombre automático: Borrador 1, 2, 3, 4, 5
+            numero_borrador = count + 1
+            nombre = f"Borrador {numero_borrador}"
+
+            # Crear borrador
+            borrador = VentaBorrador(
+                nombre=nombre,
+                sucursal=self.sucursal,
+                modo_pago='Tarjeta' if self.rb_tarjeta.isChecked() else 'Efectivo',
+                cuotas=self.spin_cuotas.value() if self.rb_tarjeta.isChecked() else None,
+                total=self._total_actual,
+                subtotal_base=self._subtotal_base,
+                interes_pct=self._interes_pct,
+                interes_monto=self._interes_monto,
+                descuento_pct=self._descuento_pct,
+                descuento_monto=self._descuento_monto
+            )
+
+            # Guardar items
+            for r in range(self.table_cesta.rowCount()):
+                codigo = self.table_cesta.item(r, 0).text()
+                nombre_prod = self.table_cesta.item(r, 1).text()
+                cantidad = int(self.table_cesta.item(r, 2).text())
+                precio_unit = float(self.table_cesta.item(r, 3).text())
+
+                # Buscar producto_id si existe
+                from app.models import Producto
+                prod = self.session.query(Producto).filter_by(codigo_barra=codigo).first()
+
+                item = VentaBorradorItem(
+                    producto_id=prod.id if prod else None,
+                    codigo_barra=codigo,
+                    nombre=nombre_prod,
+                    cantidad=cantidad,
+                    precio_unit=precio_unit
+                )
+                borrador.items.append(item)
+
+            self.session.add(borrador)
+            self.session.commit()
+
+            QMessageBox.information(self, "Borrador Guardado", f"'{nombre}' guardado correctamente.")
+
+        except Exception as e:
+            self.session.rollback()
+            QMessageBox.critical(self, "Error", f"No se pudo guardar el borrador:\n{str(e)}")
+
+    def _abrir_borradores(self):
+        """Abre diálogo para cargar o eliminar borradores"""
+        from app.models import VentaBorrador
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QListWidget, QHBoxLayout, QLabel
+
+        # Obtener borradores de esta sucursal
+        borradores = (self.session.query(VentaBorrador)
+                     .filter_by(sucursal=self.sucursal)
+                     .order_by(VentaBorrador.fecha_creacion.desc())
+                     .all())
+
+        if not borradores:
+            QMessageBox.information(self, "Sin Borradores", "No hay borradores guardados.")
+            return
+
+        # Crear diálogo
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Borradores Guardados")
+        dialog.setMinimumWidth(400)
+        dialog.setMinimumHeight(300)
+
+        layout = QVBoxLayout(dialog)
+
+        # Label info
+        layout.addWidget(QLabel(f"Borradores en {self.sucursal} (máximo 5):"))
+
+        # Lista de borradores
+        list_widget = QListWidget()
+        for b in borradores:
+            list_widget.addItem(f"{b.nombre} - ${b.total:.2f} ({len(b.items)} items)")
+
+        layout.addWidget(list_widget)
+
+        # Botones
+        btn_layout = QHBoxLayout()
+
+        btn_cargar = QPushButton("Cargar")
+        btn_cargar.clicked.connect(lambda: self._cargar_borrador_seleccionado(borradores, list_widget, dialog))
+        btn_layout.addWidget(btn_cargar)
+
+        btn_eliminar = QPushButton("Eliminar")
+        btn_eliminar.clicked.connect(lambda: self._eliminar_borrador_seleccionado(borradores, list_widget))
+        btn_layout.addWidget(btn_eliminar)
+
+        btn_cancelar = QPushButton("Cancelar")
+        btn_cancelar.clicked.connect(dialog.reject)
+        btn_layout.addWidget(btn_cancelar)
+
+        layout.addLayout(btn_layout)
+
+        dialog.exec_()
+
+    def _cargar_borrador_seleccionado(self, borradores, list_widget, dialog):
+        """Carga el borrador seleccionado en la cesta"""
+        selected = list_widget.currentRow()
+        if selected < 0:
+            QMessageBox.warning(self, "Selección requerida", "Por favor selecciona un borrador.")
+            return
+
+        borrador = borradores[selected]
+
+        # Confirmar si hay items en la cesta
+        if self.table_cesta.rowCount() > 0:
+            reply = QMessageBox.question(
+                self,
+                "Reemplazar Cesta",
+                "¿Deseas reemplazar la cesta actual con el borrador?",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if reply != QMessageBox.Yes:
+                return
+
+        # Limpiar cesta actual
+        self.table_cesta.setRowCount(0)
+        self._reset_ajustes_globales()
+
+        # Cargar items del borrador
+        from app.models import Producto
+        for item in borrador.items:
+            # Buscar producto actual (puede haber cambiado de precio)
+            prod = self.session.query(Producto).filter_by(codigo_barra=item.codigo_barra).first()
+
+            if prod:
+                # Usar datos actuales del producto
+                self._add_row_to_cesta_custom(
+                    codigo=prod.codigo_barra,
+                    nombre=prod.nombre,
+                    cantidad=item.cantidad,
+                    precio=item.precio_unit  # Usar precio del borrador
+                )
+            else:
+                # Producto eliminado, usar datos guardados
+                self._add_row_to_cesta_custom(
+                    codigo=item.codigo_barra,
+                    nombre=item.nombre + " (eliminado)",
+                    cantidad=item.cantidad,
+                    precio=item.precio_unit
+                )
+
+        # Restaurar configuración
+        if borrador.modo_pago == 'Tarjeta':
+            self.rb_tarjeta.setChecked(True)
+            if borrador.cuotas:
+                self.spin_cuotas.setValue(borrador.cuotas)
+        else:
+            self.rb_efectivo.setChecked(True)
+
+        # Restaurar ajustes
+        self._interes_pct = borrador.interes_pct
+        self._interes_monto = borrador.interes_monto
+        self._descuento_pct = borrador.descuento_pct
+        self._descuento_monto = borrador.descuento_monto
+
+        self.actualizar_total()
+        dialog.accept()
+
+        QMessageBox.information(self, "Borrador Cargado", f"Borrador '{borrador.nombre}' cargado correctamente.")
+
+    def _eliminar_borrador_seleccionado(self, borradores, list_widget):
+        """Elimina el borrador seleccionado"""
+        from app.models import VentaBorrador
+
+        selected = list_widget.currentRow()
+        if selected < 0:
+            QMessageBox.warning(self, "Selección requerida", "Por favor selecciona un borrador.")
+            return
+
+        borrador = borradores[selected]
+
+        reply = QMessageBox.question(
+            self,
+            "Eliminar Borrador",
+            f"¿Estás seguro de eliminar '{borrador.nombre}'?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+
+        if reply == QMessageBox.Yes:
+            try:
+                self.session.delete(borrador)
+                self.session.commit()
+                list_widget.takeItem(selected)
+                borradores.pop(selected)
+                QMessageBox.information(self, "Eliminado", "Borrador eliminado correctamente.")
+            except Exception as e:
+                self.session.rollback()
+                QMessageBox.critical(self, "Error", f"No se pudo eliminar:\n{str(e)}")
+
+    def _add_row_to_cesta_custom(self, codigo, nombre, cantidad, precio):
+        """Agrega un item custom a la cesta (para cargar borradores)"""
+        r = self.table_cesta.rowCount()
+        self.table_cesta.insertRow(r)
+
+        self.table_cesta.setItem(r, 0, QTableWidgetItem(codigo))
+        self.table_cesta.setItem(r, 1, QTableWidgetItem(nombre))
+        self.table_cesta.setItem(r, 2, QTableWidgetItem(str(cantidad)))
+        self.table_cesta.setItem(r, 3, QTableWidgetItem(f"{precio:.2f}"))
+        self.table_cesta.setItem(r, 4, QTableWidgetItem(f"{cantidad * precio:.2f}"))
+
+        # Agregar botones de acciones (copiado de _add_row_to_cesta)
+        self._add_action_buttons_to_row(r)
+
+    def _add_action_buttons_to_row(self, r):
+        """Agrega los botones de acciones a una fila (helper para borradores)"""
+        from PyQt5.QtWidgets import QWidget, QHBoxLayout
+        from PyQt5.QtCore import QSize, Qt
+
+        widget = QWidget()
+        lay = QHBoxLayout(widget)
+        lay.setContentsMargins(2, 2, 2, 2)
+        lay.setSpacing(2)
+
+        # Botón Editar Precio
+        btn_edit = QPushButton()
+        btn_edit.setIcon(icon('edit.svg'))
+        btn_edit.setToolTip('Editar precio')
+        btn_edit.setFixedSize(24, 24)
+        btn_edit.setFocusPolicy(Qt.NoFocus)
+        btn_edit.clicked.connect(lambda _, row=r: self._editar_precio_en_fila(row))
+        lay.addWidget(btn_edit)
+
+        # Botón Descuento
+        btn_desc = QPushButton()
+        btn_desc.setIcon(icon('discount.svg'))
+        btn_desc.setToolTip('Descuento (%) solo a este producto')
+        btn_desc.setFixedSize(24, 24)
+        btn_desc.setFocusPolicy(Qt.NoFocus)
+        btn_desc.clicked.connect(lambda _, row=r: self._descuento_en_fila(row))
+        lay.addWidget(btn_desc)
+
+        # Botón Borrar
+        btn_del = QPushButton()
+        btn_del.setIcon(icon('delete.svg'))
+        btn_del.setToolTip('Borrar')
+        btn_del.setFixedSize(24, 24)
+        btn_del.clicked.connect(lambda _, row=r: self.quitar_producto(row))
+        lay.addWidget(btn_del)
+
+        self.table_cesta.setCellWidget(r, 5, widget)
 
 
     def actualizar_total(self):
