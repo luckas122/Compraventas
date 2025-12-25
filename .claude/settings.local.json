@@ -15,7 +15,8 @@
       "Bash(if exist test_afip_simple.py del test_afip_simple.py)",
       "Bash(if exist test_dialog_tarjeta.py del test_dialog_tarjeta.py)",
       "Bash(if exist test_tipos_comprobante.py del test_tipos_comprobante.py)",
-      "Bash(find:*)"
+      "Bash(find:*)",
+      "Bash(git commit:*)"
     ],
     "deny": [],
     "ask": []
