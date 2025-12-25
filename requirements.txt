@@ -8,4 +8,5 @@ Werkzeug
 certifi>=2024.2.0
 requests>=2.31.0
 pytz
+rapidfuzz>=3.0.0
 

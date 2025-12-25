@@ -313,11 +313,7 @@ Ahora:
 
 ---
 
-## 📞 Soporte
 
-Para reportar bugs o solicitar funcionalidades:
-- GitHub: [Repositorio del proyecto]
-- Email: soporte@compraventas.com
 
 ---
 

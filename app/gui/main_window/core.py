@@ -173,6 +173,10 @@ class MainWindow(ProductosMixin, VentasMixin ,ProveedoresMixin, UsuariosMixin, C
         tabs.setUsesScrollButtons(True)
 
         self.setCentralWidget(tabs)
+
+        # Barra de estado
+        self._setup_status_bar()
+
         from PyQt5.QtCore import QSize
         self.setMinimumSize(980, 640)  # un mínimo razonable que siempre cabe
         
@@ -427,6 +431,67 @@ class MainWindow(ProductosMixin, VentasMixin ,ProveedoresMixin, UsuariosMixin, C
         # Fallbacks si no se encuentra o falla: beep del sistema
         logger.debug("[SOUND] pip.wav no encontrado en rutas conocidas. Usando QApplication.beep()")
         self._beep_ok = QApplication.beep
+
+    def _setup_status_bar(self):
+        """Configura la barra de estado con información en tiempo real"""
+        from PyQt5.QtWidgets import QLabel
+        from PyQt5.QtCore import QTimer
+        from datetime import datetime
+
+        # Crear barra de estado
+        status_bar = self.statusBar()
+
+        # Etiqueta de sucursal
+        self.status_sucursal = QLabel(f"📍 {self.sucursal}")
+        status_bar.addWidget(self.status_sucursal)
+
+        # Separador
+        sep1 = QLabel(" | ")
+        status_bar.addWidget(sep1)
+
+        # Etiqueta de usuario (obtener del login si está disponible)
+        usuario = "Usuario"  # Por defecto
+        try:
+            from app.login import LoginDialog
+            # Aquí podrías obtener el usuario actual si lo tienes almacenado
+            usuario = "Admin" if self.es_admin else "Usuario"
+        except:
+            pass
+        self.status_usuario = QLabel(f"👤 {usuario}")
+        status_bar.addWidget(self.status_usuario)
+
+        # Separador
+        sep2 = QLabel(" | ")
+        status_bar.addWidget(sep2)
+
+        # Etiqueta de hora (se actualiza cada segundo)
+        self.status_hora = QLabel()
+        status_bar.addWidget(self.status_hora)
+
+        # Timer para actualizar la hora cada segundo
+        self.status_timer = QTimer(self)
+        self.status_timer.timeout.connect(self._update_status_time)
+        self.status_timer.start(1000)  # 1 segundo
+
+        # Actualizar inmediatamente
+        self._update_status_time()
+
+    def _update_status_time(self):
+        """Actualiza la hora en la barra de estado según el timezone configurado"""
+        from datetime import datetime
+        import pytz
+
+        try:
+            # Obtener timezone de la configuración
+            cfg = load_config()
+            timezone_str = ((cfg.get("general") or {}).get("timezone") or "America/Argentina/Buenos_Aires")
+            tz = pytz.timezone(timezone_str)
+            now = datetime.now(tz)
+        except Exception:
+            # Fallback a hora local si hay error
+            now = datetime.now()
+
+        self.status_hora.setText(f"🕐 {now.strftime('%H:%M:%S')}")
 
         
     # —————— Helper para comprobar checkboxes ——————

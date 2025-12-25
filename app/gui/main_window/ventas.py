@@ -62,6 +62,15 @@ class VentasMixin:
         btn_add.setToolTip('Agregar')
         btn_add.clicked.connect(self.agregar_a_cesta)
         h1.addWidget(btn_add)
+
+        # Botón "Vaciar Cesta"
+        btn_vaciar = QPushButton(' Vaciar Cesta')
+        btn_vaciar.setIcon(icon('delete.svg'))  # o 'trash.svg' si existe
+        btn_vaciar.setIconSize(ICON_SIZE)
+        btn_vaciar.setToolTip('Vaciar toda la cesta')
+        btn_vaciar.clicked.connect(self._vaciar_cesta)
+        h1.addWidget(btn_vaciar)
+
         layout.addLayout(h1)
         self.input_venta_buscar.setMinimumWidth(360)  # ajusta a gusto
         self.input_venta_buscar.setStyleSheet("""
@@ -110,6 +119,10 @@ class VentasMixin:
         self.table_cesta.verticalHeader().setDefaultSectionSize(40)  # alto de fila suficiente
         self.table_cesta.setIconSize(QSize(18, 18))
         self.table_cesta.itemChanged.connect(self._on_cesta_item_changed)
+
+        # Doble click para editar cantidad
+        self.table_cesta.itemDoubleClicked.connect(self._on_cesta_doble_click)
+
         layout.addWidget(self.table_cesta)
 
         # ----------------- Pago -----------------
@@ -315,12 +328,10 @@ class VentasMixin:
                 if not prod and term.isdigit():
                     prod = self.prod_repo.buscar_por_codigo(term)
 
-                # 3) Si aún no, buscar por nombre (hint o término completo)
+                # 3) Si aún no, buscar por nombre con fuzzy matching
                 if not prod:
                     qtxt = name_hint or term
-                    prod = (self.session.query(Producto)
-                            .filter(Producto.nombre.ilike(f'%{qtxt}%'))
-                            .first())
+                    prod = self._buscar_producto_fuzzy(qtxt)
 
                 if not prod:
                     QMessageBox.warning(self, 'No encontrado', f'Producto "{term}" no hallado.')
@@ -388,9 +399,88 @@ class VentasMixin:
             finally:
                 # Liberar el guard en el siguiente ciclo de eventos (evita dobles por Enter/completer)
                 QTimer.singleShot(0, lambda: setattr(self, "_agregando_guard", False))
-                
-        
-        
+
+    def _buscar_producto_fuzzy(self, query):
+        """
+        Busca productos usando fuzzy matching (tolerante a errores de tipeo).
+        Retorna el mejor match si supera el umbral de similitud.
+        """
+        try:
+            from rapidfuzz import fuzz, process
+        except ImportError:
+            # Si no está instalado rapidfuzz, usar búsqueda tradicional
+            return (self.session.query(Producto)
+                    .filter(Producto.nombre.ilike(f'%{query}%'))
+                    .first())
+
+        # Obtener todos los productos
+        productos = self.session.query(Producto).all()
+
+        if not productos:
+            return None
+
+        # Crear diccionario de productos por nombre y código (lowercase para comparar)
+        productos_dict = {p.nombre.lower(): p for p in productos}
+        productos_dict_codigo = {p.codigo_barra.lower(): p for p in productos}
+
+        query_lower = query.lower()
+
+        # 1. Primero intentar match exacto (case insensitive)
+        if query_lower in productos_dict:
+            return productos_dict[query_lower]
+        if query_lower in productos_dict_codigo:
+            return productos_dict_codigo[query_lower]
+
+        # 2. Buscar substring (contiene)
+        for nombre, prod in productos_dict.items():
+            if query_lower in nombre or nombre in query_lower:
+                return prod
+
+        # 3. Fuzzy matching con umbral adaptativo según longitud de la query
+        # Queries cortas: umbral más bajo
+        if len(query) <= 4:
+            threshold = 50  # Muy permisivo para búsquedas cortas como "prva"
+        elif len(query) <= 7:
+            threshold = 60
+        else:
+            threshold = 70
+
+        # Buscar el mejor match en nombres usando partial_ratio (mejor para substrings)
+        result_nombre = process.extractOne(
+            query_lower,
+            productos_dict.keys(),
+            scorer=fuzz.partial_ratio,  # Mejor para búsquedas parciales
+            score_cutoff=threshold
+        )
+
+        # Buscar el mejor match en códigos de barras
+        result_codigo = process.extractOne(
+            query_lower,
+            productos_dict_codigo.keys(),
+            scorer=fuzz.partial_ratio,
+            score_cutoff=threshold + 10  # Un poco más estricto para códigos
+        )
+
+        # Decidir cuál usar (priorizar el de mayor score)
+        best_match = None
+        best_score = 0
+
+        if result_nombre:
+            match_nombre, score_nombre, _ = result_nombre
+            if score_nombre > best_score:
+                best_match = productos_dict[match_nombre]
+                best_score = score_nombre
+
+        if result_codigo:
+            match_codigo, score_codigo, _ = result_codigo
+            if score_codigo > best_score:
+                best_match = productos_dict_codigo[match_codigo]
+                best_score = score_codigo
+
+        return best_match
+
+
+
     def _add_row_to_cesta(self, prod):
         r = self.table_cesta.rowCount()
         self.table_cesta.insertRow(r)
@@ -582,8 +672,52 @@ class VentasMixin:
         if self.table_cesta.rowCount() == 0:
             self._reset_ajustes_globales()
         self._ajustar_anchos_cesta()
-        
-        
+
+    def _on_cesta_doble_click(self, item):
+        """Maneja doble click en la cesta para editar cantidad"""
+        if item is None:
+            return
+
+        row = item.row()
+        col = item.column()
+
+        # Solo permitir editar la columna de Cantidad (columna 2)
+        if col != 2:
+            return
+
+        # Obtener cantidad actual
+        try:
+            cantidad_actual = float(self.table_cesta.item(row, 2).text())
+        except:
+            cantidad_actual = 1.0
+
+        # Pedir nueva cantidad
+        nueva_cantidad, ok = QInputDialog.getInt(
+            self,
+            "Editar Cantidad",
+            "Nueva cantidad:",
+            value=int(cantidad_actual),
+            min=1,
+            max=9999,
+            step=1
+        )
+
+        if ok and nueva_cantidad > 0:
+            # Actualizar cantidad
+            self.table_cesta.item(row, 2).setText(str(nueva_cantidad))
+
+            # Recalcular total de la fila
+            try:
+                precio_unit = float(self.table_cesta.item(row, 3).text())
+                total_fila = nueva_cantidad * precio_unit
+                self.table_cesta.item(row, 4).setText(f"{total_fila:.2f}")
+            except:
+                pass
+
+            # Actualizar totales generales
+            self.actualizar_total()
+
+
     def actualizar_total(self):
         subtotal_base = 0.0
         descuento_items_monto = 0.0   # ← NUEVO
@@ -683,6 +817,24 @@ class VentasMixin:
             
             
     #RESET GLOBALES DE VENTA 
+    def _vaciar_cesta(self):
+        """Vacía todos los items de la cesta con confirmación"""
+        if self.table_cesta.rowCount() == 0:
+            QMessageBox.information(self, "Cesta vacía", "No hay items en la cesta para eliminar.")
+            return
+
+        respuesta = QMessageBox.question(
+            self,
+            "Vaciar Cesta",
+            f"¿Estás seguro de eliminar todos los {self.table_cesta.rowCount()} items de la cesta?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+
+        if respuesta == QMessageBox.Yes:
+            self.table_cesta.setRowCount(0)
+            self._reset_ajustes_globales()
+
     def _reset_ajustes_globales(self):
         # porcentajes
         self._interes_pct = 0.0
