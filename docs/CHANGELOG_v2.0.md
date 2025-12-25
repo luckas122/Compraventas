@@ -22,10 +22,18 @@
 
 **Archivos modificados**:
 - `build.spec:117` - Nombre sin versión: `name=APP_NAME`
-- `updater.py:260` - Relanza ejecutable sin versión
+- `updater.py:260-273` - Detecta carpeta extraída del ZIP y relanza ejecutable sin versión
+- `updater.py:381` - Crea acceso directo en escritorio al actualizar
+- `pyi_rth_bootstrap.py:55` - Crea acceso directo en escritorio en primera instalación
 - `version.py:7` - Bump versión a 2.0.1
+- `.github/workflows/release.yml:79` - Workflow actualizado para nuevo nombre
 
-**Importante**: A partir de esta versión, puedes crear un acceso directo al `.exe` y seguirá funcionando después de las actualizaciones automáticas.
+**Mejoras adicionales**:
+- ✅ Creación automática de acceso directo en el escritorio
+- ✅ El acceso directo se actualiza automáticamente con cada actualización
+- ✅ Corrección de extracción del ZIP (detecta automáticamente la carpeta)
+
+**Importante**: A partir de esta versión, el acceso directo se crea automáticamente en el escritorio y seguirá funcionando después de las actualizaciones automáticas.
 
 ---
 

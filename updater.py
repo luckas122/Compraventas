@@ -252,14 +252,22 @@ class Updater:
                 extract_dir = temp_dir / "unzip"
                 extract_dir.mkdir(parents=True, exist_ok=True)
 
-                # Descomprimir ZIP (contiene la carpeta ONEDIR plana)
+                # Descomprimir ZIP (contiene la carpeta ONEDIR: Tu local 2025/*.*)
                 with zipfile.ZipFile(download_path, 'r') as zf:
                     zf.extractall(extract_dir)
+
+                # 🔄 El ZIP contiene una carpeta con el nombre de la app
+                # Buscar la carpeta extraída (debería ser la única)
+                extracted_folders = [d for d in extract_dir.iterdir() if d.is_dir()]
+                if not extracted_folders:
+                    raise Exception("El ZIP no contiene ninguna carpeta")
+
+                source_dir = extracted_folders[0]  # "Tu local 2025" folder
 
                 # 🔄 Nombre sin versión para mantener accesos directos funcionando
                 relaunch_exe = install_dir / f"{__app_name__}.exe"
                 update_script = self._create_update_script_dir(
-                    source_dir=str(extract_dir),
+                    source_dir=str(source_dir),
                     dest_dir=str(install_dir),
                     relaunch_exe=str(relaunch_exe)
                 )
@@ -362,11 +370,16 @@ rm "$0"
 
         if sys.platform == 'win32':
             script_path = temp_dir / "update_dir.bat"
+            # Crear acceso directo en el escritorio usando PowerShell
             script_content = f"""@echo off
 echo Actualizando {__app_name__} (carpeta)...
 timeout /t 2 /nobreak >nul
 robocopy "{source_dir}" "{dest_dir}" /MIR /NFL /NDL /NJH /NJS /NP
 echo Actualizacion completada
+
+REM Crear acceso directo en el escritorio
+powershell -NoProfile -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut([Environment]::GetFolderPath('Desktop') + '\\{__app_name__}.lnk'); $s.TargetPath = '{relaunch_exe}'; $s.WorkingDirectory = '{dest_dir}'; $s.Save()"
+
 start "" "{relaunch_exe}"
 del "%~f0"
 """

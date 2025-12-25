@@ -50,6 +50,10 @@ echo Instalando {__app_name__} en %LocalAppData%...
 timeout /t 2 /nobreak >nul
 robocopy "{cur_dir}" "{tgt_dir}" /MIR /NFL /NDL /NJH /NJS /NP
 echo Instalacion completada
+
+REM Crear acceso directo en el escritorio
+powershell -NoProfile -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut([Environment]::GetFolderPath('Desktop') + '\\{__app_name__}.lnk'); $s.TargetPath = '{relaunch_exe}'; $s.WorkingDirectory = '{tgt_dir}'; $s.Save()"
+
 start "" "{relaunch_exe}"
 del "%~f0"
 """, encoding="utf-8")
