@@ -274,20 +274,35 @@ class ConfiguracionMixin:
         self.cfg_tpl_slot = QComboBox()
         self._tpl_build_slot_combo()
         btn_tpl_load = QPushButton("Cargar"); btn_tpl_save = QPushButton("Guardar en slot")
+        btn_tpl_rename = QPushButton("Renombrar"); btn_tpl_rename.setProperty("role", "inline")
         btn_preview_live = QPushButton("Live"); btn_preview_live.setProperty("role", "inline")
         btn_preview_live.clicked.connect(self._tpl_open_live_preview)
         btn_tpl_load.clicked.connect(self._tpl_load_from_slot)
         btn_tpl_save.clicked.connect(self._tpl_save_to_slot)
+        btn_tpl_rename.clicked.connect(self._tpl_rename_slot)
 
         hl_slots = QHBoxLayout()
         hl_slots.setSpacing(8)
         hl_slots.addWidget(self.cfg_tpl_slot)
         hl_slots.addWidget(btn_tpl_load)
         hl_slots.addWidget(btn_tpl_save)
+        hl_slots.addWidget(btn_tpl_rename)
         hl_slots.addSpacing(12)
         hl_slots.addWidget(btn_preview_live)
         hl_slots.addStretch(1)
         lay_tpl.addRow("Plantillas guardadas:", hl_slots)
+
+        # Selección automática de plantilla según forma de pago
+        self.cfg_tpl_efectivo = QComboBox()
+        self.cfg_tpl_tarjeta = QComboBox()
+        self._tpl_build_payment_combos()
+
+        # Conectar señales para guardar automáticamente cuando cambia la selección
+        self.cfg_tpl_efectivo.currentIndexChanged.connect(self._tpl_save_payment_selection)
+        self.cfg_tpl_tarjeta.currentIndexChanged.connect(self._tpl_save_payment_selection)
+
+        lay_tpl.addRow("Plantilla para Efectivo:", self.cfg_tpl_efectivo)
+        lay_tpl.addRow("Plantilla para Tarjeta:", self.cfg_tpl_tarjeta)
 
         help_lbl = QLabel(
             "Texto libre + placeholders. Separadores: {{hr}}. Ítems: {{items}}. "
@@ -1172,13 +1187,80 @@ class ConfiguracionMixin:
     def _tpl_build_slot_combo(self):
         from app.config import load as load_config
         cfg = load_config()
-        slots = ((cfg.get("ticket") or {}).get("slots") or {})
+        tk = (cfg.get("ticket") or {})
+        slots = (tk.get("slots") or {})
+        slot_names = (tk.get("slot_names") or {})
         self.cfg_tpl_slot.clear()
-        for key, label in (("slot1", "Plantilla 1"), ("slot2", "Plantilla 2"), ("slot3", "Plantilla 3")):
+
+        # Soporta 4 slots ahora, con nombres editables
+        for key in ("slot1", "slot2", "slot3", "slot4"):
+            # Obtener nombre personalizado o usar fallback
+            label = slot_names.get(key, f"Plantilla {key[-1]}")
             txt = (slots.get(key) or "").strip()
             mark = " •" if txt else " (vacía)"
             self.cfg_tpl_slot.addItem(label + mark, key)
-            
+
+    def _tpl_build_payment_combos(self):
+        """Construye los combos para seleccionar plantilla por forma de pago."""
+        from app.config import load as load_config
+        cfg = load_config()
+        tk = (cfg.get("ticket") or {})
+        slot_names = (tk.get("slot_names") or {})
+
+        # Desconectar señales temporalmente para evitar guardados durante la reconstrucción
+        try:
+            self.cfg_tpl_efectivo.currentIndexChanged.disconnect(self._tpl_save_payment_selection)
+            self.cfg_tpl_tarjeta.currentIndexChanged.disconnect(self._tpl_save_payment_selection)
+        except Exception:
+            pass  # Si no estaban conectadas, ignorar
+
+        # Limpiar y rellenar ambos combos
+        for combo in (self.cfg_tpl_efectivo, self.cfg_tpl_tarjeta):
+            combo.clear()
+            for key in ("slot1", "slot2", "slot3", "slot4"):
+                label = slot_names.get(key, f"Plantilla {key[-1]}")
+                combo.addItem(label, key)
+
+        # Seleccionar los valores actuales desde config
+        efectivo_slot = tk.get("template_efectivo", "slot1")
+        tarjeta_slot = tk.get("template_tarjeta", "slot3")
+
+        # Buscar índice y seleccionar
+        for i in range(self.cfg_tpl_efectivo.count()):
+            if self.cfg_tpl_efectivo.itemData(i) == efectivo_slot:
+                self.cfg_tpl_efectivo.setCurrentIndex(i)
+                break
+
+        for i in range(self.cfg_tpl_tarjeta.count()):
+            if self.cfg_tpl_tarjeta.itemData(i) == tarjeta_slot:
+                self.cfg_tpl_tarjeta.setCurrentIndex(i)
+                break
+
+        # Reconectar las señales
+        self.cfg_tpl_efectivo.currentIndexChanged.connect(self._tpl_save_payment_selection)
+        self.cfg_tpl_tarjeta.currentIndexChanged.connect(self._tpl_save_payment_selection)
+
+    def _tpl_save_payment_selection(self):
+        """Guarda automáticamente la selección de plantilla por forma de pago."""
+        from app.config import load as load_config, save as save_config
+
+        try:
+            cfg = load_config()
+            tk = cfg.get("ticket") or {}
+
+            # Guardar las selecciones actuales
+            tk["template_efectivo"] = self.cfg_tpl_efectivo.currentData()
+            tk["template_tarjeta"] = self.cfg_tpl_tarjeta.currentData()
+
+            cfg["ticket"] = tk
+            save_config(cfg)
+
+            # Opcional: mostrar confirmación breve
+            self.statusBar().showMessage("Selección de plantilla guardada", 1500)
+        except Exception as e:
+            # Si falla, no mostrar error para no interrumpir la experiencia del usuario
+            pass
+
     def _tpl_insert(self, snippet: str):
         """Inserta texto en el cursor actual del editor de plantilla."""
         cursor = self.cfg_txt_tpl.textCursor()
@@ -1312,9 +1394,49 @@ class ConfiguracionMixin:
         key = self.cfg_tpl_slot.currentData()
         slots[key] = self.cfg_txt_tpl.toPlainText()
         tk["slots"] = slots
+
+        # Guardar también las selecciones de plantilla por forma de pago
+        tk["template_efectivo"] = self.cfg_tpl_efectivo.currentData()
+        tk["template_tarjeta"] = self.cfg_tpl_tarjeta.currentData()
+
         cfg["ticket"] = tk
         save_config(cfg)
         self._tpl_build_slot_combo()
+        self._tpl_build_payment_combos()
         self.statusBar().showMessage("Plantilla guardada en el slot.", 3000)
-    
-    
+
+    def _tpl_rename_slot(self):
+        """Permite renombrar una plantilla."""
+        from PyQt5.QtWidgets import QInputDialog
+        from app.config import load as load_config, save as save_config
+
+        cfg = load_config()
+        tk = cfg.get("ticket") or {}
+        slot_names = tk.get("slot_names") or {}
+        key = self.cfg_tpl_slot.currentData()
+
+        # Obtener nombre actual
+        current_name = slot_names.get(key, f"Plantilla {key[-1]}")
+
+        # Pedir nuevo nombre
+        new_name, ok = QInputDialog.getText(
+            self,
+            "Renombrar plantilla",
+            f"Nuevo nombre para {current_name}:",
+            text=current_name
+        )
+
+        if ok and new_name.strip():
+            # Guardar nuevo nombre
+            if "slot_names" not in tk:
+                tk["slot_names"] = {}
+            tk["slot_names"][key] = new_name.strip()
+            cfg["ticket"] = tk
+            save_config(cfg)
+
+            # Actualizar UI
+            self._tpl_build_slot_combo()
+            self._tpl_build_payment_combos()
+            self.statusBar().showMessage(f"Plantilla renombrada a: {new_name.strip()}", 3000)
+
+

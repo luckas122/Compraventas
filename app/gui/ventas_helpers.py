@@ -54,9 +54,57 @@ def _get_configured_printer(kind='ticket'):
 #   - Agrega plantilla desde Configuración
 # ---------------------------------------------------------------------
 def imprimir_ticket(venta, sucursal, direcciones: dict, parent=None, preview=False, template_override: str = None):
+    """
+    Imprime o previsualiza un ticket de venta.
+
+    Compatible con todos los drivers de Windows (térmicas, convencionales, PDF, etc.)
+    gracias al uso de QPrinter que abstrae la comunicación con el driver.
+
+    Args:
+        venta: Objeto Venta con datos del ticket
+        sucursal: Nombre de la sucursal
+        direcciones: Dict con direcciones por sucursal
+        parent: Widget padre para diálogos
+        preview: Si True, muestra vista previa en lugar de imprimir
+        template_override: Plantilla personalizada a usar
+
+    Returns:
+        True si imprimió/mostró correctamente, False si canceló o error
+    """
     from PyQt5.QtGui import QPageLayout
     from PyQt5.QtCore import QMarginsF
-    pr = _get_configured_printer(kind='ticket')
+    from PyQt5.QtWidgets import QMessageBox
+    from PyQt5.QtPrintSupport import QPrintDialog, QPrinterInfo
+
+    # Si no hay template_override, seleccionar automáticamente según forma de pago
+    if template_override is None:
+        cfg = load_config()
+        tk = (cfg.get("ticket") or {})
+
+        # Detectar forma de pago
+        forma_raw = (getattr(venta, "forma_pago", "") or getattr(venta, "modo_pago", "") or getattr(venta, "modo", "")).lower()
+        is_tarjeta = ("tarj" in forma_raw)
+
+        # Seleccionar plantilla según forma de pago
+        if is_tarjeta:
+            slot_key = tk.get("template_tarjeta", "slot3")
+        else:
+            slot_key = tk.get("template_efectivo", "slot1")
+
+        # Obtener el contenido de la plantilla desde slots
+        slots = tk.get("slots", {})
+        template_override = slots.get(slot_key, "")
+
+    try:
+        pr = _get_configured_printer(kind='ticket')
+    except Exception as e:
+        if parent:
+            QMessageBox.warning(
+                parent,
+                "Error de impresora",
+                f"No se pudo inicializar la impresora:\n{e}\n\nVerifique que haya al menos una impresora instalada."
+            )
+        return False
 
     # Márgenes del driver
     pr.setFullPage(False)
@@ -67,32 +115,65 @@ def imprimir_ticket(venta, sucursal, direcciones: dict, parent=None, preview=Fal
 
     # Ancho real de rollo y alto dinámico según contenido
     width_mm = 75.0
-    height_mm = _compute_ticket_height_mm(venta, pr, width_mm=width_mm, template_override=template_override)
+    try:
+        height_mm = _compute_ticket_height_mm(venta, pr, width_mm=width_mm, template_override=template_override)
+    except Exception as e:
+        if parent:
+            QMessageBox.warning(
+                parent,
+                "Error al calcular ticket",
+                f"No se pudo calcular el tamaño del ticket:\n{e}"
+            )
+        return False
+
     pr.setPaperSize(QSizeF(width_mm, height_mm + 10.0), QPrinter.Millimeter)  # +1 cm de resguardo
 
     if preview:
-        dlg = QPrintPreviewDialog(pr, parent)
-        def _paint(prn):
-            p = QPainter(prn)
-            try:
-                _draw_ticket(p, prn.pageRect(), prn, venta, sucursal, direcciones, width_mm=width_mm, template_override=template_override)
-            finally:
-                p.end()
-        dlg.paintRequested.connect(_paint)
-        dlg.exec_()
-        return True
+        try:
+            dlg = QPrintPreviewDialog(pr, parent)
+            def _paint(prn):
+                p = QPainter(prn)
+                try:
+                    _draw_ticket(p, prn.pageRect(), prn, venta, sucursal, direcciones, width_mm=width_mm, template_override=template_override)
+                finally:
+                    p.end()
+            dlg.paintRequested.connect(_paint)
+            dlg.exec_()
+            return True
+        except Exception as e:
+            if parent:
+                QMessageBox.warning(
+                    parent,
+                    "Error en vista previa",
+                    f"No se pudo mostrar la vista previa:\n{e}"
+                )
+            return False
 
-    # Respetar “preguntar al imprimir” si corresponde
-    from PyQt5.QtPrintSupport import QPrintDialog, QPrinterInfo
+    # Respetar "preguntar al imprimir" si corresponde
     cfg = load_config()
     ask = bool((cfg.get('printers') or {}).get('ask_each_time', False))
     need_dialog = ask
+
     try:
         fixed = (cfg.get('printers') or {}).get('ticket_printer')
         if fixed:
             names = [p.printerName() for p in QPrinterInfo.availablePrinters()]
             if fixed not in names:
-                need_dialog = True
+                # Impresora configurada no encontrada
+                if parent:
+                    resp = QMessageBox.question(
+                        parent,
+                        "Impresora no encontrada",
+                        f"La impresora configurada '{fixed}' no está disponible.\n\n"
+                        "¿Desea seleccionar otra impresora?",
+                        QMessageBox.Yes | QMessageBox.No
+                    )
+                    if resp == QMessageBox.Yes:
+                        need_dialog = True
+                    else:
+                        return False
+                else:
+                    need_dialog = True
     except Exception:
         pass
 
@@ -101,12 +182,38 @@ def imprimir_ticket(venta, sucursal, direcciones: dict, parent=None, preview=Fal
         if dlg.exec_() != QPrintDialog.Accepted:
             return False
 
-    p = QPainter(pr)
+    # Verificar que la impresora esté lista antes de imprimir
     try:
-        _draw_ticket(p, pr.pageRect(), pr, venta, sucursal, direcciones, width_mm=width_mm, template_override=template_override)
-    finally:
-        p.end()
-    return True
+        printer_state = pr.printerState()
+        if printer_state == QPrinter.Error:
+            if parent:
+                QMessageBox.warning(
+                    parent,
+                    "Error de impresora",
+                    "La impresora reporta un error. Verifique que esté encendida,\n"
+                    "tenga papel y no haya atascos."
+                )
+            return False
+    except Exception:
+        pass  # Algunos drivers no soportan verificar estado
+
+    # Imprimir
+    try:
+        p = QPainter(pr)
+        try:
+            _draw_ticket(p, pr.pageRect(), pr, venta, sucursal, direcciones, width_mm=width_mm, template_override=template_override)
+        finally:
+            p.end()
+        return True
+    except Exception as e:
+        if parent:
+            QMessageBox.critical(
+                parent,
+                "Error al imprimir",
+                f"No se pudo completar la impresión:\n{e}\n\n"
+                "Verifique que la impresora esté encendida y tenga papel."
+            )
+        return False
 
 
 
@@ -223,9 +330,18 @@ def _draw_ticket(p, page_rect, prn, venta, sucursal, direcciones, width_mm=75.0,
                     "cantidad": float(it.get("cantidad") or it.get("cant") or 1),
                 }
             else:
+                # Intentar obtener nombre desde producto.nombre o directamente
+                prod_obj = getattr(it, "producto", None)
+                if prod_obj:
+                    nombre = getattr(prod_obj, "nombre", "") or ""
+                    codigo = getattr(prod_obj, "codigo", "") or getattr(prod_obj, "codigo_barra", "") or ""
+                else:
+                    nombre = getattr(it, "nombre", "") or getattr(it, "desc", "") or ""
+                    codigo = getattr(it, "codigo", "") or getattr(it, "cod", "") or ""
+
                 d = {
-                    "codigo": getattr(it, "codigo", "") or getattr(it, "cod", ""),
-                    "nombre": getattr(it, "nombre", "") or getattr(it, "desc", ""),
+                    "codigo": codigo,
+                    "nombre": nombre,
                     "precio_unitario": float(getattr(it, "precio_unitario", getattr(it, "precio", 0.0)) or 0.0),
                     "cantidad": float(getattr(it, "cantidad", getattr(it, "cant", 1)) or 1),
                 }
@@ -236,16 +352,20 @@ def _draw_ticket(p, page_rect, prn, venta, sucursal, direcciones, width_mm=75.0,
         codigo = it.get("codigo") or ""
         nombre = it.get("nombre") or ""
         # recorte de seguridad para nombres largos
-        if len(nombre) > 28:
-            nombre = nombre[:28] + "…"
+        if len(nombre) > 35:
+            nombre = nombre[:35] + "…"
         precio_u = float(it.get("precio_unitario") or 0.0)
         cant    = float(it.get("cantidad") or 1)
         importe = precio_u * cant
 
-        # línea 1: código + nombre
-        draw_text(f"{codigo} — {nombre}".strip(" —"), f_norm, Qt.AlignLeft)
-        # línea 2: cantidad × precio_u … importe (alineado izq/der)
-        draw_lr(f"{int(cant)} × {money(precio_u)}", money(importe), f_norm)
+        # NUEVO FORMATO DE 3 LÍNEAS:
+        # Línea 1: Nombre del producto
+        draw_text(nombre, f_norm, Qt.AlignLeft)
+        # Línea 2: Código de barras
+        if codigo:
+            draw_text(f"Código: {codigo}", f_norm, Qt.AlignLeft)
+        # Línea 3: Cantidad × precio … importe (alineado izq/der)
+        draw_lr(f"Cant: {int(cant)} × {money(precio_u)}", money(importe), f_norm)
         gap(0.4)
 
 
@@ -345,11 +465,14 @@ def _compute_ticket_height_mm(venta, prn, width_mm=75.0, template_override: str 
     total += h_n       # dirección/sucursal
     total += SEP_MM
 
-    # Ítems (dos líneas por ítem)
+    # Ítems (TRES líneas por ítem: nombre, código, cantidad×precio)
     items = getattr(venta, "_ticket_items", None) or []
-    for _ in items:
-        total += h_n
-        total += h_n
+    for it in items:
+        total += h_n  # línea 1: nombre
+        codigo = it.get("codigo") or "" if isinstance(it, dict) else ""
+        if codigo:
+            total += h_n  # línea 2: código (solo si existe)
+        total += h_n  # línea 3: cantidad × precio
         total += SEP_MM
     total += SEP_MM
 
@@ -419,6 +542,20 @@ def _compute_ticket_height_mm(venta, prn, width_mm=75.0, template_override: str 
                 else:
                     line_count += 1
             total += line_count * h_n
+
+            # Agregar espacio para CAE si existe (se dibuja automáticamente)
+            afip_cae = getattr(venta, "afip_cae", None)
+            if afip_cae:
+                total += GAP_MM + SEP_MM  # gap + line
+                total += h_h  # título "COMPROBANTE ELECTRÓNICO AFIP"
+                total += GAP_MM * 0.5
+                afip_num_cbte = getattr(venta, "afip_numero_comprobante", None)
+                if afip_num_cbte:
+                    total += h_n  # Nº Comprobante
+                total += h_n  # CAE
+                afip_cae_venc = getattr(venta, "afip_cae_vencimiento", None)
+                if afip_cae_venc:
+                    total += h_n  # Vencimiento CAE
 
     except Exception:
         pass
@@ -536,7 +673,7 @@ def _tpl_context(venta, sucursal, direcciones):
     }
     return ctx, items
 
-def _tpl_render_lines(template_text, ctx, items):
+def _tpl_render_lines(template_text, ctx, items, venta=None):
     """
     Convierte la plantilla en una lista de dicts 'línea' con campos:
     {'text': str, 'align': Qt.AlignmentFlag, 'bold': bool, 'italic': bool, 'is_rule': bool}
@@ -552,20 +689,67 @@ def _tpl_render_lines(template_text, ctx, items):
             out = out.replace("{{" + k + "}}", str(v))
         return out
 
-    # Expansión de {{items}}
+    # Expansión de {{cae}} - Datos AFIP
+    def _expand_cae():
+        if venta is None:
+            return []
+        out = []
+        afip_cae = getattr(venta, "afip_cae", None)
+        if afip_cae:
+            out.append("")  # Línea en blanco antes
+            out.append("COMPROBANTE ELECTRÓNICO AFIP")
+            afip_num_cbte = getattr(venta, "afip_numero_comprobante", None)
+            if afip_num_cbte:
+                out.append(f"Nº Comprobante: {afip_num_cbte}")
+            out.append(f"CAE: {afip_cae}")
+            afip_cae_venc = getattr(venta, "afip_cae_vencimiento", None)
+            if afip_cae_venc:
+                out.append(f"Vencimiento CAE: {afip_cae_venc}")
+        return out
+
+    # Expansión de {{items}} - FORMATO DE 3 LÍNEAS
     def _expand_items():
         out = []
         for it in (items or []):
             try:
-                cant = float(getattr(it, "cantidad", 1) or 1)
-                pu   = float(getattr(it, "precio_unit", None) or getattr(it, "precio_unitario", None) or getattr(it, "precio", 0.0) or 0.0)
-                nom  = str(getattr(getattr(it, "producto", None), "nombre", "") or getattr(it, "nombre", "") or "")
+                # Extraer cantidad
+                if isinstance(it, dict):
+                    cant = float(it.get("cantidad", 1) or 1)
+                    pu   = float(it.get("precio_unitario") or it.get("precio_unit") or it.get("precio", 0.0) or 0.0)
+                    nom  = str(it.get("nombre", "") or "")
+                    cod  = str(it.get("codigo", "") or it.get("codigo_barra", "") or "")
+                else:
+                    cant = float(getattr(it, "cantidad", 1) or 1)
+                    pu   = float(getattr(it, "precio_unit", None) or getattr(it, "precio_unitario", None) or getattr(it, "precio", 0.0) or 0.0)
+                    # Intentar obtener nombre desde producto.nombre o directamente nombre
+                    prod_obj = getattr(it, "producto", None)
+                    if prod_obj:
+                        nom = str(getattr(prod_obj, "nombre", "") or "")
+                    else:
+                        nom = str(getattr(it, "nombre", "") or "")
+                    cod  = str(getattr(it, "codigo", "") or getattr(it, "codigo_barra", "") or "")
+
                 tot  = cant * pu
-                out.append(f"{int(cant)} x {nom}")
-                out.append(f"  { _money(pu) }   →   { _money(tot) }")
-            except Exception:
+
+                # Línea 1: Nombre del producto
+                if len(nom) > 35:
+                    nom = nom[:35] + "…"
+                if nom:  # Solo agregar si hay nombre
+                    out.append(nom)
+
+                # Línea 2: Código de barras (solo si existe)
+                if cod:
+                    out.append(f"Código: {cod}")
+
+                # Línea 3: Cantidad × precio → total
+                out.append(f"Cant: {int(cant)} × { _money(pu) }      { _money(tot) }")
+            except Exception as e:
+                # Si falla, al menos mostrar algo
                 pass
         return out
+
+    # Detectar si la plantilla ya incluye {{cae}}
+    has_cae_placeholder = "{{cae}}" in template_text
 
     for raw in template_text.splitlines():
         raw = raw.rstrip("\n")
@@ -573,6 +757,23 @@ def _tpl_render_lines(template_text, ctx, items):
         # Línea horizontal
         if raw.strip() in ("{{hr}}", "{{line}}"):
             lines.append({"text": "", "align": Qt.AlignLeft, "bold": False, "italic": False, "is_rule": True})
+            continue
+
+        # Bloque CAE
+        if "{{cae}}" in raw:
+            cae_lines = _expand_cae()
+            if cae_lines:
+                # Agregar línea horizontal antes si no es la primera línea
+                if lines:
+                    lines.append({"text": "", "align": Qt.AlignLeft, "bold": False, "italic": False, "is_rule": True})
+                # Primera línea (título) en negrita y centrada
+                for i, l in enumerate(cae_lines):
+                    if i == 0:  # línea en blanco
+                        continue
+                    elif i == 1:  # título "COMPROBANTE ELECTRÓNICO AFIP"
+                        lines.append({"text": l, "align": Qt.AlignCenter, "bold": True, "italic": False, "is_rule": False})
+                    else:  # resto de datos
+                        lines.append({"text": l, "align": Qt.AlignLeft, "bold": False, "italic": False, "is_rule": False})
             continue
 
         # Bloque items
@@ -592,11 +793,12 @@ def _tpl_render_lines(template_text, ctx, items):
                 align = a
                 break
 
-        for tag, flag in (("{{b:", "b"), ("{{i:", "i"), ("{{centerb:", "cb"), ("{{rightb:", "rb")):
+        for tag, flag in (("{{b:", "b"), ("{{i:", "i"), ("{{leftb:", "lb"), ("{{centerb:", "cb"), ("{{rightb:", "rb")):
             if txt.startswith(tag) and txt.endswith("}}"):
                 inner = txt[len(tag):-2].strip()
                 if flag == "b":       bold = True;  txt = inner
                 elif flag == "i":     italic = True; txt = inner
+                elif flag == "lb":    bold = True;  align = Qt.AlignLeft;    txt = inner
                 elif flag == "cb":    bold = True;  align = Qt.AlignHCenter; txt = inner
                 elif flag == "rb":    bold = True;  align = Qt.AlignRight;   txt = inner
                 break
@@ -615,7 +817,7 @@ def _tpl_draw_block(p, px, draw_text, line, gap, f_norm, f_head, venta, sucursal
         return
 
     ctx, items = _tpl_context(venta, sucursal, direcciones)
-    lines = _tpl_render_lines(template_text, ctx, items)
+    lines = _tpl_render_lines(template_text, ctx, items, venta)
 
     for ln in lines:
         if ln["is_rule"]:
@@ -626,3 +828,46 @@ def _tpl_draw_block(p, px, draw_text, line, gap, f_norm, f_head, venta, sucursal
             if ln["bold"]:   f.setBold(True)
             if ln["italic"]: f.setItalic(True)
         draw_text(ln["text"], f, ln["align"])
+
+    # ===== Agregar datos del CAE automáticamente solo si NO está en la plantilla =====
+    has_cae_placeholder = "{{cae}}" in template_text
+    afip_cae = getattr(venta, "afip_cae", None)
+    afip_cae_venc = getattr(venta, "afip_cae_vencimiento", None)
+    afip_num_cbte = getattr(venta, "afip_numero_comprobante", None)
+
+    if afip_cae and not has_cae_placeholder:
+        from PyQt5.QtCore import Qt, QRect
+        # Función auxiliar para draw_lr (necesaria para mostrar CAE)
+        def draw_lr_local(left, right, font):
+            nonlocal p, px
+            p.setFont(font)
+            h = p.fontMetrics().height()
+            # Obtener coordenadas y ancho de página
+            page_rect = p.viewport()
+            x_start = page_rect.left() + px(4.0)  # margen izquierdo
+            width = page_rect.width() - px(8.0)   # ancho total menos márgenes
+            left_w = int(width * 0.55)
+            right_x = x_start + left_w
+            right_w = width - left_w - px(0.6)
+
+            # Obtener posición Y actual del painter
+            import sys
+            # Como no tenemos acceso directo a 'y', usamos el viewport actual
+            current_y = getattr(draw_lr_local, '_y', page_rect.top() + px(4.0))
+
+            p.drawText(QRect(x_start, current_y, left_w, h), Qt.AlignLeft | Qt.AlignVCenter, str(left))
+            p.drawText(QRect(right_x, current_y, right_w, h), Qt.AlignRight | Qt.AlignVCenter, str(right))
+
+            # Actualizar posición Y
+            draw_lr_local._y = current_y + h
+
+        gap(1.0)
+        line()
+        draw_text("COMPROBANTE ELECTRÓNICO AFIP", f_head, Qt.AlignCenter)
+        gap(0.5)
+
+        if afip_num_cbte:
+            draw_text(f"Nº Comprobante: {afip_num_cbte}", f_norm, Qt.AlignLeft)
+        draw_text(f"CAE: {afip_cae}", f_norm, Qt.AlignLeft)
+        if afip_cae_venc:
+            draw_text(f"Vencimiento CAE: {afip_cae_venc}", f_norm, Qt.AlignLeft)

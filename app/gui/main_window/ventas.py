@@ -1218,9 +1218,23 @@ class VentasMixin:
                             VentaItem = None
                         rows = self.session.query(VentaItem).filter_by(venta_id=venta_id).all() if VentaItem else []
                     for it in rows:
+                        # Obtener nombre: primero intentar it.nombre, luego it.producto.nombre
+                        nombre = getattr(it, "nombre", "") or ""
+                        if not nombre:
+                            prod_obj = getattr(it, "producto", None)
+                            if prod_obj:
+                                nombre = getattr(prod_obj, "nombre", "") or ""
+
+                        # Obtener código: intentar desde it o desde it.producto
+                        codigo = getattr(it, "codigo", None) or getattr(it, "codigo_barra", None) or ""
+                        if not codigo:
+                            prod_obj = getattr(it, "producto", None)
+                            if prod_obj:
+                                codigo = getattr(prod_obj, "codigo", "") or getattr(prod_obj, "codigo_barra", "") or ""
+
                         items.append({
-                            "codigo": getattr(it, "codigo", None) or getattr(it, "codigo_barra", None) or "",
-                            "nombre": getattr(it, "nombre", "") or (getattr(it, "producto", None) and getattr(it.producto, "nombre", "")) or "",
+                            "codigo": codigo,
+                            "nombre": nombre,
                             "cantidad": float(getattr(it, "cantidad", 1) or 1),
                             "precio_unitario": float(getattr(it, "precio", getattr(it, "precio_unitario", 0.0)) or 0.0),
                         })

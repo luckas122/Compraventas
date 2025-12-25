@@ -61,8 +61,9 @@
     "font_size": 10
   },
   "printers": {
-    "ticket_printer": null,
-    "barcode_printer": null
+    "ticket_printer": "Microsoft Print to PDF",
+    "barcode_printer": "Microsoft Print to PDF",
+    "ask_each_time": false
   },
   "ticket": {
     "paper": {
@@ -81,15 +82,26 @@
       "total_hex": "#2e7d32"
     },
     "show_interest_line": false,
+    "slot_names": {
+      "slot1": "Efectivo Resumido",
+      "slot2": "Efectivo Detallado",
+      "slot3": "Tarjeta Resumido",
+      "slot4": "Tarjeta Detallado"
+    },
+    "template_efectivo": "slot1",
+    "template_tarjeta": "slot4",
     "slots": {
-      "slot1": "",
-      "slot2": "",
-      "slot3": ""
+      "slot1": "{{centerb: {{business}}}}\n{{center: {{direccion}}}}\n{{center: Ticket Nº {{ticket.numero}} - {{ticket.fecha_hora}}}}\n{{hr}}\n{{items}}\n{{hr}}\n{{right: Subtotal: {{totales.subtotal}}}}\n{{rightb: TOTAL: {{totales.total}}}}\n{{hr}}\n{{left: Forma de pago: {{pago.modo}}}}\n{{left: Abonado: {{abonado}}}}\n{{left: Vuelto: {{vuelto}}}}\n{{hr}}\n{{center: ¡Gracias por su compra!}}",
+      "slot2": "{{centerb: {{business}}}}\n{{center: {{direccion}}}}\n{{center: Sucursal {{sucursal}}}}\n{{center: CUIT: 20-40937847-2}}\n{{center: IVA Responsable: Consumidor Final}}\n{{hr}}\n{{centerb: COMPROBANTE DE VENTA}}\n{{center: Ticket Nº {{ticket.numero}}}}\n{{center: Fecha: {{ticket.fecha_hora}}}}\n{{hr}}\n{{centerb: DETALLE DE PRODUCTOS}}\n{{items}}\n{{hr}}\n{{centerb: RESUMEN}}\n{{left: Subtotal:                    {{totales.subtotal}}}}\n{{left: Descuento:                   {{totales.descuento}}}}\n{{left: Interés:                     {{totales.interes}}}}\n{{hr}}\n{{leftb: TOTAL A PAGAR:              {{totales.total}}}}\n{{hr}}\n{{centerb: FORMA DE PAGO}}\n{{left: Método: {{pago.modo}}}}\n{{left: Abonado: {{abonado}}}}\n{{left: Vuelto: {{vuelto}}}}\n{{hr}}\n{{center: ¡Gracias por su compra!}}\n{{center: Vuelva pronto}}\n{{center: Tel: +54 11 1234-5678}}",
+      "slot3": "{{centerb: {{business}}}}\n{{center: {{direccion}}}}\n{{center: Ticket Nº {{ticket.numero}} - {{ticket.fecha_hora}}}}\n{{hr}}\n{{items}}\n{{hr}}\n{{rightb: TOTAL: {{totales.total}}}}\n{{hr}}\n{{left: Forma de pago: {{pago.modo}}}}\n{{left: Cuotas: {{pago.cuotas}} × {{pago.monto_cuota}}}}\n{{cae}}\n{{hr}}\n{{center: ¡Gracias por su compra!}}",
+      "slot4": "{{centerb: {{business}}}}\n{{center: {{direccion}}}}\n{{center: Sucursal {{sucursal}}}}\n{{center: CUIT: 20-40937847-2}}\n{{center: IVA Responsable: Consumidor Final}}\n{{center: Inicio de Actividades: 01/01/2020}}\n{{hr}}\n{{centerb: FACTURA B}}\n{{centerb: COMPROBANTE DE VENTA}}\n{{center: Ticket Nº {{ticket.numero}}}}\n{{center: Fecha: {{ticket.fecha_hora}}}}\n{{hr}}\n{{centerb: DETALLE DE PRODUCTOS}}\n{{items}}\n{{hr}}\n{{centerb: RESUMEN}}\n{{left: Subtotal (sin IVA):          {{totales.subtotal}}}}\n{{left: Descuento aplicado:          {{totales.descuento}}}}\n{{left: Interés por cuotas:          {{totales.interes}}}}\n{{hr}}\n{{leftb: TOTAL CON IVA:              {{totales.total}}}}\n{{hr}}\n{{centerb: FORMA DE PAGO}}\n{{left: Método: {{pago.modo}}}}\n{{left: Cantidad de cuotas: {{pago.cuotas}}}}\n{{left: Importe por cuota: {{pago.monto_cuota}}}}\n{{cae}}\n{{hr}}\n{{center: ¡Gracias por su compra!}}\n{{center: Consultas: +54 11 1234-5678}}\n{{center: Instagram: @perfumeriasu}}\n{{center: Vuelva pronto}}"
     },
     "placeholders": [
       "{{ticket.numero}}",
       "{{ticket.fecha_hora}}",
       "{{sucursal}}",
+      "{{direccion}}",
+      "{{business}}",
       "{{cliente.nombre}}",
       "{{cliente.doc}}",
       "{{pago.modo}}",
@@ -97,10 +109,15 @@
       "{{pago.monto_cuota}}",
       "{{totales.subtotal}}",
       "{{totales.interes}}",
+      "{{totales.descuento}}",
       "{{totales.total}}",
       "{{abonado}}",
-      "{{vuelto}}"
-    ]
+      "{{vuelto}}",
+      "{{items}}",
+      "{{hr}}",
+      "{{cae}}"
+    ],
+    "template": "{{centerb: {{business}}}}\n{{center: {{direccion}}}}\n{{center: Sucursal {{sucursal}}}}\n{{center: CUIT: 20-40937847-2}}\n{{center: IVA Responsable: Consumidor Final}}\n{{center: Inicio de Actividades: 01/01/2020}}\n{{hr}}\n{{centerb: FACTURA B}}\n{{centerb: COMPROBANTE DE VENTA}}\n{{center: Ticket Nº {{ticket.numero}}}}\n{{center: Fecha: {{ticket.fecha_hora}}}}\n{{hr}}\n{{centerb: DETALLE DE PRODUCTOS}}\n{{items}}\n{{hr}}\n{{centerb: RESUMEN}}\n{{left: Subtotal (sin IVA):          {{totales.subtotal}}}}\n{{left: Descuento aplicado:          {{totales.descuento}}}}\n{{left: Interés por cuotas:          {{totales.interes}}}}\n{{hr}}\n{{leftb: TOTAL CON IVA:              {{totales.total}}}}\n{{hr}}\n{{centerb: FORMA DE PAGO}}\n{{left: Método: {{pago.modo}}}}\n{{left: Cantidad de cuotas: {{pago.cuotas}}}}\n{{left: Importe por cuota: {{pago.monto_cuota}}}}\n{{hr}}\n{{center: ¡Gracias por su compra!}}\n{{center: Consultas: +54 11 1234-5678}}\n{{center: Instagram: @perfumeriasu}}\n{{center: Vuelva pronto}}"
   },
   "backup": {
     "enabled": true,
@@ -230,5 +247,9 @@
       "base_url_test": "https://app.afipsdk.com/api/v1",
       "base_url_prod": "https://app.afipsdk.com/api/v1"
     }
+  },
+  "scanner": {
+    "source": null,
+    "url": ""
   }
 }
