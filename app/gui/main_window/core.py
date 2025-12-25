@@ -6,6 +6,9 @@ import zipfile
 import sqlite3
 import shutil
 import threading
+import logging
+
+logger = logging.getLogger(__name__)
 
 import pandas as pd
 from app.gui.main_window.productos import ProductosMixin
@@ -206,10 +209,10 @@ class MainWindow(ProductosMixin, VentasMixin ,ProveedoresMixin, UsuariosMixin, C
             from version import __version__, __app_name__
             self.updater = Updater(self)
             self._setup_update_menu()
-            print(f"[UPDATER] Sistema inicializado - {__app_name__} v{__version__}")
+            logger.info(f"[UPDATER] Sistema inicializado - {__app_name__} v{__version__}")
         except ImportError:
             self.updater = None
-            print("[UPDATER] Sistema de actualizaciones no disponible")
+            logger.info("[UPDATER] Sistema de actualizaciones no disponible")
 
 # Atajos (globales y por sección)
         try:
@@ -238,10 +241,10 @@ class MainWindow(ProductosMixin, VentasMixin ,ProveedoresMixin, UsuariosMixin, C
                 "ventas.imprimir":            self._imprimir_ticket_via_shortcut, # reimprime ticket seleccionado/último
             }
             self.shortcut_manager = ShortcutManager(self, callbacks=cb)
-            print("[SHORTCUTS] Sistema de atajos inicializado")
+            logger.info("[SHORTCUTS] Sistema de atajos inicializado")
         except Exception as e:
             self.shortcut_manager = None
-            print(f"[SHORTCUTS] Error inicializando atajos: {e}")
+            logger.error(f"[SHORTCUTS] Error inicializando atajos: {e}")
     
     # ============================
     #  Icono en bandeja del sistema
@@ -416,13 +419,13 @@ class MainWindow(ProductosMixin, VentasMixin ,ProveedoresMixin, UsuariosMixin, C
                 def _beep_ok():
                     self._sound_ok.play()
                 self._beep_ok = _beep_ok
-                print(f"[SOUND] beep OK: {wav_path}")
+                logger.debug(f"[SOUND] beep OK: {wav_path}")
                 return
             except Exception as e:
-                print(f"[SOUND] QSoundEffect falló: {e}")
+                logger.warning(f"[SOUND] QSoundEffect falló: {e}")
 
         # Fallbacks si no se encuentra o falla: beep del sistema
-        print("[SOUND] pip.wav no encontrado en rutas conocidas. Usando QApplication.beep()")
+        logger.debug("[SOUND] pip.wav no encontrado en rutas conocidas. Usando QApplication.beep()")
         self._beep_ok = QApplication.beep
 
         

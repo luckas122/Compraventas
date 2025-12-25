@@ -9,7 +9,13 @@
       "Bash(grep:*)",
       "Bash(findstr:*)",
       "Bash(taskkill:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nfeat: Sistema de tickets v2.0 con plantillas y selección automática\n\nMejoras principales:\n- Formato de 3 líneas para productos (nombre, código, cantidad×precio)\n- 4 plantillas predefinidas (efectivo/tarjeta, resumido/detallado)\n- Selección automática de plantilla según forma de pago\n- Nuevo placeholder {{cae}} para control de posición de datos AFIP\n- Soporte para {{leftb:}} en plantillas\n- Nombres editables para plantillas\n- Guardado automático en caliente de selección de plantillas\n- Renderizado automático de datos CAE (con fallback al final)\n\nArchivos modificados:\n- app/gui/ventas_helpers.py: Lógica de tickets y renderizado\n- app/gui/main_window/configuracion_mixin.py: UI de configuración\n- app/gui/main_window/ventas.py: Preparación de datos para tickets\n- app/app_config.json: Plantillas predefinidas y configuración\n\nDocumentación:\n- CHANGELOG_v2.0.md: Cambios detallados versión 2.0\n- plantillas_tickets.md: Documentación de plantillas\n- LIMPIEZA_TESTS.md: Plan de limpieza de archivos test\n\n🤖 Generated with Claude Code\nEOF\n)\")",
+      "Bash(git push:*)",
+      "Bash(if exist test_afip_simple.py del test_afip_simple.py)",
+      "Bash(if exist test_dialog_tarjeta.py del test_dialog_tarjeta.py)",
+      "Bash(if exist test_tipos_comprobante.py del test_tipos_comprobante.py)",
+      "Bash(find:*)"
     ],
     "deny": [],
     "ask": []

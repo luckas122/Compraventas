@@ -5,7 +5,10 @@ import tempfile
 import webbrowser
 import urllib.parse
 import subprocess
+import logging
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 from PyQt5.QtCore import Qt, QSize, QTimer, QRect, QSizeF, QMarginsF
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
@@ -827,9 +830,9 @@ class VentasMixin:
                 if datos["interes_pct"] > 0:
                     self._aplicar_interes_a_cesta(datos["interes_pct"])
 
-                print(f"[Tarjeta] Configurado: {datos['cuotas']} cuotas, {datos['interes_pct']}% interés, {datos['tipo_comprobante']}")
+                logger.info(f"[Tarjeta] Configurado: {datos['cuotas']} cuotas, {datos['interes_pct']}% interés, {datos['tipo_comprobante']}")
                 if datos["cuit_cliente"]:
-                    print(f"[Tarjeta] CUIT cliente: {datos['cuit_cliente']}")
+                    logger.info(f"[Tarjeta] CUIT cliente: {datos['cuit_cliente']}")
         else:
             # Usuario canceló, volver a efectivo
             self.rb_efectivo.setChecked(True)
@@ -1016,7 +1019,7 @@ class VentasMixin:
             if not client:
                 return  # AFIP deshabilitado
         except Exception as e:
-            print(f"[AFIP] No se pudo inicializar AfipSDKClient: {e}", file=sys.stderr)
+            logger.error(f"[AFIP] No se pudo inicializar AfipSDKClient: {e}")
             return
 
         # Calcular total, subtotal e IVA para AFIP
@@ -1043,7 +1046,7 @@ class VentasMixin:
             if tipo_cbte == "FACTURA_A":
                 # Factura A requiere CUIT del cliente
                 if not cuit_cliente:
-                    print(f"[AFIP] ADVERTENCIA: Factura A sin CUIT del cliente", file=sys.stderr)
+                    logger.warning(f"[AFIP] ADVERTENCIA: Factura A sin CUIT del cliente")
                     cuit_cliente = 0
 
                 try:
@@ -1073,7 +1076,7 @@ class VentasMixin:
                     iva=iva
                 )
         except Exception as e:
-            print(f"[AFIP] Error al emitir factura: {e}", file=sys.stderr)
+            logger.error(f"[AFIP] Error al emitir factura: {e}")
             QMessageBox.warning(
                 self,
                 "AFIP",
@@ -1089,7 +1092,7 @@ class VentasMixin:
             try:
                 self.session.commit()
             except Exception as e:
-                print(f"[AFIP] Error al guardar CAE: {e}", file=sys.stderr)
+                logger.error(f"[AFIP] Error al guardar CAE: {e}")
 
         # Mostramos feedback al usuario
         try:
@@ -1110,7 +1113,7 @@ class VentasMixin:
                     f"Detalle:\n{response.error_message}"
                 )
         except Exception as e:
-            print(f"[AFIP] Error mostrando mensaje AFIP: {e}", file=sys.stderr)
+            logger.error(f"[AFIP] Error mostrando mensaje AFIP: {e}")
         
             
     def _items_para_ticket(self, venta_id):
@@ -1509,7 +1512,7 @@ class VentasMixin:
             finally:
                 tbl.setUpdatesEnabled(True)              # ← SIEMPRE reactivar
         except Exception as e:
-            print(f"[WARN] recargar_ventas_dia: {e}")
+            logger.warning(f"[WARN] recargar_ventas_dia: {e}")
             
             
     def _reimprimir_venta_seleccionada(self):
@@ -1640,7 +1643,7 @@ class VentasMixin:
                 prod_input.setCompleter(None)
 
         except Exception as e:
-            print("[WARN] No se pudo crear el completer:", e)
+            logger.warning(f"[WARN] No se pudo crear el completer: {e}")
 
     def refrescar_completer(self):
         """Actualiza la lista del completer sólo cuando hay cambios reales en productos."""
@@ -1662,7 +1665,7 @@ class VentasMixin:
             self._completer_model.setStringList(items)
 
         except Exception as e:
-            print("[WARN] refrescar_completer falló:", e)
+            logger.warning(f"[WARN] refrescar_completer falló: {e}")
             
     def _force_complete(self, t):
     # actualiza prefijo y abre el popup
