@@ -4,6 +4,58 @@ Todos los cambios notables de este proyecto serán documentados en este archivo.
 
 ---
 
+## [2.5.2] - 2025-12-26
+
+### Corregido
+- **CRÍTICO - Updater:** Corregido error de detección de directorio de instalación en ejecutables PyInstaller
+  - Problema: `install_dir` usaba `Path.cwd()` en lugar de detectar la ubicación real del ejecutable
+  - Solución: Ahora usa `sys.executable` cuando está en modo frozen (PyInstaller ONEDIR)
+  - Error resuelto: "Windows no puede encontrar el archivo C:\Users\...\app\Tu local 2025.exe"
+  - Afecta: `updater.py:249-257`
+
+- **CRÍTICO - Build:** Corregido error "No suitable Python runtime found" en build.bat
+  - Problema: El comando `py -3.11` no encontraba el runtime de Python
+  - Solución: Reemplazado `py -3.11` por `python` para usar el Python del venv activado
+  - Afecta: Todo el flujo de build.bat
+
+- **CRÍTICO - Sync Config:** Corregida caída de aplicación al probar conexión SMTP/IMAP en ejecutable compilado
+  - Problema: PyInstaller no incluía certificados SSL ni módulos SSL necesarios, causando crash silencioso
+  - Solución implementada en 3 capas:
+    1. `build.spec` - Agregados módulos SSL (_ssl, _hashlib, smtplib, imaplib, email.*) a hiddenimports
+    2. `build.spec` - Incluidos certificados SSL de certifi como data files
+    3. `sync_config.py` - Logging detallado que guarda en `app/logs/sync_test_connection.log` para debugging
+  - Afecta: `build.spec:21-50,74-80` y `app/gui/sync_config.py:245-431`
+
+### Agregado
+- **Sistema de logging detallado para prueba de conexión sync**
+  - Log completo en `app/logs/sync_test_connection.log`
+  - Información capturada:
+    - Versión de Python y estado frozen
+    - Módulos SSL disponibles (\_ssl, \_hashlib, OPENSSL_VERSION)
+    - Estado de certificados certifi
+    - Debug completo de conexiones SMTP/IMAP con traceback
+    - Mensajes de error específicos con tipo de excepción
+  - Útil para diagnosticar problemas de SSL/certificados en PyInstaller
+
+### Técnico
+- `updater.py:249-257` - Detección correcta con `getattr(sys, 'frozen', False)` y `sys.executable`
+- `build.bat:14,22-24,37,42` - Cambio de `py -3.11` a `python` en todos los comandos
+- `build.spec:21-50` - Agregados 11 módulos SSL/email a hiddenimports
+- `build.spec:74-80` - Incluidos certificados certifi como data files
+- `app/gui/sync_config.py:245-431` - Reescrita función `_test_connection()` con logging completo
+
+### Notas de Actualización
+- Esta versión corrige 3 bugs críticos reportados en v2.5.1
+- Si actualizas desde v2.5.0 o v2.5.1, esta versión resuelve todos los problemas conocidos
+- El updater ahora funciona correctamente en distribuciones ONEDIR
+- Build.bat funciona sin requerir configuración del Python launcher
+- La prueba de conexión de sincronización ya no causa crashes
+- **IMPORTANTE:** Si tu `app_config.json` no tiene la sección "sync", cópiala del template o usa los valores por defecto:
+  - IMAP puerto: 993 (no 987)
+  - SMTP puerto: 587
+
+---
+
 ## [2.5.1] - 2025-12-26
 
 ### Corregido

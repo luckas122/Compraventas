@@ -243,54 +243,189 @@ class SyncConfigPanel(QWidget):
             pass
 
     def _test_connection(self):
-        """Prueba la conexión SMTP e IMAP"""
+        """Prueba la conexión SMTP e IMAP con logging detallado"""
         import smtplib
         import imaplib
+        import ssl
+        import sys
+        import traceback
+        import logging
+        from datetime import datetime
+        from pathlib import Path
+
+        # 🆕 Configurar logging detallado a archivo
+        log_dir = Path("app/logs")
+        log_dir.mkdir(parents=True, exist_ok=True)
+        log_file = log_dir / "sync_test_connection.log"
+
+        # Crear logger específico
+        logger = logging.getLogger("sync_test")
+        logger.setLevel(logging.DEBUG)
+
+        # Handler a archivo
+        fh = logging.FileHandler(log_file, mode='a', encoding='utf-8')
+        fh.setLevel(logging.DEBUG)
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        fh.setFormatter(formatter)
+        logger.addHandler(fh)
+
+        logger.info("="*80)
+        logger.info(f"INICIO PRUEBA DE CONEXIÓN - {datetime.now()}")
+        logger.info(f"Python: {sys.version}")
+        logger.info(f"Frozen: {getattr(sys, 'frozen', False)}")
+        logger.info(f"Executable: {sys.executable}")
 
         errores = []
 
+        # Probar importaciones críticas
+        try:
+            logger.info("Verificando módulos SSL...")
+            import _ssl
+            logger.info(f"  ✓ _ssl disponible: {_ssl}")
+            import _hashlib
+            logger.info(f"  ✓ _hashlib disponible: {_hashlib}")
+            logger.info(f"  ✓ ssl.OPENSSL_VERSION: {ssl.OPENSSL_VERSION}")
+
+            # Verificar certificados
+            try:
+                import certifi
+                cert_path = certifi.where()
+                logger.info(f"  ✓ certifi disponible: {cert_path}")
+                logger.info(f"  ✓ Archivo existe: {Path(cert_path).exists()}")
+            except ImportError:
+                logger.warning("  ⚠ certifi NO disponible")
+
+        except Exception as e:
+            logger.error(f"  ✗ Error en módulos SSL: {e}")
+            logger.error(traceback.format_exc())
+
         # Probar SMTP
+        logger.info("\n--- PRUEBA SMTP ---")
         try:
             host = self.ed_smtp_host.text().strip()
             port = self.spn_smtp_port.value()
             user = self.ed_smtp_user.text().strip()
             pwd = self.ed_smtp_pass.text()
 
-            if not user or not pwd:
+            logger.info(f"Host: {host}")
+            logger.info(f"Port: {port}")
+            logger.info(f"User: {user}")
+            logger.info(f"Pass: {'***' if pwd else '(vacío)'}")
+
+            if not host:
+                errores.append("SMTP: Host requerido")
+                logger.warning("Host vacío")
+            elif not user or not pwd:
                 errores.append("SMTP: Usuario y contraseña requeridos")
+                logger.warning("Usuario o contraseña vacíos")
             else:
+                logger.info("Intentando conexión SMTP...")
+
+                # Intentar con certifi si está disponible
+                try:
+                    import certifi
+                    context = ssl.create_default_context(cafile=certifi.where())
+                    logger.info("Usando certificados de certifi")
+                except ImportError:
+                    context = ssl.create_default_context()
+                    logger.info("Usando certificados del sistema")
+
+                logger.info(f"Contexto SSL creado: {context}")
+
                 with smtplib.SMTP(host, port, timeout=10) as server:
-                    server.starttls()
+                    logger.info("Conexión SMTP establecida")
+                    server.set_debuglevel(1)  # Debug SMTP
+                    server.starttls(context=context)
+                    logger.info("STARTTLS exitoso")
                     server.login(user, pwd)
+                    logger.info("Login SMTP exitoso")
+
+        except smtplib.SMTPAuthenticationError as e:
+            msg = f"SMTP: Error de autenticación. Usa contraseña de aplicación, no tu contraseña normal."
+            errores.append(msg)
+            logger.error(f"SMTPAuthenticationError: {e}")
+            logger.error(traceback.format_exc())
         except Exception as e:
-            errores.append(f"SMTP: {str(e)}")
+            msg = f"SMTP: {type(e).__name__}: {str(e)}"
+            errores.append(msg)
+            logger.error(f"Error SMTP: {e}")
+            logger.error(traceback.format_exc())
 
         # Probar IMAP
+        logger.info("\n--- PRUEBA IMAP ---")
         try:
             host = self.ed_imap_host.text().strip()
             port = self.spn_imap_port.value()
             user = self.ed_imap_user.text().strip()
             pwd = self.ed_imap_pass.text()
 
-            if not user or not pwd:
+            logger.info(f"Host: {host}")
+            logger.info(f"Port: {port}")
+            logger.info(f"User: {user}")
+            logger.info(f"Pass: {'***' if pwd else '(vacío)'}")
+
+            if not host:
+                errores.append("IMAP: Host requerido")
+                logger.warning("Host vacío")
+            elif not user or not pwd:
                 errores.append("IMAP: Usuario y contraseña requeridos")
+                logger.warning("Usuario o contraseña vacíos")
             else:
-                mail = imaplib.IMAP4_SSL(host, port)
+                logger.info("Intentando conexión IMAP...")
+
+                # Intentar con certifi si está disponible
+                try:
+                    import certifi
+                    context = ssl.create_default_context(cafile=certifi.where())
+                    logger.info("Usando certificados de certifi")
+                except ImportError:
+                    context = ssl.create_default_context()
+                    logger.info("Usando certificados del sistema")
+
+                logger.info(f"Contexto SSL creado: {context}")
+
+                mail = imaplib.IMAP4_SSL(host, port, ssl_context=context)
+                logger.info("Conexión IMAP SSL establecida")
                 mail.login(user, pwd)
+                logger.info("Login IMAP exitoso")
                 mail.logout()
+                logger.info("Logout IMAP exitoso")
+
+        except imaplib.IMAP4.error as e:
+            msg = f"IMAP: Error de autenticación. Verifica que IMAP esté habilitado en Gmail."
+            errores.append(msg)
+            logger.error(f"IMAP4.error: {e}")
+            logger.error(traceback.format_exc())
         except Exception as e:
-            errores.append(f"IMAP: {str(e)}")
+            msg = f"IMAP: {type(e).__name__}: {str(e)}"
+            errores.append(msg)
+            logger.error(f"Error IMAP: {e}")
+            logger.error(traceback.format_exc())
 
         # Mostrar resultado
+        logger.info("\n--- RESULTADO ---")
         if errores:
+            logger.warning(f"Errores encontrados: {len(errores)}")
+            for err in errores:
+                logger.warning(f"  - {err}")
+
             QMessageBox.warning(
                 self,
                 "Prueba de conexión",
-                "Errores encontrados:\n\n" + "\n".join(errores)
+                f"Errores encontrados:\n\n" + "\n".join(errores) +
+                f"\n\nLog detallado en:\n{log_file}"
             )
         else:
+            logger.info("✓ Conexión exitosa a SMTP e IMAP")
             QMessageBox.information(
                 self,
                 "Prueba de conexión",
-                "Conexión exitosa a SMTP e IMAP."
+                f"Conexión exitosa a SMTP e IMAP.\n\nLog en:\n{log_file}"
             )
+
+        logger.info(f"FIN PRUEBA - {datetime.now()}")
+        logger.info("="*80 + "\n")
+
+        # Limpiar handler
+        logger.removeHandler(fh)
+        fh.close()

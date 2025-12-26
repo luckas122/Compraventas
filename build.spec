@@ -35,6 +35,17 @@ hiddenimports = list(set(
         "subprocess",
         "app.gui.main_window.configuracion_mixin",
         "app.gui.main_window.core",
+        # 🆕 Módulos SSL necesarios para sync
+        "ssl",
+        "smtplib",
+        "imaplib",
+        "_ssl",
+        "_hashlib",
+        "email",
+        "email.mime",
+        "email.mime.multipart",
+        "email.mime.text",
+        "email.mime.application",
     ]
 ))
 
@@ -58,8 +69,15 @@ qt_datas = collect_data_files("PyQt5", includes=[
 # Ficheros individuales
 app_datas = [
     ("app/app_config.json", "app"),
-    
 ]
+
+# 🆕 Incluir certificados SSL de certifi para conexiones HTTPS/SMTP/IMAP
+try:
+    import certifi
+    cert_file = certifi.where()
+    app_datas.append((cert_file, "certifi"))
+except ImportError:
+    pass
 
 # RECURSOS: añadir como datas en vez de trees
 if os.path.isdir("assets"):

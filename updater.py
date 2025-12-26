@@ -246,9 +246,17 @@ class Updater:
         try:
             if filetype == "zip":
                 # --- INSTALACIÓN POR CARPETA (ZIP ONEDIR) ---
-                exe_path = Path(sys.executable)
-                install_dir = exe_path.parent  # carpeta ONEDIR actual
-                temp_dir = Path(tempfile.gettempdir()) / __app_name__ / f"upd_{new_version}"
+                # CORRECCIÓN: En PyInstaller ONEDIR, sys.executable apunta al ejecutable principal
+                # Si estamos en un ejecutable frozen, buscar correctamente la carpeta base
+                if getattr(sys, 'frozen', False):
+                    # Modo frozen (ejecutable): sys.executable es el .exe principal
+                    exe_path = Path(sys.executable)
+                    install_dir = exe_path.parent
+                else:
+                    # Modo development: usar carpeta actual
+                    install_dir = Path.cwd()
+
+                temp_dir = Path(tempfile.gettempdir()) / __app_name__.replace(" ", "_") / f"upd_{new_version}"
                 extract_dir = temp_dir / "unzip"
                 extract_dir.mkdir(parents=True, exist_ok=True)
 
