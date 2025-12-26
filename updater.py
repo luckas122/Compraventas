@@ -264,8 +264,17 @@ class Updater:
 
                 source_dir = extracted_folders[0]  # "Tu local 2025" folder
 
-                # 🔄 Nombre sin versión para mantener accesos directos funcionando
-                relaunch_exe = install_dir / f"{__app_name__}.exe"
+                # 🔄 Buscar el ejecutable dentro de source_dir
+                # Puede llamarse igual que __app_name__ o tener otro nombre
+                exe_files = list(source_dir.glob("*.exe"))
+                if not exe_files:
+                    raise Exception("No se encontró ningún archivo .exe en el ZIP descargado")
+
+                # Usar el primer .exe encontrado (debería ser el único)
+                source_exe_name = exe_files[0].name
+
+                # El ejecutable destino mantiene el mismo nombre
+                relaunch_exe = install_dir / source_exe_name
                 update_script = self._create_update_script_dir(
                     source_dir=str(source_dir),
                     dest_dir=str(install_dir),
@@ -365,11 +374,15 @@ rm "$0"
         """
         Crea un script para actualizar la carpeta ONEDIR completa (ROBOCOPY/rsync) y relanzar.
         """
-        temp_dir = Path(tempfile.gettempdir()) / __app_name__
+        temp_dir = Path(tempfile.gettempdir()) / __app_name__.replace(" ", "_")
         temp_dir.mkdir(parents=True, exist_ok=True)
 
         if sys.platform == 'win32':
             script_path = temp_dir / "update_dir.bat"
+            # Escapar comillas en rutas para PowerShell
+            ps_exe = relaunch_exe.replace('"', '`"')
+            ps_dest = dest_dir.replace('"', '`"')
+
             # Crear acceso directo en el escritorio usando PowerShell
             script_content = f"""@echo off
 echo Actualizando {__app_name__} (carpeta)...
@@ -378,7 +391,7 @@ robocopy "{source_dir}" "{dest_dir}" /MIR /NFL /NDL /NJH /NJS /NP
 echo Actualizacion completada
 
 REM Crear acceso directo en el escritorio
-powershell -NoProfile -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut([Environment]::GetFolderPath('Desktop') + '\\{__app_name__}.lnk'); $s.TargetPath = '{relaunch_exe}'; $s.WorkingDirectory = '{dest_dir}'; $s.Save()"
+powershell -NoProfile -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut([Environment]::GetFolderPath('Desktop') + '\\{__app_name__}.lnk'); $s.TargetPath = '{ps_exe}'; $s.WorkingDirectory = '{ps_dest}'; $s.Save()"
 
 start "" "{relaunch_exe}"
 del "%~f0"
