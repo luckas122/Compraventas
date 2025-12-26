@@ -152,7 +152,7 @@ class MainWindow(ProductosMixin, VentasMixin ,ProveedoresMixin, UsuariosMixin, C
         tabs.addTab(self.tab_ventas(), icon('ventas.svg'), 'Ventas')
         tabs.setTabToolTip(2, 'Ventas')
 
-        self.historial = HistorialVentasWidget(self.session, self.venta_repo, self)
+        self.historial = HistorialVentasWidget(self.session, sucursal_actual=None, parent=self, es_admin=self.es_admin)
 
         self.idx_historial = tabs.addTab(self.historial, icon('history.svg'), 'Historial')
         tabs.setTabToolTip(self.idx_historial, 'Historial de ventas')

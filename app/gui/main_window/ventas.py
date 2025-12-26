@@ -1462,64 +1462,26 @@ class VentasMixin:
             if not client:
                 return  # AFIP deshabilitado
         except Exception as e:
-            logger.error(f"[AFIP] No se pudo inicializar AfipSDKClient: {e}")
+            print(f"[AFIP] No se pudo inicializar AfipSDKClient: {e}", file=sys.stderr)
             return
 
         # Calcular total, subtotal e IVA para AFIP
         total = float(getattr(venta, 'total', 0.0) or 0.0)
-        # IVA 21% (puedes ajustar según tu lógica)
+        # Asumimos IVA 21% (puedes ajustar según tu lógica)
         iva_rate = 0.21
         subtotal = round(total / (1.0 + iva_rate), 2)
         iva = round(total - subtotal, 2)
 
-        # Obtener tipo de comprobante y CUIT del cliente (si hay datos del diálogo)
-        datos_tarjeta = getattr(self, '_datos_tarjeta', None)
-
-        if datos_tarjeta and modo_pago.lower() == "tarjeta":
-            # Usar tipo de comprobante del diálogo
-            tipo_cbte = datos_tarjeta.get("tipo_comprobante", "FACTURA_B")
-            cuit_cliente = datos_tarjeta.get("cuit_cliente", "")
-        else:
-            # Usar tipo de comprobante configurado por defecto
-            tipo_cbte = fisc.get("tipo_cbte", "FACTURA_B")
-            cuit_cliente = ""
-
-        # Emitir factura según el tipo configurado
+        # Emitir factura
         try:
-            if tipo_cbte == "FACTURA_A":
-                # Factura A requiere CUIT del cliente
-                if not cuit_cliente:
-                    logger.warning(f"[AFIP] ADVERTENCIA: Factura A sin CUIT del cliente")
-                    cuit_cliente = 0
-
-                try:
-                    cuit_num = int(cuit_cliente) if cuit_cliente else 0
-                except ValueError:
-                    cuit_num = 0
-
-                response = client.emitir_factura_a(
-                    items=items,
-                    total=total,
-                    subtotal=subtotal,
-                    iva=iva,
-                    doc_numero=cuit_num
-                )
-            elif tipo_cbte == "FACTURA_C":
-                # Factura C no discrimina IVA
-                response = client.emitir_factura_c(
-                    items=items,
-                    total=total
-                )
-            else:
-                # Factura B (default) o Ticket B
-                response = client.emitir_factura_b(
-                    items=items,
-                    total=total,
-                    subtotal=subtotal,
-                    iva=iva
-                )
+            response = client.emitir_factura_b(
+                items=items,
+                total=total,
+                subtotal=subtotal,
+                iva=iva
+            )
         except Exception as e:
-            logger.error(f"[AFIP] Error al emitir factura: {e}")
+            print(f"[AFIP] Error al emitir factura: {e}", file=sys.stderr)
             QMessageBox.warning(
                 self,
                 "AFIP",
@@ -1535,7 +1497,7 @@ class VentasMixin:
             try:
                 self.session.commit()
             except Exception as e:
-                logger.error(f"[AFIP] Error al guardar CAE: {e}")
+                print(f"[AFIP] Error al guardar CAE: {e}", file=sys.stderr)
 
         # Mostramos feedback al usuario
         try:
@@ -1556,7 +1518,7 @@ class VentasMixin:
                     f"Detalle:\n{response.error_message}"
                 )
         except Exception as e:
-            logger.error(f"[AFIP] Error mostrando mensaje AFIP: {e}")
+            print(f"[AFIP] Error mostrando mensaje AFIP: {e}", file=sys.stderr)
         
             
     def _items_para_ticket(self, venta_id):

@@ -147,11 +147,12 @@ class HistorialVentasWidget(QWidget):
     - Programación de envíos (diario/semanal/mensual a hora fija).
     - Doble clic en una venta => dialog con items vendidos.
     """
-    def __init__(self, session, sucursal_actual: Optional[str] = None, parent=None):
+    def __init__(self, session, sucursal_actual: Optional[str] = None, parent=None, es_admin: bool = False):
         super().__init__(parent)
         self.session = session
         self.repo = VentaRepo(self.session)
         self.sucursal_actual = sucursal_actual
+        self.es_admin = es_admin
 
         self._ventas_cache: List[Venta] = []
 
@@ -200,6 +201,29 @@ class HistorialVentasWidget(QWidget):
         row1.addWidget(btn_filtrar)
         lay_listado.addLayout(row1)
 
+        # Botones de rango rápido
+        row_quick = QHBoxLayout()
+        row_quick.addWidget(QLabel("Rango rápido:"))
+
+        btn_hoy = QPushButton("Hoy")
+        btn_hoy.clicked.connect(self._set_rango_hoy)
+        row_quick.addWidget(btn_hoy)
+
+        btn_semana = QPushButton("Esta Semana")
+        btn_semana.clicked.connect(self._set_rango_semana)
+        row_quick.addWidget(btn_semana)
+
+        btn_mes = QPushButton("Este Mes")
+        btn_mes.clicked.connect(self._set_rango_mes)
+        row_quick.addWidget(btn_mes)
+
+        btn_mes_anterior = QPushButton("Mes Anterior")
+        btn_mes_anterior.clicked.connect(self._set_rango_mes_anterior)
+        row_quick.addWidget(btn_mes_anterior)
+
+        row_quick.addStretch()
+        lay_listado.addLayout(row_quick)
+
         # refrescar con Enter en el texto
         self.txt_buscar.returnPressed.connect(self.refrescar)
         # refrescar al cambiar fechas/combos
@@ -246,24 +270,84 @@ class HistorialVentasWidget(QWidget):
         # Agregar tab de listado
         self.tabs.addTab(tab_listado, "Listado")
 
-        # TAB 2: ESTADÍSTICAS
-        try:
-            tab_stats = self._crear_tab_estadisticas()
-            self.tabs.addTab(tab_stats, "Estadísticas")
-        except Exception as e:
-            import logging
-            logger = logging.getLogger(__name__)
-            logger.error(f"Error creando tab de estadísticas: {e}", exc_info=True)
-            # Crear un tab de error simple
-            error_widget = QWidget()
-            error_layout = QVBoxLayout(error_widget)
-            error_label = QLabel(f"Error al cargar estadísticas: {str(e)}")
-            error_label.setStyleSheet("color: red; padding: 20px;")
-            error_layout.addWidget(error_label)
-            self.tabs.addTab(error_widget, "Estadísticas (Error)")
+        # TAB 2: ESTADÍSTICAS (solo para administradores)
+        if self.es_admin:
+            try:
+                tab_stats = self._crear_tab_estadisticas()
+                self.tabs.addTab(tab_stats, "Estadísticas")
+            except Exception as e:
+                import logging
+                logger = logging.getLogger(__name__)
+                logger.error(f"Error creando tab de estadísticas: {e}", exc_info=True)
+                # Crear un tab de error simple
+                error_widget = QWidget()
+                error_layout = QVBoxLayout(error_widget)
+                error_label = QLabel(f"Error al cargar estadísticas: {str(e)}")
+                error_label.setStyleSheet("color: red; padding: 20px;")
+                error_layout.addWidget(error_label)
+                self.tabs.addTab(error_widget, "Estadísticas (Error)")
+
+            # Conectar evento de cambio de pestaña para actualizar estadísticas automáticamente
+            self.tabs.currentChanged.connect(self._on_tab_changed)
 
         self.refrescar()
 
+    def _on_tab_changed(self, index):
+        """Se ejecuta cuando cambia la pestaña activa"""
+        # Si cambia a la pestaña de Estadísticas (índice 1), actualizar automáticamente
+        if index == 1:
+            try:
+                self._actualizar_estadisticas()
+            except Exception as e:
+                print(f"Error al actualizar estadísticas automáticamente: {e}")
+
+    # Métodos para botones de rango rápido
+    def _set_rango_hoy(self):
+        """Establece el rango de fechas a hoy"""
+        hoy = QDate.currentDate()
+        self.dt_desde.setDate(hoy)
+        self.dt_hasta.setDate(hoy)
+
+    def _set_rango_semana(self):
+        """Establece el rango de fechas a esta semana (lunes a domingo)"""
+        hoy = QDate.currentDate()
+        # Calcular el lunes de esta semana
+        dias_desde_lunes = hoy.dayOfWeek() - 1  # Qt: lunes=1, domingo=7
+        lunes = hoy.addDays(-dias_desde_lunes)
+        domingo = lunes.addDays(6)
+        self.dt_desde.setDate(lunes)
+        self.dt_hasta.setDate(domingo)
+
+    def _set_rango_mes(self):
+        """Establece el rango de fechas a este mes"""
+        hoy = QDate.currentDate()
+        primer_dia = QDate(hoy.year(), hoy.month(), 1)
+        # Último día del mes
+        if hoy.month() == 12:
+            ultimo_dia = QDate(hoy.year(), 12, 31)
+        else:
+            ultimo_dia = QDate(hoy.year(), hoy.month() + 1, 1).addDays(-1)
+        self.dt_desde.setDate(primer_dia)
+        self.dt_hasta.setDate(ultimo_dia)
+
+    def _set_rango_mes_anterior(self):
+        """Establece el rango de fechas al mes anterior"""
+        hoy = QDate.currentDate()
+        if hoy.month() == 1:
+            mes_anterior = 12
+            año_anterior = hoy.year() - 1
+        else:
+            mes_anterior = hoy.month() - 1
+            año_anterior = hoy.year()
+
+        primer_dia = QDate(año_anterior, mes_anterior, 1)
+        # Último día del mes anterior
+        if mes_anterior == 12:
+            ultimo_dia = QDate(año_anterior, 12, 31)
+        else:
+            ultimo_dia = QDate(año_anterior, mes_anterior + 1, 1).addDays(-1)
+        self.dt_desde.setDate(primer_dia)
+        self.dt_hasta.setDate(ultimo_dia)
 
     def _crear_tab_estadisticas(self):
         """Crea el tab de estadísticas con gráficos y KPIs"""
@@ -305,24 +389,46 @@ class HistorialVentasWidget(QWidget):
         kpis_layout.addWidget(self.kpi_interes)
         lay.addLayout(kpis_layout)
 
-        # Contenedor para el gráfico
+        # Grupo para gráfico de barras
+        chart_group = QGroupBox("Ventas por Día")
+        chart_group_layout = QVBoxLayout(chart_group)
         self.stats_chart_container = QWidget()
         self.stats_chart_layout = QVBoxLayout(self.stats_chart_container)
-        lay.addWidget(self.stats_chart_container)
+        self.stats_chart_layout.setContentsMargins(0, 0, 0, 0)
+        chart_group_layout.addWidget(self.stats_chart_container)
+        lay.addWidget(chart_group)
+
+        # Grupo para gráfico de torta (formas de pago)
+        pie_group = QGroupBox("Distribución por Forma de Pago")
+        pie_group_layout = QVBoxLayout(pie_group)
+        self.stats_pie_container = QWidget()
+        self.stats_pie_layout = QVBoxLayout(self.stats_pie_container)
+        self.stats_pie_layout.setContentsMargins(0, 0, 0, 0)
+        pie_group_layout.addWidget(self.stats_pie_container)
+        lay.addWidget(pie_group)
 
         # Sección de comparativa (solo visible cuando se selecciona "Todas" las sucursales)
         self.stats_comparativa_group = QGroupBox("Comparativa por Sucursal")
         self.stats_comparativa_layout = QVBoxLayout(self.stats_comparativa_group)
+        self.stats_comparativa_layout.setSpacing(10)
+        self.stats_comparativa_layout.setContentsMargins(10, 15, 10, 15)
         self.stats_comparativa_group.setVisible(False)  # Oculto por defecto
         lay.addWidget(self.stats_comparativa_group)
 
         # Top 10 productos
         top_group = QGroupBox("Top 10 Productos Más Vendidos")
         top_layout = QVBoxLayout(top_group)
+        top_layout.setSpacing(10)
+        top_layout.setContentsMargins(10, 15, 10, 15)
+
         self.stats_top_productos = QTableWidget(0, 3)
         self.stats_top_productos.setHorizontalHeaderLabels(["Producto", "Cantidad", "Total"])
         self.stats_top_productos.horizontalHeader().setStretchLastSection(True)
         self.stats_top_productos.verticalHeader().setVisible(False)
+        self.stats_top_productos.setSelectionMode(QTableWidget.NoSelection)
+        self.stats_top_productos.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.stats_top_productos.setAlternatingRowColors(True)
+
         top_layout.addWidget(self.stats_top_productos)
         lay.addWidget(top_group)
 
@@ -356,6 +462,19 @@ class HistorialVentasWidget(QWidget):
 
         return card
 
+    def _obtener_ventas_rango(self, dt_min, dt_max, sucursal=None):
+        """Obtiene ventas en un rango de fechas usando listar_por_fecha"""
+        ventas = []
+        fecha_actual = dt_min.date()
+        fecha_fin = dt_max.date()
+
+        while fecha_actual < fecha_fin:
+            ventas_dia = self.repo.listar_por_fecha(fecha_actual, sucursal)
+            ventas.extend(ventas_dia)
+            fecha_actual += timedelta(days=1)
+
+        return ventas
+
     def _actualizar_estadisticas(self):
         """Actualiza las estadísticas basándose en los filtros actuales"""
         from collections import defaultdict
@@ -373,18 +492,21 @@ class HistorialVentasWidget(QWidget):
         filtros_texto += f"  |  Forma de pago: {forma_nombre}"
         self.stats_filtros_banner.setText(filtros_texto)
 
-        # Consultar ventas
-        ventas = self.repo.listar_por_rango(dt_min, dt_max, sucursal=suc)
+        # Consultar ventas usando el método correcto
+        ventas = self._obtener_ventas_rango(dt_min, dt_max, suc)
+        print(f"[DEBUG] Total ventas encontradas: {len(ventas)}")
 
         # Filtrar por forma de pago si es necesario
         if forma_txt in ("efectivo", "tarjeta"):
             ventas = [v for v in ventas if v.modo_pago.lower() == forma_txt]
+            print(f"[DEBUG] Ventas después de filtrar por {forma_txt}: {len(ventas)}")
 
         # Calcular KPIs
         total = sum(getattr(v, 'total', 0) or 0 for v in ventas)
         cantidad = len(ventas)
         promedio = total / cantidad if cantidad > 0 else 0
         total_interes = sum(getattr(v, 'interes_monto', 0) or 0 for v in ventas)
+        print(f"[DEBUG] KPIs - Total: ${total}, Cantidad: {cantidad}, Promedio: ${promedio}")
 
         # Actualizar KPI cards
         self.kpi_total.findChild(QLabel, "kpi_value").setText(f"${total:,.2f}")
@@ -392,8 +514,11 @@ class HistorialVentasWidget(QWidget):
         self.kpi_promedio.findChild(QLabel, "kpi_value").setText(f"${promedio:,.2f}")
         self.kpi_interes.findChild(QLabel, "kpi_value").setText(f"${total_interes:,.2f}")
 
-        # Generar gráfico
+        # Generar gráfico de barras
         self._generar_grafico_ventas(ventas, dt_min, dt_max)
+
+        # Generar gráfico de torta para formas de pago
+        self._generar_grafico_formas_pago(ventas)
 
         # Mostrar comparativa solo si se seleccionó "Todas" las sucursales
         if suc is None:  # "Todas"
@@ -411,6 +536,8 @@ class HistorialVentasWidget(QWidget):
             from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
             from matplotlib.figure import Figure
             from collections import defaultdict
+
+            print(f"[DEBUG] Generando gráfico de ventas con {len(ventas)} ventas")
 
             # Limpiar contenedor anterior
             for i in reversed(range(self.stats_chart_layout.count())):
@@ -431,6 +558,8 @@ class HistorialVentasWidget(QWidget):
             dias = sorted(ventas_por_dia.keys())
             totales = [ventas_por_dia[d] for d in dias]
 
+            print(f"[DEBUG] Días con ventas: {len(dias)}")
+
             # Crear figura
             fig = Figure(figsize=(10, 4), dpi=100)
             ax = fig.add_subplot(111)
@@ -440,7 +569,7 @@ class HistorialVentasWidget(QWidget):
                 ax.set_xticks(range(len(dias)))
                 ax.set_xticklabels([d.strftime('%d/%m') for d in dias], rotation=45, ha='right')
                 ax.set_ylabel('Total ($)')
-                ax.set_title('Ventas por Día')
+                ax.set_title('Ventas por Día', fontsize=14, fontweight='bold')
                 ax.grid(axis='y', alpha=0.3)
 
                 # Añadir valores encima de las barras
@@ -451,16 +580,97 @@ class HistorialVentasWidget(QWidget):
                            ha='center', va='bottom', fontsize=8)
             else:
                 ax.text(0.5, 0.5, 'No hay datos para mostrar',
-                       ha='center', va='center', transform=ax.transAxes)
+                       ha='center', va='center', transform=ax.transAxes,
+                       fontsize=14, color='gray')
 
             fig.tight_layout()
 
             # Agregar canvas al layout
             canvas = FigureCanvas(fig)
+            canvas.setMinimumHeight(300)  # Asegurar altura mínima
             self.stats_chart_layout.addWidget(canvas)
+            canvas.draw()  # Forzar renderizado
+            print("[DEBUG] Gráfico de barras agregado al layout")
 
         except Exception as e:
+            import traceback
             print(f"Error generando gráfico: {e}")
+            traceback.print_exc()
+
+    def _generar_grafico_formas_pago(self, ventas):
+        """Genera un gráfico de torta mostrando la distribución de formas de pago"""
+        try:
+            from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+            from matplotlib.figure import Figure
+            from collections import defaultdict
+
+            print(f"[DEBUG] Generando gráfico de torta con {len(ventas)} ventas")
+
+            # Limpiar contenedor anterior
+            for i in reversed(range(self.stats_pie_layout.count())):
+                widget = self.stats_pie_layout.itemAt(i).widget()
+                if widget:
+                    widget.deleteLater()
+
+            # Agrupar ventas por forma de pago
+            formas_pago = defaultdict(float)
+            for v in ventas:
+                modo = getattr(v, 'modo_pago', 'Desconocido') or 'Desconocido'
+                total = getattr(v, 'total', 0) or 0
+                formas_pago[modo] += total
+
+            print(f"[DEBUG] Formas de pago encontradas: {dict(formas_pago)}")
+
+            if not formas_pago:
+                print("[DEBUG] No hay formas de pago para mostrar")
+                return
+
+            # Crear figura
+            fig = Figure(figsize=(8, 5), dpi=100)
+            ax = fig.add_subplot(111)
+
+            # Datos para el gráfico
+            labels = list(formas_pago.keys())
+            sizes = list(formas_pago.values())
+            colors = ['#2e7d32', '#1976d2', '#f57c00', '#c62828'][:len(labels)]
+            explode = [0.05] * len(labels)  # Separar ligeramente todas las porciones
+
+            # Crear gráfico de torta
+            wedges, texts, autotexts = ax.pie(
+                sizes,
+                labels=labels,
+                autopct='%1.1f%%',
+                startangle=90,
+                colors=colors,
+                explode=explode
+            )
+
+            # Mejorar apariencia del texto
+            for autotext in autotexts:
+                autotext.set_color('white')
+                autotext.set_fontweight('bold')
+                autotext.set_fontsize(10)
+
+            for text in texts:
+                text.set_fontsize(11)
+                text.set_fontweight('bold')
+
+            ax.set_title('Distribución por Forma de Pago', fontsize=14, fontweight='bold')
+            ax.axis('equal')  # Para que sea circular
+
+            fig.tight_layout()
+
+            # Agregar canvas al layout
+            canvas = FigureCanvas(fig)
+            canvas.setMinimumHeight(350)  # Asegurar altura mínima
+            self.stats_pie_layout.addWidget(canvas)
+            canvas.draw()  # Forzar renderizado
+            print("[DEBUG] Gráfico de torta agregado al layout")
+
+        except Exception as e:
+            import traceback
+            print(f"Error generando gráfico de torta: {e}")
+            traceback.print_exc()
 
     def _generar_comparativa_sucursales(self, dt_min, dt_max, forma_txt):
         """Genera gráficos comparativos entre sucursales"""
@@ -477,7 +687,7 @@ class HistorialVentasWidget(QWidget):
             # Obtener datos por sucursal
             sucursales_data = {}
             for sucursal in ["Sarmiento", "Salta"]:
-                ventas = self.repo.listar_por_rango(dt_min, dt_max, sucursal=sucursal)
+                ventas = self._obtener_ventas_rango(dt_min, dt_max, sucursal=sucursal)
                 if forma_txt in ("efectivo", "tarjeta"):
                     ventas = [v for v in ventas if v.modo_pago.lower() == forma_txt]
 
@@ -525,19 +735,43 @@ class HistorialVentasWidget(QWidget):
 
             fig.tight_layout()
 
-            # Agregar canvas
+            # Agregar canvas con altura mínima
             canvas = FigureCanvas(fig)
+            canvas.setMinimumHeight(300)
+            canvas.setMaximumHeight(400)
             self.stats_comparativa_layout.addWidget(canvas)
 
-            # Agregar tabla resumen
+            # Agregar separador con espacio
+            self.stats_comparativa_layout.addSpacing(20)
+
+            # Agregar tabla resumen con separador visual
+            lbl_tabla = QLabel("Resumen Comparativo:")
+            lbl_tabla.setStyleSheet("font-weight: bold; font-size: 12px; margin-top: 15px; margin-bottom: 5px;")
+            self.stats_comparativa_layout.addWidget(lbl_tabla)
+
             tabla = QTableWidget(len(sucursales), 3)
             tabla.setHorizontalHeaderLabels(["Sucursal", "Total", "Promedio"])
-            tabla.setMaximumHeight(100)
+
+            # Calcular altura basada en filas
+            row_height = 30
+            header_height = 30
+            total_height = (row_height * len(sucursales)) + header_height + 10
+            tabla.setMinimumHeight(total_height)
+            tabla.setMaximumHeight(total_height + 20)
+
+            tabla.verticalHeader().setVisible(False)
+            tabla.horizontalHeader().setStretchLastSection(True)
+            tabla.setSelectionMode(QTableWidget.NoSelection)
+            tabla.setEditTriggers(QTableWidget.NoEditTriggers)
+
             for i, suc in enumerate(sucursales):
                 tabla.setItem(i, 0, QTableWidgetItem(suc))
                 tabla.setItem(i, 1, QTableWidgetItem(f"${sucursales_data[suc]['total']:,.2f}"))
                 tabla.setItem(i, 2, QTableWidgetItem(f"${sucursales_data[suc]['promedio']:,.2f}"))
+                tabla.setRowHeight(i, row_height)
+
             self.stats_comparativa_layout.addWidget(tabla)
+            self.stats_comparativa_layout.addStretch()  # Agregar stretch al final
 
         except Exception as e:
             print(f"Error generando comparativa: {e}")
@@ -565,12 +799,28 @@ class HistorialVentasWidget(QWidget):
                               key=lambda x: x[1]['cantidad'],
                               reverse=True)[:10]
 
-        # Actualizar tabla
+        # Actualizar tabla con altura ajustada
         self.stats_top_productos.setRowCount(len(top_productos))
+
+        # Altura fija por fila
+        row_height = 35
         for i, (nombre, stats) in enumerate(top_productos):
             self.stats_top_productos.setItem(i, 0, QTableWidgetItem(nombre))
             self.stats_top_productos.setItem(i, 1, QTableWidgetItem(str(int(stats['cantidad']))))
             self.stats_top_productos.setItem(i, 2, QTableWidgetItem(f"${stats['total']:,.2f}"))
+            self.stats_top_productos.setRowHeight(i, row_height)
+
+        # Ajustar altura según contenido
+        row_count = self.stats_top_productos.rowCount()
+        if row_count > 0:
+            header_height = self.stats_top_productos.horizontalHeader().height()
+            total_height = (row_height * row_count) + header_height + 20
+            self.stats_top_productos.setMinimumHeight(total_height)
+            self.stats_top_productos.setMaximumHeight(total_height + 30)
+        else:
+            # Si no hay productos, altura mínima
+            self.stats_top_productos.setMinimumHeight(100)
+            self.stats_top_productos.setMaximumHeight(100)
 
     def recargar_historial(self):
     # Alias compatible con llamadas existentes desde main_window
