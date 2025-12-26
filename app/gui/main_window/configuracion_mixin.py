@@ -716,6 +716,23 @@ class ConfiguracionMixin:
         scr_sc.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         tabs_cfg.addTab(scr_sc, "Accesos rápidos")
 
+        # ===== PÁGINA: SINCRONIZACIÓN =====
+        from app.gui.sync_config import SyncConfigPanel
+        page_sync = SyncConfigPanel(self)
+        try:
+            page_sync.setMinimumSize(0, 0)
+            page_sync.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.MinimumExpanding)
+        except Exception:
+            pass
+
+        scr_sync = QScrollArea(tabs_cfg)
+        scr_sync.setWidget(page_sync)
+        scr_sync.setWidgetResizable(True)
+        scr_sync.setFrameShape(QFrame.NoFrame)
+        scr_sync.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scr_sync.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        tabs_cfg.addTab(scr_sync, "Sincronización")
+
         return w
     def _apply_config_from_ui(self):
         """Guarda TODO y aplica cambios (tema, fuentes, impresoras, plantilla, TZ, etc.)."""
