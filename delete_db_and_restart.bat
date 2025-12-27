@@ -24,7 +24,28 @@ echo Esperando a que la aplicacion se cierre completamente...
 echo.
 
 REM Esperar más tiempo para que la app cierre
-timeout /t 8 /nobreak >nul
+timeout /t 3 /nobreak >nul
+
+REM CRÍTICO: Matar TODOS los procesos de la aplicación
+echo Verificando procesos de "Tu local 2025"...
+tasklist /FI "IMAGENAME eq Tu local 2025.exe" 2>NUL | find /I /N "Tu local 2025.exe">NUL
+if "%ERRORLEVEL%"=="0" (
+    echo Matando procesos de "Tu local 2025.exe"...
+    taskkill /F /IM "Tu local 2025.exe" >nul 2>&1
+    timeout /t 2 /nobreak >nul
+)
+
+echo Verificando archivos WAL/SHM...
+if exist "%~1-wal" (
+    echo Eliminando archivo WAL...
+    del /F /Q "%~1-wal" 2>nul
+)
+if exist "%~1-shm" (
+    echo Eliminando archivo SHM...
+    del /F /Q "%~1-shm" 2>nul
+)
+
+timeout /t 2 /nobreak >nul
 
 REM Intentar eliminar con reintentos
 set /a intentos=0

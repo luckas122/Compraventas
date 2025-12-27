@@ -18,7 +18,8 @@
       "Bash(find:*)",
       "Bash(git commit:*)",
       "Bash(pip install:*)",
-      "Bash(git tag:*)"
+      "Bash(git tag:*)",
+      "Bash(gh release:*)"
     ],
     "deny": [],
     "ask": []

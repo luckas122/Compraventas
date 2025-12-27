@@ -430,9 +430,24 @@ class BackupConfigPanel(QWidget):
                 # Cerrar la sesión actual
                 session.close()
 
-                # Intentar cerrar el engine completo
+                # Intentar cerrar el engine completo y forzar checkpoint WAL
                 from app.database import engine
+
+                # CRÍTICO: Forzar checkpoint de WAL antes de cerrar
+                # Esto libera los archivos -wal y -shm
+                try:
+                    with engine.connect() as conn:
+                        conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                        conn.commit()
+                except Exception as wal_err:
+                    print(f"[DELETE_DB] No se pudo hacer WAL checkpoint: {wal_err}")
+
+                # Dispose del engine (cierra todas las conexiones)
                 engine.dispose()
+
+                # Esperar un momento para que SQLite libere los file handles
+                import time
+                time.sleep(1)
             except Exception as e:
                 print(f"[DELETE_DB] Advertencia al cerrar sesiones: {e}")
 
