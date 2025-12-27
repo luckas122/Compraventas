@@ -45,7 +45,21 @@ if exist "%~1" (
         echo ERROR: No se pudo eliminar la base de datos despues de 5 intentos.
         echo El archivo sigue siendo usado por otro proceso.
         echo.
-        echo Verifica que la aplicacion se haya cerrado completamente.
+
+        REM Intentar identificar qué proceso tiene el archivo abierto
+        echo Buscando procesos que tienen el archivo abierto...
+        echo.
+
+        REM Método 1: Usar openfiles (requiere permisos admin pero viene con Windows)
+        openfiles /query /fo table | findstr /i "appcomprasventas.db" 2>nul
+        if errorlevel 1 (
+            echo No se pudo identificar el proceso ^(puede requerir permisos de admin^)
+        )
+
+        echo.
+        echo Procesos Python/Tu local 2025 en ejecucion:
+        tasklist | findstr /i "python Tu local" 2>nul
+
         echo.
         pause
         exit /b 1
