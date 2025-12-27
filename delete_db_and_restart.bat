@@ -6,15 +6,11 @@ echo ========================================
 echo   ELIMINANDO BASE DE DATOS
 echo ========================================
 echo.
-echo Esperando a que la aplicacion se cierre...
-timeout /t 5 /nobreak >nul
-
-echo.
 echo Ruta DB: %1
 echo Ruta App: %2
 echo.
 
-REM Verificar que la DB existe
+REM Verificar que la DB existe antes de esperar
 if not exist "%~1" (
     echo ERROR: No se encontro la base de datos en:
     echo %~1
@@ -23,23 +19,37 @@ if not exist "%~1" (
     exit /b 1
 )
 
-REM Mostrar info del archivo
-echo Archivo encontrado. Tamanio:
-dir "%~1" | find /i ".db"
+echo Archivo encontrado.
+echo Esperando a que la aplicacion se cierre completamente...
 echo.
 
-REM Intentar eliminar
-echo Eliminando base de datos...
+REM Esperar más tiempo para que la app cierre
+timeout /t 8 /nobreak >nul
+
+REM Intentar eliminar con reintentos
+set /a intentos=0
+:retry_delete
+set /a intentos+=1
+
+echo [Intento %intentos%/5] Eliminando base de datos...
 del /F /Q "%~1" 2>nul
 
 REM Verificar que se eliminó
 if exist "%~1" (
-    echo.
-    echo ERROR: No se pudo eliminar la base de datos.
-    echo El archivo puede estar siendo usado por otro proceso.
-    echo.
-    pause
-    exit /b 1
+    if %intentos% LSS 5 (
+        echo   Archivo aun en uso, esperando 2 segundos...
+        timeout /t 2 /nobreak >nul
+        goto retry_delete
+    ) else (
+        echo.
+        echo ERROR: No se pudo eliminar la base de datos despues de 5 intentos.
+        echo El archivo sigue siendo usado por otro proceso.
+        echo.
+        echo Verifica que la aplicacion se haya cerrado completamente.
+        echo.
+        pause
+        exit /b 1
+    )
 ) else (
     echo.
     echo [OK] Base de datos eliminada exitosamente
