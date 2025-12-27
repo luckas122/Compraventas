@@ -470,9 +470,13 @@ class BackupConfigPanel(QWidget):
                 return
 
             # Cerrar la aplicación INMEDIATAMENTE sin mostrar más mensajes
-            # El módulo delete_db_manager se encargará de eliminar la DB y reiniciar
-            from PyQt5.QtWidgets import QApplication
-            QApplication.quit()
+            # IMPORTANTE: Usar os._exit() para forzar cierre completo del proceso
+            # QApplication.quit() no cierra inmediatamente, deja conexiones abiertas
+            import os
+            import sys
+
+            # Forzar cierre inmediato del proceso (no espera event loop)
+            os._exit(0)
 
         except Exception as e:
             import traceback
