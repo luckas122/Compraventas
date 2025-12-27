@@ -274,12 +274,26 @@ class Updater:
 
                 # 🔄 Buscar el ejecutable dentro de source_dir
                 # Puede llamarse igual que __app_name__ o tener otro nombre
+                # Buscar recursivamente en caso de que esté en subcarpetas
                 exe_files = list(source_dir.glob("*.exe"))
-                if not exe_files:
-                    raise Exception("No se encontró ningún archivo .exe en el ZIP descargado")
 
-                # Usar el primer .exe encontrado (debería ser el único)
-                source_exe_name = exe_files[0].name
+                # Si no se encuentra en la raíz, buscar en subcarpetas
+                if not exe_files:
+                    exe_files = list(source_dir.rglob("*.exe"))
+
+                # Filtrar archivos internos de PyInstaller (pythonw.exe, python.exe, etc.)
+                exe_files = [e for e in exe_files if e.stem.lower() not in ('python', 'pythonw', 'pythoncom')]
+
+                if not exe_files:
+                    raise Exception(
+                        "No se encontró ningún archivo .exe en el ZIP descargado.\n\n"
+                        f"Contenido de {source_dir}:\n" +
+                        "\n".join([f"  - {p.name}" for p in source_dir.iterdir()][:20])
+                    )
+
+                # Usar el primer .exe encontrado (preferir el que esté en la raíz)
+                exe_files_root = [e for e in exe_files if e.parent == source_dir]
+                source_exe_name = (exe_files_root[0] if exe_files_root else exe_files[0]).name
 
                 # El ejecutable destino mantiene el mismo nombre
                 relaunch_exe = install_dir / source_exe_name

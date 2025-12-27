@@ -1460,7 +1460,7 @@ class ConfiguracionMixin:
             cfg["ticket"] = tk
             save_config(cfg)
 
-            # Actualizar UI
+            # Actualizar UI (tanto el combo de slots como los de pago)
             self._tpl_build_slot_combo()
             self._tpl_build_payment_combos()
             self.statusBar().showMessage(f"Plantilla renombrada a: {new_name.strip()}", 3000)

@@ -1458,7 +1458,27 @@ class VentasMixin:
         try:
             from app.afip_integration import crear_cliente_afip
             cfg = _load_cfg()
-            client = crear_cliente_afip(cfg.get("afip", {}))
+            # CORRECCIÓN: La sección se llama "fiscal" no "afip"
+            fiscal_config = cfg.get("fiscal", {}).copy()  # Copiar para no modificar original
+
+            # Mapear access_token desde afipsdk.api_key si existe
+            if "afipsdk" in fiscal_config and "api_key" in fiscal_config["afipsdk"]:
+                fiscal_config["access_token"] = fiscal_config["afipsdk"]["api_key"]
+
+            # Mapear environment desde mode (test -> dev, prod -> prod)
+            mode = fiscal_config.get("mode", "test")
+            if mode == "test":
+                fiscal_config["environment"] = "dev"
+            elif mode == "prod":
+                fiscal_config["environment"] = "prod"
+            else:
+                fiscal_config["environment"] = "dev"  # Fallback
+
+            # Mapear only_card_payments desde only_card
+            if "only_card" in fiscal_config:
+                fiscal_config["only_card_payments"] = fiscal_config["only_card"]
+
+            client = crear_cliente_afip(fiscal_config)
             if not client:
                 return  # AFIP deshabilitado
         except Exception as e:
@@ -1472,6 +1492,12 @@ class VentasMixin:
         subtotal = round(total / (1.0 + iva_rate), 2)
         iva = round(total - subtotal, 2)
 
+        # Debug: Mostrar configuración que se está usando
+        print(f"[AFIP DEBUG] Config: enabled={fiscal_config.get('enabled')}, "
+              f"environment={fiscal_config.get('environment')}, "
+              f"cuit={fiscal_config.get('cuit')}, "
+              f"has_api_key={bool(fiscal_config.get('access_token'))}")
+
         # Emitir factura
         try:
             response = client.emitir_factura_b(
@@ -1482,11 +1508,34 @@ class VentasMixin:
             )
         except Exception as e:
             print(f"[AFIP] Error al emitir factura: {e}", file=sys.stderr)
-            QMessageBox.warning(
-                self,
-                "AFIP",
-                f"Error al emitir comprobante electrónico:\n{e}"
-            )
+            import traceback
+            traceback.print_exc()
+
+            # Mensaje de error más específico según el tipo
+            error_msg = str(e)
+            if "400" in error_msg or "Bad Request" in error_msg:
+                error_detail = (
+                    "Error 400: Bad Request\n\n"
+                    "Posibles causas:\n"
+                    "• API Key inválida o sin permisos\n"
+                    "• CUIT no registrado con esta API Key\n"
+                    "• Modo (test/prod) incorrecto\n\n"
+                    f"Verifica la configuración en:\n"
+                    f"Configuración → Facturación Electrónica\n\n"
+                    f"CUIT actual: {fiscal_config.get('cuit')}\n"
+                    f"Modo: {fiscal_config.get('mode')}\n\n"
+                    f"Error técnico: {error_msg}"
+                )
+            elif "401" in error_msg or "Unauthorized" in error_msg:
+                error_detail = (
+                    "Error 401: No autorizado\n\n"
+                    "La API Key es inválida o ha expirado.\n"
+                    "Verifica en Configuración → Facturación Electrónica"
+                )
+            else:
+                error_detail = f"Error al emitir comprobante electrónico:\n\n{error_msg}"
+
+            QMessageBox.warning(self, "AFIP - Error", error_detail)
             return
 
         # Guardar CAE si fue exitoso

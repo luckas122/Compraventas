@@ -22,8 +22,31 @@ class BackupConfigPanel(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.MinimumExpanding)
+
+        # El parent es ConfiguracionMixin, no MainWindow directamente
+        # Necesitamos obtener el MainWindow desde el parent
+        self.main_window = parent
+
         self._build_ui()
         self._load_cfg()
+
+    def get_main_window(self):
+        """
+        Obtiene el MainWindow navegando por la jerarquía.
+        ConfiguracionMixin es parte de MainWindow (herencia múltiple).
+        """
+        # El parent (ConfiguracionMixin) ES el MainWindow porque usa herencia múltiple
+        if self.main_window and hasattr(self.main_window, 'session'):
+            return self.main_window
+
+        # Si no, intentar con parent()
+        widget = self.parent()
+        while widget:
+            if hasattr(widget, 'session') and hasattr(widget, 'usuario_actual'):
+                return widget
+            widget = widget.parent()
+
+        return None
 
     def _build_ui(self):
         root = QVBoxLayout(self)
@@ -117,9 +140,29 @@ class BackupConfigPanel(QWidget):
         row_actions.addStretch()
         row_actions.addWidget(self.btn_restore)
         root.addLayout(row_actions)
-        
-        
-        
+
+        # Botón de acción peligrosa (discreto)
+        row_danger = QHBoxLayout()
+        row_danger.addStretch()
+
+        self.btn_delete_db = QPushButton("Eliminar Base de Datos", self)
+        self.btn_delete_db.setStyleSheet("""
+            QPushButton {
+                background-color: #d32f2f;
+                color: white;
+                padding: 4px 10px;
+                font-size: 9pt;
+            }
+            QPushButton:hover {
+                background-color: #c62828;
+            }
+        """)
+        self.btn_delete_db.clicked.connect(self._delete_database)
+        row_danger.addWidget(self.btn_delete_db)
+
+        root.addLayout(row_danger)
+
+
         self.btn_restore.clicked.connect(lambda: self.backupRestaurarSolicitado.emit())
         self.btn_guardar.clicked.connect(self._save_clicked)
         self.btn_manual.clicked.connect(lambda: self.backupManualSolicitado.emit())
@@ -229,3 +272,213 @@ class BackupConfigPanel(QWidget):
         d = QFileDialog.getExistingDirectory(self, "Elegir carpeta para backups", self.edt_dir.text().strip() or "")
         if d:
             self.edt_dir.setText(d)
+
+    def _delete_database(self):
+        """
+        Elimina la base de datos completa con triple validación de contraseña de administrador.
+        """
+        from PyQt5.QtWidgets import QInputDialog
+        from app.repository import UsuarioRepo
+
+        # Obtener MainWindow usando el método dedicado
+        main_window = self.get_main_window()
+
+        if not main_window:
+            QMessageBox.critical(self, "Error",
+                "No se pudo acceder a la ventana principal.\n"
+                "Detalles de debug:\n"
+                f"- parent: {self.parent()}\n"
+                f"- parent type: {type(self.parent())}\n"
+                f"- has session: {hasattr(self.parent(), 'session') if self.parent() else 'N/A'}")
+            return
+
+        try:
+            session = main_window.session
+            # MainWindow almacena es_admin como boolean, no como usuario_actual
+            es_admin = getattr(main_window, 'es_admin', False)
+
+            # Verificar que el usuario actual sea administrador
+            if not es_admin:
+                QMessageBox.warning(self, "Acceso Denegado",
+                                  "Solo los administradores pueden eliminar la base de datos.")
+                return
+
+            # Obtener usuarios admin desde el repositorio para validación de contraseña
+            from app.repository import UsuarioRepo
+            repo = UsuarioRepo(session)
+            usuarios_admin = [u for u in repo.listar() if u.es_admin]
+
+            if not usuarios_admin:
+                QMessageBox.critical(self, "Error",
+                    "No se encontraron usuarios administradores en el sistema.")
+                return
+
+            # Si hay un solo admin, usarlo directamente; si hay múltiples, pedir selección
+            if len(usuarios_admin) == 1:
+                usuario_actual = usuarios_admin[0]
+            else:
+                # Si hay múltiples, pedir selección
+                from PyQt5.QtWidgets import QInputDialog
+                nombres = [u.username for u in usuarios_admin]
+                nombre_sel, ok = QInputDialog.getItem(
+                    self, "Seleccionar Administrador",
+                    "Seleccione su usuario administrador:", nombres, 0, False
+                )
+                if not ok:
+                    return
+                usuario_actual = next(u for u in usuarios_admin if u.username == nombre_sel)
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            QMessageBox.critical(self, "Error",
+                f"No se pudo verificar permisos:\n{e}")
+            return
+
+        # Advertencia final
+        reply = QMessageBox.question(
+            self, "⚠️ CONFIRMACIÓN FINAL",
+            "¿Está ABSOLUTAMENTE SEGURO de que desea eliminar TODA la base de datos?\n\n"
+            "Esta acción:\n"
+            "• Eliminará TODOS los productos\n"
+            "• Eliminará TODAS las ventas\n"
+            "• Eliminará TODOS los proveedores\n"
+            "• Eliminará TODOS los usuarios\n"
+            "• NO SE PUEDE DESHACER\n\n"
+            "Deberá ingresar su contraseña de administrador 3 VECES para confirmar.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+
+        if reply != QMessageBox.Yes:
+            return
+
+        # Triple validación de contraseña
+        repo = UsuarioRepo(session)
+        username = usuario_actual.username
+
+        for intento in range(1, 4):
+            password, ok = QInputDialog.getText(
+                self,
+                f"Validación {intento}/3",
+                f"Ingrese su contraseña de administrador ({intento}/3):",
+                QLineEdit.Password
+            )
+
+            if not ok:
+                QMessageBox.information(self, "Cancelado", "Operación cancelada.")
+                return
+
+            # Verificar contraseña
+            usuario_verificado = repo.verificar(username, password)
+            if not usuario_verificado:
+                QMessageBox.critical(
+                    self, "Error de Validación",
+                    f"Contraseña incorrecta en el intento {intento}/3.\n\n"
+                    "Operación cancelada por seguridad."
+                )
+                return
+
+        # Si llegamos aquí, las 3 contraseñas fueron correctas
+        QMessageBox.information(
+            self, "Validación Exitosa",
+            "Contraseña verificada 3 veces.\n\n"
+            "Procediendo a eliminar la base de datos..."
+        )
+
+        # Eliminar la base de datos
+        try:
+            import os
+            import sys
+            import subprocess
+            from pathlib import Path
+
+            # Obtener la ruta real de la base de datos desde la sesión
+            db_path = None
+            try:
+                bind = getattr(session, "bind", None)
+                if bind is not None and getattr(bind, "url", None) is not None:
+                    if bind.url.get_backend_name() == "sqlite":
+                        db_path = bind.url.database
+            except Exception as e:
+                QMessageBox.critical(self, "Error",
+                    f"No se pudo obtener la ruta de la base de datos:\n{e}")
+                return
+
+            if not db_path:
+                QMessageBox.critical(self, "Error",
+                    "No se pudo determinar la ruta de la base de datos.")
+                return
+
+            if not os.path.exists(db_path):
+                QMessageBox.warning(self, "Base de Datos",
+                                  f"No se encontró la base de datos en:\n{db_path}")
+                return
+
+            # Determinar la ruta del ejecutable/script principal
+            if getattr(sys, 'frozen', False):
+                # Ejecutable (PyInstaller)
+                app_path = sys.executable
+                helper_script = Path(sys.executable).parent / "delete_db_helper.exe"
+                # Si no existe el helper compilado, usar el .py
+                if not helper_script.exists():
+                    helper_script = Path(sys.executable).parent / "delete_db_helper.py"
+            else:
+                # Modo desarrollo
+                app_path = str(Path(__file__).parent.parent.parent / "main.py")
+                helper_script = Path(__file__).parent.parent.parent / "delete_db_helper.py"
+
+            if not helper_script.exists():
+                QMessageBox.critical(self, "Error",
+                    f"No se encontró el script helper en:\n{helper_script}")
+                return
+
+            # Cerrar TODAS las sesiones de la base de datos
+            try:
+                # Cerrar la sesión actual
+                session.close()
+
+                # Intentar cerrar el engine completo
+                from app.database import engine
+                engine.dispose()
+            except Exception as e:
+                print(f"[DELETE_DB] Advertencia al cerrar sesiones: {e}")
+
+            # Lanzar el script helper que eliminará la DB y reiniciará la app
+            try:
+                if str(helper_script).endswith('.exe'):
+                    # Helper compilado
+                    subprocess.Popen(
+                        [str(helper_script), db_path, app_path],
+                        creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+                    )
+                else:
+                    # Helper como script Python
+                    subprocess.Popen(
+                        [sys.executable, str(helper_script), db_path, app_path],
+                        creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+                    )
+            except Exception as e:
+                QMessageBox.critical(self, "Error",
+                    f"No se pudo lanzar el script de eliminación:\n{e}")
+                return
+
+            # Mostrar mensaje informativo
+            QMessageBox.information(
+                self, "Eliminando Base de Datos",
+                "La base de datos será eliminada y la aplicación se reiniciará.\n\n"
+                "Este proceso tomará unos segundos."
+            )
+
+            # Cerrar la aplicación INMEDIATAMENTE
+            # El script helper se encargará de eliminar la DB y reiniciar
+            from PyQt5.QtWidgets import QApplication
+            QApplication.quit()
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            QMessageBox.critical(
+                self, "Error al Eliminar",
+                f"No se pudo eliminar la base de datos:\n\n{e}"
+            )

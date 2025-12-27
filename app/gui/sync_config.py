@@ -73,10 +73,18 @@ class SyncConfigPanel(QWidget):
         self.ed_smtp_host.setPlaceholderText("smtp.gmail.com")
         lay_smtp.addRow("Host:", self.ed_smtp_host)
 
+        # Puerto SMTP con checkbox de bloqueo
+        row_smtp_port = QHBoxLayout()
         self.spn_smtp_port = QSpinBox()
         self.spn_smtp_port.setRange(1, 65535)
         self.spn_smtp_port.setValue(587)
-        lay_smtp.addRow("Puerto:", self.spn_smtp_port)
+        self.spn_smtp_port.setEnabled(False)  # Bloqueado por defecto
+        self.chk_edit_smtp_port = QCheckBox("Permitir edición")
+        self.chk_edit_smtp_port.toggled.connect(self.spn_smtp_port.setEnabled)
+        row_smtp_port.addWidget(self.spn_smtp_port)
+        row_smtp_port.addWidget(self.chk_edit_smtp_port)
+        row_smtp_port.addStretch()
+        lay_smtp.addRow("Puerto:", row_smtp_port)
 
         self.ed_smtp_user = QLineEdit()
         self.ed_smtp_user.setPlaceholderText("tu-email@gmail.com")
@@ -105,10 +113,18 @@ class SyncConfigPanel(QWidget):
         self.ed_imap_host.setPlaceholderText("imap.gmail.com")
         lay_imap.addRow("Host:", self.ed_imap_host)
 
+        # Puerto IMAP con checkbox de bloqueo
+        row_imap_port = QHBoxLayout()
         self.spn_imap_port = QSpinBox()
         self.spn_imap_port.setRange(1, 65535)
         self.spn_imap_port.setValue(993)
-        lay_imap.addRow("Puerto:", self.spn_imap_port)
+        self.spn_imap_port.setEnabled(False)  # Bloqueado por defecto
+        self.chk_edit_imap_port = QCheckBox("Permitir edición")
+        self.chk_edit_imap_port.toggled.connect(self.spn_imap_port.setEnabled)
+        row_imap_port.addWidget(self.spn_imap_port)
+        row_imap_port.addWidget(self.chk_edit_imap_port)
+        row_imap_port.addStretch()
+        lay_imap.addRow("Puerto:", row_imap_port)
 
         self.ed_imap_user = QLineEdit()
         self.ed_imap_user.setPlaceholderText("tu-email@gmail.com (mismo que SMTP)")
