@@ -125,7 +125,7 @@ a = Analysis(
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
-    runtime_hooks=["pyi_rth_bootstrap.py"],
+    runtime_hooks=["pyi_rth_bootstrap.py", "pyi_rth_copy_bat.py"],
     excludes=[],
     noarchive=False,
 )

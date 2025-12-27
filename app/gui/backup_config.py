@@ -440,11 +440,17 @@ class BackupConfigPanel(QWidget):
             try:
                 if is_frozen:
                     # En frozen: usar script .bat que está junto al .exe
-                    bat_script = Path(sys.executable).parent / "delete_db_and_restart.bat"
+                    exe_dir = Path(sys.executable).parent
+                    bat_script = exe_dir / "delete_db_and_restart.bat"
 
                     if not bat_script.exists():
+                        # Debug: mostrar contenido del directorio
+                        import os
+                        files_in_dir = "\n".join([f"  - {f}" for f in os.listdir(exe_dir)][:20])
                         QMessageBox.critical(self, "Error",
-                            f"No se encontró el script de eliminación en:\n{bat_script}")
+                            f"No se encontró el script de eliminación en:\n{bat_script}\n\n"
+                            f"Directorio del .exe: {exe_dir}\n\n"
+                            f"Archivos encontrados:\n{files_in_dir}")
                         return
 
                     # Lanzar el .bat con ventana visible
