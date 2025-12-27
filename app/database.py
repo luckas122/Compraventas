@@ -9,7 +9,22 @@ APP_DIRNAME = "CompraventasV2"
 DB_FILENAME = "appcomprasventas.db"
 
 def _user_data_dir() -> Path:
-    # %APPDATA% (Roaming) en Windows; si no existe, cae a HOME/.CompraventasV2
+    """
+    Retorna la carpeta donde se guarda la DB en modo frozen.
+    Si la app se instaló en %LOCALAPPDATA%\Compraventas\app\, usa esa misma carpeta.
+    Sino, usa %APPDATA%\CompraventasV2 (legacy).
+    """
+    if getattr(sys, "frozen", False):
+        # En frozen, intentar usar la misma carpeta donde está el ejecutable
+        exe_parent = Path(sys.executable).parent
+
+        # Verificar si estamos en la estructura esperada (%LOCALAPPDATA%\Compraventas\app\)
+        localappdata = os.environ.get("LOCALAPPDATA")
+        if localappdata and "Compraventas" in str(exe_parent):
+            # Usar la misma carpeta del ejecutable
+            return exe_parent
+
+    # Fallback: usar %APPDATA%\CompraventasV2 (legacy)
     appdata = os.environ.get("APPDATA")
     if appdata:
         base = Path(appdata) / APP_DIRNAME

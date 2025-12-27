@@ -17,7 +17,8 @@
       "Bash(if exist test_tipos_comprobante.py del test_tipos_comprobante.py)",
       "Bash(find:*)",
       "Bash(git commit:*)",
-      "Bash(pip install:*)"
+      "Bash(pip install:*)",
+      "Bash(git tag:*)"
     ],
     "deny": [],
     "ask": []
