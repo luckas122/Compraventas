@@ -437,9 +437,10 @@ class BackupConfigPanel(QWidget):
             # Lanzar el módulo delete_db_manager que eliminará la DB y reiniciará la app
             try:
                 # Usar python -m para ejecutar el módulo (funciona tanto en frozen como desarrollo)
+                # Ventana visible para debugging
                 subprocess.Popen(
                     [sys.executable, "-m", "app.delete_db_manager", db_path, app_path],
-                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+                    creationflags=subprocess.CREATE_NEW_CONSOLE if os.name == 'nt' else 0
                 )
             except Exception as e:
                 QMessageBox.critical(self, "Error",

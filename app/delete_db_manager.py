@@ -19,18 +19,42 @@ def delete_and_restart(db_path: str, app_path: str):
     """
     print(f"[DELETE_DB_MANAGER] Esperando a que la aplicación se cierre...")
     # Esperar un poco para asegurar que la aplicación se cerró completamente
-    time.sleep(2)
+    time.sleep(4)
 
     # Intentar eliminar la base de datos
     print(f"[DELETE_DB_MANAGER] Eliminando base de datos: {db_path}")
+    print(f"[DELETE_DB_MANAGER] Verificando si existe...")
+
     try:
         if os.path.exists(db_path):
+            print(f"[DELETE_DB_MANAGER] ✓ Archivo encontrado, intentando eliminar...")
+
+            # Verificar que no esté en uso
+            import stat
+            file_stat = os.stat(db_path)
+            print(f"[DELETE_DB_MANAGER] Tamaño: {file_stat.st_size} bytes")
+            print(f"[DELETE_DB_MANAGER] Permisos: {stat.filemode(file_stat.st_mode)}")
+
+            # Intentar eliminar
             os.remove(db_path)
             print(f"[DELETE_DB_MANAGER] ✓ Base de datos eliminada exitosamente")
+
+            # Verificar que realmente se eliminó
+            if os.path.exists(db_path):
+                print(f"[DELETE_DB_MANAGER] ✗ ADVERTENCIA: El archivo sigue existiendo después de eliminarlo!")
+                return False
+            else:
+                print(f"[DELETE_DB_MANAGER] ✓ Confirmado: archivo eliminado del sistema")
         else:
             print(f"[DELETE_DB_MANAGER] ⚠ La base de datos no existe en: {db_path}")
+    except PermissionError as e:
+        print(f"[DELETE_DB_MANAGER] ✗ Error de permisos al eliminar la base de datos: {e}")
+        print(f"[DELETE_DB_MANAGER] El archivo puede estar siendo usado por otro proceso")
+        return False
     except Exception as e:
         print(f"[DELETE_DB_MANAGER] ✗ Error al eliminar la base de datos: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
     # Reiniciar la aplicación
