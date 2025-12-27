@@ -40,7 +40,7 @@ class SyncManager:
     def detectar_cambios_pendientes(self) -> bool:
         """
         Detecta si hay cambios pendientes de sincronizar.
-        Revisa si hay ventas/productos nuevos o modificados desde última sync.
+        Revisa si hay ventas/productos/proveedores nuevos o modificados desde última sync.
         """
         # Obtener timestamp de última sincronización enviada
         ultima_sync = self.session.query(SyncLog).filter(
@@ -52,16 +52,23 @@ class SyncManager:
             # Primera vez: considerar todo como pendiente si hay datos
             ventas_count = self.session.query(Venta).count()
             productos_count = self.session.query(Producto).count()
-            return (ventas_count > 0 or productos_count > 0)
+            proveedores_count = self.session.query(Proveedor).count()
+            return (ventas_count > 0 or productos_count > 0 or proveedores_count > 0)
 
         # Verificar si hay ventas nuevas desde la última sync
         ventas_nuevas = self.session.query(Venta).filter(
             Venta.fecha > ultima_sync.timestamp
         ).count()
 
-        # Por ahora solo sincronizamos ventas nuevas
-        # En fase 2 agregaremos productos modificados
-        return ventas_nuevas > 0
+        # Fase 2: Detectar cambios en productos y proveedores
+        # Como no tienen timestamp, sincronizamos todo siempre (o usar hash para optimizar)
+        sync_productos = self.sync_config.get("sync_productos", False)
+        sync_proveedores = self.sync_config.get("sync_proveedores", False)
+
+        cambios_productos = sync_productos and self.session.query(Producto).count() > 0
+        cambios_proveedores = sync_proveedores and self.session.query(Proveedor).count() > 0
+
+        return ventas_nuevas > 0 or cambios_productos or cambios_proveedores
 
     def generar_paquete_cambios(self, desde: Optional[datetime] = None) -> Dict:
         """
@@ -146,6 +153,69 @@ class SyncManager:
                 "data": venta_data,
                 "hash": self._calcular_hash(venta_data)
             })
+
+        # 2. Sincronizar productos (si está habilitado)
+        if self.sync_config.get("sync_productos", False):
+            productos = self.session.query(Producto).all()
+            for producto in productos:
+                producto_data = {
+                    "id": producto.id,
+                    "codigo_barra": producto.codigo_barra,
+                    "nombre": producto.nombre,
+                    "precio": producto.precio,
+                    "categoria": producto.categoria,
+                    "telefono": producto.telefono,
+                    "numero_cuenta": producto.numero_cuenta,
+                    "cbu": producto.cbu
+                }
+
+                # Verificar si ya fue sincronizado con el mismo hash
+                data_hash = self._calcular_hash(producto_data)
+                ya_sincronizado = self.session.query(SyncLog).filter(
+                    SyncLog.tipo == "producto",
+                    SyncLog.data_hash == data_hash,
+                    SyncLog.sucursal_origen == self.sucursal_local
+                ).first()
+
+                if not ya_sincronizado:
+                    sync_id = self._generar_sync_id()
+                    cambios.append({
+                        "sync_id": sync_id,
+                        "tipo": "producto",
+                        "accion": "upsert",  # create or update
+                        "data": producto_data,
+                        "hash": data_hash
+                    })
+
+        # 3. Sincronizar proveedores (si está habilitado)
+        if self.sync_config.get("sync_proveedores", False):
+            proveedores = self.session.query(Proveedor).all()
+            for proveedor in proveedores:
+                proveedor_data = {
+                    "id": proveedor.id,
+                    "nombre": proveedor.nombre,
+                    "telefono": proveedor.telefono,
+                    "numero_cuenta": proveedor.numero_cuenta,
+                    "cbu": proveedor.cbu
+                }
+
+                # Verificar si ya fue sincronizado con el mismo hash
+                data_hash = self._calcular_hash(proveedor_data)
+                ya_sincronizado = self.session.query(SyncLog).filter(
+                    SyncLog.tipo == "proveedor",
+                    SyncLog.data_hash == data_hash,
+                    SyncLog.sucursal_origen == self.sucursal_local
+                ).first()
+
+                if not ya_sincronizado:
+                    sync_id = self._generar_sync_id()
+                    cambios.append({
+                        "sync_id": sync_id,
+                        "tipo": "proveedor",
+                        "accion": "upsert",  # create or update
+                        "data": proveedor_data,
+                        "hash": data_hash
+                    })
 
         # Construir paquete completo
         paquete = {
@@ -328,6 +398,10 @@ Cambios: {len(paquete['cambios'])} registros
                 # Aplicar según tipo
                 if tipo == "venta" and accion == "create":
                     self._aplicar_venta_nueva(data, sucursal_origen)
+                elif tipo == "producto" and accion == "upsert":
+                    self._aplicar_producto_upsert(data)
+                elif tipo == "proveedor" and accion == "upsert":
+                    self._aplicar_proveedor_upsert(data)
 
                 # Registrar en SyncLog
                 log = SyncLog(
@@ -399,6 +473,66 @@ Cambios: {len(paquete['cambios'])} registros
                 precio_unit=item_data["precio_unit"]
             )
             self.session.add(item)
+
+    def _aplicar_producto_upsert(self, producto_data: Dict):
+        """
+        Aplica un producto recibido (create o update).
+        Usa código de barras como clave única.
+        """
+        codigo_barra = producto_data["codigo_barra"]
+
+        # Buscar si existe por código de barras
+        producto = self.session.query(Producto).filter_by(
+            codigo_barra=codigo_barra
+        ).first()
+
+        if producto:
+            # UPDATE: Actualizar campos
+            producto.nombre = producto_data["nombre"]
+            producto.precio = producto_data["precio"]
+            producto.categoria = producto_data.get("categoria")
+            producto.telefono = producto_data.get("telefono")
+            producto.numero_cuenta = producto_data.get("numero_cuenta")
+            producto.cbu = producto_data.get("cbu")
+        else:
+            # CREATE: Crear nuevo producto
+            producto = Producto(
+                codigo_barra=codigo_barra,
+                nombre=producto_data["nombre"],
+                precio=producto_data["precio"],
+                categoria=producto_data.get("categoria"),
+                telefono=producto_data.get("telefono"),
+                numero_cuenta=producto_data.get("numero_cuenta"),
+                cbu=producto_data.get("cbu")
+            )
+            self.session.add(producto)
+
+    def _aplicar_proveedor_upsert(self, proveedor_data: Dict):
+        """
+        Aplica un proveedor recibido (create o update).
+        Usa nombre como clave única (o podrías usar ID si prefieres).
+        """
+        nombre = proveedor_data["nombre"]
+
+        # Buscar si existe por nombre (asumiendo que nombre es único)
+        proveedor = self.session.query(Proveedor).filter_by(
+            nombre=nombre
+        ).first()
+
+        if proveedor:
+            # UPDATE: Actualizar campos
+            proveedor.telefono = proveedor_data.get("telefono")
+            proveedor.numero_cuenta = proveedor_data.get("numero_cuenta")
+            proveedor.cbu = proveedor_data.get("cbu")
+        else:
+            # CREATE: Crear nuevo proveedor
+            proveedor = Proveedor(
+                nombre=nombre,
+                telefono=proveedor_data.get("telefono"),
+                numero_cuenta=proveedor_data.get("numero_cuenta"),
+                cbu=proveedor_data.get("cbu")
+            )
+            self.session.add(proveedor)
 
     def ejecutar_sincronizacion_completa(self) -> Dict:
         """

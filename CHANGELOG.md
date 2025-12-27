@@ -4,6 +4,64 @@ Todos los cambios notables de este proyecto serán documentados en este archivo.
 
 ---
 
+## [2.6.0] - 2025-12-26
+
+### Agregado
+- **🎉 Fase 2 de Sincronización: Productos y Proveedores**
+  - Sincronización automática de productos entre sucursales
+    - Identificación por código de barras (clave única)
+    - Acción UPSERT: crea si no existe, actualiza si ya existe
+    - Prevención de duplicados con hashing MD5
+  - Sincronización automática de proveedores entre sucursales
+    - Identificación por nombre (clave única)
+    - Acción UPSERT: crea si no existe, actualiza si ya existe
+    - Prevención de duplicados con hashing MD5
+  - Checkboxes habilitados en UI de configuración
+  - Tooltips explicativos para cada opción de sincronización
+  - Documentación completa en `SYNC_FASE2_PRODUCTOS_PROVEEDORES.md`
+
+### Modificado
+- **app/sync_manager.py:**
+  - `detectar_cambios_pendientes()` - Detecta cambios en productos/proveedores
+  - `generar_paquete_cambios()` - Incluye productos/proveedores en paquete JSON
+  - `aplicar_paquete()` - Routing para aplicar productos/proveedores
+  - `_aplicar_producto_upsert()` - NUEVO método para aplicar productos
+  - `_aplicar_proveedor_upsert()` - NUEVO método para aplicar proveedores
+- **app/gui/sync_config.py:**
+  - Checkboxes de productos/proveedores ahora habilitados (antes disabled)
+  - Label "✓ Ventas (siempre activo)" agregado
+  - Tooltips informativos en checkboxes
+- **app/app_config.json:**
+  - Agregada sección "sync" completa si faltaba
+  - Valores por defecto para `sync_productos` y `sync_proveedores`
+
+### Técnico
+- `app/sync_manager.py:40-71` - Detección de cambios en productos/proveedores
+- `app/sync_manager.py:157-218` - Serialización de productos/proveedores
+- `app/sync_manager.py:401-404` - Routing en `aplicar_paquete()`
+- `app/sync_manager.py:477-535` - Métodos `_aplicar_producto_upsert()` y `_aplicar_proveedor_upsert()`
+- `app/gui/sync_config.py:148-173` - UI actualizada con checkboxes habilitados
+- `app/app_config.json:213-232` - Configuración de sincronización
+
+### Notas de Actualización
+- **IMPORTANTE:** Esta versión habilita la sincronización de productos y proveedores
+- Para activar: Config → Sincronización → Marcar checkboxes correspondientes
+- Los productos se sincronizan por código de barras (debe ser único)
+- Los proveedores se sincronizan por nombre (debe ser único)
+- Primera sincronización puede tomar tiempo si hay muchos productos
+- Sistema usa hashing MD5 para evitar reenviar datos no modificados
+
+### Flujo de Prueba
+1. Configurar Gmail en ambas sucursales (misma cuenta)
+2. Habilitar sincronización y marcar checkboxes de productos/proveedores
+3. Agregar producto en Sucursal A
+4. Esperar 5 minutos (o hacer sync manual)
+5. Verificar que producto aparece en Sucursal B
+6. Editar producto en Sucursal B
+7. Verificar que cambios se reflejan en Sucursal A
+
+---
+
 ## [2.5.2] - 2025-12-26
 
 ### Corregido

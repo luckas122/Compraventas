@@ -146,15 +146,30 @@ class SyncConfigPanel(QWidget):
         root.addWidget(gb_imap)
 
         # ===== GRUPO: OPCIONES AVANZADAS =====
-        gb_avanzado = QGroupBox("Opciones avanzadas")
+        gb_avanzado = QGroupBox("¿Qué sincronizar?")
         lay_avanzado = QFormLayout(gb_avanzado)
 
-        self.chk_sync_productos = QCheckBox("Sincronizar productos (Fase 2)")
-        self.chk_sync_productos.setEnabled(False)  # Fase 2
+        # Ventas siempre se sincronizan (no tiene checkbox)
+        lbl_ventas = QLabel("✓ Ventas (siempre activo)")
+        lbl_ventas.setStyleSheet("color: green; font-weight: bold;")
+        lay_avanzado.addRow(lbl_ventas)
+
+        self.chk_sync_productos = QCheckBox("Sincronizar productos")
+        self.chk_sync_productos.setEnabled(True)  # ✅ Ahora habilitado en Fase 2
+        self.chk_sync_productos.setToolTip(
+            "Si está marcado, sincroniza todos los productos entre sucursales.\n"
+            "Los productos se identifican por código de barras.\n"
+            "Si un producto existe en ambas sucursales, se actualiza con los datos más recientes."
+        )
         lay_avanzado.addRow(self.chk_sync_productos)
 
-        self.chk_sync_proveedores = QCheckBox("Sincronizar proveedores (Fase 2)")
-        self.chk_sync_proveedores.setEnabled(False)  # Fase 2
+        self.chk_sync_proveedores = QCheckBox("Sincronizar proveedores")
+        self.chk_sync_proveedores.setEnabled(True)  # ✅ Ahora habilitado en Fase 2
+        self.chk_sync_proveedores.setToolTip(
+            "Si está marcado, sincroniza todos los proveedores entre sucursales.\n"
+            "Los proveedores se identifican por nombre.\n"
+            "Si un proveedor existe en ambas sucursales, se actualiza con los datos más recientes."
+        )
         lay_avanzado.addRow(self.chk_sync_proveedores)
 
         root.addWidget(gb_avanzado)

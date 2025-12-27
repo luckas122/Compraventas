@@ -178,12 +178,13 @@ class MainWindow(ProductosMixin, VentasMixin ,ProveedoresMixin, UsuariosMixin, C
         # Barra de estado
         self._setup_status_bar()
 
-        # Sistema de sincronización
+        # Sistema de sincronización (inicializar antes de setup)
         self._sync_manager = None
         self._sync_timer = QTimer(self)
         self._sync_timer.timeout.connect(self._ejecutar_sincronizacion)
         self._last_sync_time = None
         self._setup_sync_scheduler()
+        self._crear_boton_sync_manual()  # Crear botón para modo manual
 
         from PyQt5.QtCore import QSize
         self.setMinimumSize(980, 640)  # un mínimo razonable que siempre cabe
@@ -259,15 +260,6 @@ class MainWindow(ProductosMixin, VentasMixin ,ProveedoresMixin, UsuariosMixin, C
         except Exception as e:
             self.shortcut_manager = None
             logger.error(f"[SHORTCUTS] Error inicializando atajos: {e}")
-    
-            # Sincronización
-            self._sync_manager = None
-            self._sync_timer = QTimer(self)
-            self._sync_timer.timeout.connect(self._ejecutar_sincronizacion)
-            self._last_sync_time = None
-
-            # Inicializar sincronización
-            self._setup_sync_scheduler()
     
     # ============================
     #  Icono en bandeja del sistema
@@ -440,6 +432,12 @@ class MainWindow(ProductosMixin, VentasMixin ,ProveedoresMixin, UsuariosMixin, C
     def _reiniciar_sync_scheduler(self):
         """Reinicia el scheduler cuando se guarda la configuración"""
         self._setup_sync_scheduler()
+
+        # Actualizar visibilidad del botón manual
+        if hasattr(self, 'btn_sync_manual'):
+            cfg = load_config()
+            enabled = cfg.get("sync", {}).get("enabled", False)
+            self.btn_sync_manual.setVisible(enabled)
         
         #EJECUTAR SINCRO
         
@@ -532,15 +530,19 @@ class MainWindow(ProductosMixin, VentasMixin ,ProveedoresMixin, UsuariosMixin, C
 
     def _crear_boton_sync_manual(self):
         """Crea un botón en la status bar para sincronización manual"""
-        btn_sync = QPushButton("🔄 Sincronizar")
-        btn_sync.setFlat(True)
-        btn_sync.clicked.connect(self._ejecutar_sincronizacion)
-        self.statusBar().addPermanentWidget(btn_sync)
+        self.btn_sync_manual = QPushButton("🔄 Sincronizar")
+        self.btn_sync_manual.setFlat(True)
+        self.btn_sync_manual.setToolTip("Click para sincronizar manualmente")
+        self.btn_sync_manual.clicked.connect(self._ejecutar_sincronizacion)
+        self.statusBar().addPermanentWidget(self.btn_sync_manual)
 
-        # Mostrar solo si modo es "manual"
+        # Mostrar solo si modo es "manual" o siempre visible
         cfg = load_config()
         mode = cfg.get("sync", {}).get("mode", "interval")
-        btn_sync.setVisible(mode == "manual")
+        enabled = cfg.get("sync", {}).get("enabled", False)
+
+        # Mostrar botón si sync está habilitado
+        self.btn_sync_manual.setVisible(enabled)
 #SONIDO
 
     def _init_sound(self):
@@ -2231,125 +2233,3 @@ class MainWindow(ProductosMixin, VentasMixin ,ProveedoresMixin, UsuariosMixin, C
             except Exception:
                 pass
 
-    # ========== SINCRONIZACIÓN ENTRE SUCURSALES ==========
-
-    def _setup_sync_scheduler(self):
-        """Configura el scheduler de sincronización desde app_config.json"""
-        cfg = load_config()
-        sync_cfg = cfg.get("sync", {})
-
-        enabled = sync_cfg.get("enabled", False)
-        mode = sync_cfg.get("mode", "interval")
-        interval_min = sync_cfg.get("interval_minutes", 5)
-
-        # Detener timer si ya está corriendo
-        self._sync_timer.stop()
-
-        if not enabled:
-            return
-
-        # Crear SyncManager
-        self._sync_manager = SyncManager(self.session, self.sucursal)
-
-        # Configurar según modo
-        if mode == "interval":
-            # Sincronizar cada X minutos
-            self._sync_timer.setInterval(interval_min * 60 * 1000)  # Convertir a ms
-            self._sync_timer.start()
-        elif mode == "on_change":
-            # Revisar cada 30 segundos si hay cambios
-            self._sync_timer.setInterval(30 * 1000)
-            self._sync_timer.start()
-        # Si mode == "manual", no iniciar timer
-
-    def _reiniciar_sync_scheduler(self):
-        """Reinicia el scheduler cuando se guarda la configuración"""
-        self._setup_sync_scheduler()
-
-    def _ejecutar_sincronizacion(self):
-        """Ejecuta un ciclo de sincronización"""
-        if not self._sync_manager:
-            return
-
-        cfg = load_config()
-        sync_cfg = cfg.get("sync", {})
-        mode = sync_cfg.get("mode", "interval")
-
-        # Si es modo "on_change", verificar si hay cambios
-        if mode == "on_change":
-            if not self._sync_manager.detectar_cambios_pendientes():
-                # No hay cambios, actualizar indicador y salir
-                self._actualizar_indicador_sync(pendiente=False)
-                return
-
-        # Ejecutar sincronización
-        try:
-            resultado = self._sync_manager.ejecutar_sincronizacion_completa()
-
-            # Actualizar indicador
-            self._last_sync_time = datetime.now()
-            self._actualizar_indicador_sync(
-                enviados=resultado["enviados"],
-                recibidos=resultado["recibidos"],
-                errores=resultado["errores"]
-            )
-
-            # Guardar timestamp
-            cfg["sync"]["last_sync"] = self._last_sync_time.isoformat()
-            save_config(cfg)
-
-            # Si recibimos ventas, refrescar historial
-            if resultado["recibidos"] > 0:
-                try:
-                    if hasattr(self, 'historial') and hasattr(self.historial, 'refrescar'):
-                        self.historial.refrescar()
-                except Exception:
-                    pass
-
-        except Exception as e:
-            print(f"[SYNC] Error: {e}")
-            self._actualizar_indicador_sync(error=str(e))
-
-    def _actualizar_indicador_sync(self, enviados=0, recibidos=0, errores=None, pendiente=False, error=None):
-        """Actualiza el indicador de sincronización en la barra de estado"""
-        if not hasattr(self, 'lbl_sync_status'):
-            # Crear label si no existe
-            self.lbl_sync_status = QLabel()
-            self.statusBar().addPermanentWidget(self.lbl_sync_status)
-
-        cfg = load_config()
-        sync_enabled = cfg.get("sync", {}).get("enabled", False)
-
-        if not sync_enabled:
-            self.lbl_sync_status.setText("")
-            return
-
-        if error:
-            self.lbl_sync_status.setText(f"🔴 Sync: {error[:30]}")
-            self.lbl_sync_status.setStyleSheet("color: #E74C3C; padding: 2px 8px;")
-        elif errores:
-            self.lbl_sync_status.setText(f"⚠️ Sync: {len(errores)} errores")
-            self.lbl_sync_status.setStyleSheet("color: #F39C12; padding: 2px 8px;")
-        elif pendiente:
-            self.lbl_sync_status.setText("⏳ Cambios pendientes")
-            self.lbl_sync_status.setStyleSheet("color: #3498DB; padding: 2px 8px;")
-        else:
-            if self._last_sync_time:
-                # Calcular tiempo desde última sync
-                delta = datetime.now() - self._last_sync_time
-                if delta.seconds < 60:
-                    tiempo_str = "hace un momento"
-                elif delta.seconds < 3600:
-                    tiempo_str = f"hace {delta.seconds // 60} min"
-                else:
-                    tiempo_str = f"hace {delta.seconds // 3600}h"
-
-                msg = f"✓ Sync: {tiempo_str}"
-                if enviados > 0 or recibidos > 0:
-                    msg += f" ({enviados}↑ {recibidos}↓)"
-
-                self.lbl_sync_status.setText(msg)
-                self.lbl_sync_status.setStyleSheet("color: #27AE60; padding: 2px 8px;")
-            else:
-                self.lbl_sync_status.setText("🔄 Sync activa")
-                self.lbl_sync_status.setStyleSheet("color: #95A5A6; padding: 2px 8px;")
