@@ -419,9 +419,11 @@ class BackupConfigPanel(QWidget):
             if getattr(sys, 'frozen', False):
                 # Ejecutable (PyInstaller)
                 app_path = sys.executable
+                is_frozen = True
             else:
                 # Modo desarrollo
                 app_path = str(Path(__file__).parent.parent.parent / "main.py")
+                is_frozen = False
 
             # Cerrar TODAS las sesiones de la base de datos
             try:
@@ -434,14 +436,28 @@ class BackupConfigPanel(QWidget):
             except Exception as e:
                 print(f"[DELETE_DB] Advertencia al cerrar sesiones: {e}")
 
-            # Lanzar el módulo delete_db_manager que eliminará la DB y reiniciará la app
+            # Lanzar script de eliminación (diferente según frozen o desarrollo)
             try:
-                # Usar python -m para ejecutar el módulo (funciona tanto en frozen como desarrollo)
-                # Ventana visible para debugging
-                subprocess.Popen(
-                    [sys.executable, "-m", "app.delete_db_manager", db_path, app_path],
-                    creationflags=subprocess.CREATE_NEW_CONSOLE if os.name == 'nt' else 0
-                )
+                if is_frozen:
+                    # En frozen: usar script .bat que está junto al .exe
+                    bat_script = Path(sys.executable).parent / "delete_db_and_restart.bat"
+
+                    if not bat_script.exists():
+                        QMessageBox.critical(self, "Error",
+                            f"No se encontró el script de eliminación en:\n{bat_script}")
+                        return
+
+                    # Lanzar el .bat con ventana visible
+                    subprocess.Popen(
+                        ['cmd', '/c', str(bat_script), db_path, app_path],
+                        creationflags=subprocess.CREATE_NEW_CONSOLE
+                    )
+                else:
+                    # En desarrollo: usar módulo Python
+                    subprocess.Popen(
+                        [sys.executable, "-m", "app.delete_db_manager", db_path, app_path],
+                        creationflags=subprocess.CREATE_NEW_CONSOLE if os.name == 'nt' else 0
+                    )
             except Exception as e:
                 QMessageBox.critical(self, "Error",
                     f"No se pudo lanzar el proceso de eliminación:\n{e}")

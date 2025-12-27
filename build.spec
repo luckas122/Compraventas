@@ -70,9 +70,10 @@ qt_datas = collect_data_files("PyQt5", includes=[
 app_datas = [
     ("app/app_config.json", "app"),
     # 🆕 Scripts auxiliares necesarios para funcionalidad
-    ("delete_db_helper.py", "."),  # Helper para eliminar DB y reiniciar
-    ("updater.py", "."),            # Sistema de actualizaciones
-    ("version.py", "."),            # Información de versión
+    ("delete_db_helper.py", "."),           # Helper para eliminar DB y reiniciar (legacy)
+    ("delete_db_and_restart.bat", "."),     # Script BAT para eliminar DB (frozen)
+    ("updater.py", "."),                     # Sistema de actualizaciones
+    ("version.py", "."),                     # Información de versión
 ]
 
 # 🆕 Incluir certificados SSL de certifi para conexiones HTTPS/SMTP/IMAP
