@@ -60,7 +60,8 @@ jobs:
           $zip = "Compraventas-v$ver-onedir.zip"
           if (Test-Path $zip) { Remove-Item $zip -Force }
           Add-Type -AssemblyName System.IO.Compression.FileSystem
-          [System.IO.Compression.ZipFile]::CreateFromDirectory($src, $zip, [System.IO.Compression.CompressionLevel]::Optimal, $false)
+          # IMPORTANTE: Usar $true para incluir la carpeta raíz en el ZIP
+          [System.IO.Compression.ZipFile]::CreateFromDirectory($src, $zip, [System.IO.Compression.CompressionLevel]::Optimal, $true)
           Write-Host "Created $zip at $(Resolve-Path $zip)"
 
       # Crear el release y subir ambos assets con GH CLI

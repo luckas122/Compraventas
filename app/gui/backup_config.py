@@ -419,19 +419,9 @@ class BackupConfigPanel(QWidget):
             if getattr(sys, 'frozen', False):
                 # Ejecutable (PyInstaller)
                 app_path = sys.executable
-                helper_script = Path(sys.executable).parent / "delete_db_helper.exe"
-                # Si no existe el helper compilado, usar el .py
-                if not helper_script.exists():
-                    helper_script = Path(sys.executable).parent / "delete_db_helper.py"
             else:
                 # Modo desarrollo
                 app_path = str(Path(__file__).parent.parent.parent / "main.py")
-                helper_script = Path(__file__).parent.parent.parent / "delete_db_helper.py"
-
-            if not helper_script.exists():
-                QMessageBox.critical(self, "Error",
-                    f"No se encontró el script helper en:\n{helper_script}")
-                return
 
             # Cerrar TODAS las sesiones de la base de datos
             try:
@@ -444,23 +434,16 @@ class BackupConfigPanel(QWidget):
             except Exception as e:
                 print(f"[DELETE_DB] Advertencia al cerrar sesiones: {e}")
 
-            # Lanzar el script helper que eliminará la DB y reiniciará la app
+            # Lanzar el módulo delete_db_manager que eliminará la DB y reiniciará la app
             try:
-                if str(helper_script).endswith('.exe'):
-                    # Helper compilado
-                    subprocess.Popen(
-                        [str(helper_script), db_path, app_path],
-                        creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
-                    )
-                else:
-                    # Helper como script Python
-                    subprocess.Popen(
-                        [sys.executable, str(helper_script), db_path, app_path],
-                        creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
-                    )
+                # Usar python -m para ejecutar el módulo (funciona tanto en frozen como desarrollo)
+                subprocess.Popen(
+                    [sys.executable, "-m", "app.delete_db_manager", db_path, app_path],
+                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+                )
             except Exception as e:
                 QMessageBox.critical(self, "Error",
-                    f"No se pudo lanzar el script de eliminación:\n{e}")
+                    f"No se pudo lanzar el proceso de eliminación:\n{e}")
                 return
 
             # Mostrar mensaje informativo
