@@ -21,6 +21,21 @@ def _user_data_dir() -> Path:
         # Verificar si estamos en la estructura esperada (%LOCALAPPDATA%\Compraventas\app\)
         localappdata = os.environ.get("LOCALAPPDATA")
         if localappdata and "Compraventas" in str(exe_parent):
+            # Migración automática: copiar DB de ubicación legacy si existe
+            new_db_path = exe_parent / DB_FILENAME
+            appdata = os.environ.get("APPDATA")
+            if appdata:
+                legacy_db_path = Path(appdata) / APP_DIRNAME / DB_FILENAME
+
+                # Si no existe DB en nueva ubicación pero sí en legacy, copiar
+                if not new_db_path.exists() and legacy_db_path.exists():
+                    try:
+                        import shutil
+                        shutil.copy2(legacy_db_path, new_db_path)
+                        print(f"[DB MIGRATION] Migrada DB de {legacy_db_path} a {new_db_path}")
+                    except Exception as e:
+                        print(f"[DB MIGRATION] Error al migrar DB: {e}")
+
             # Usar la misma carpeta del ejecutable
             return exe_parent
 
