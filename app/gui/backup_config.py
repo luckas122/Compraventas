@@ -446,15 +446,8 @@ class BackupConfigPanel(QWidget):
                     f"No se pudo lanzar el proceso de eliminación:\n{e}")
                 return
 
-            # Mostrar mensaje informativo
-            QMessageBox.information(
-                self, "Eliminando Base de Datos",
-                "La base de datos será eliminada y la aplicación se reiniciará.\n\n"
-                "Este proceso tomará unos segundos."
-            )
-
-            # Cerrar la aplicación INMEDIATAMENTE
-            # El script helper se encargará de eliminar la DB y reiniciar
+            # Cerrar la aplicación INMEDIATAMENTE sin mostrar más mensajes
+            # El módulo delete_db_manager se encargará de eliminar la DB y reiniciar
             from PyQt5.QtWidgets import QApplication
             QApplication.quit()
 

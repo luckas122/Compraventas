@@ -310,8 +310,9 @@ class Updater:
                 )
 
                 if sys.platform == 'win32':
+                    # Lanzar script de actualización CON ventana visible para debugging
                     subprocess.Popen(['cmd', '/c', update_script],
-                                     creationflags=subprocess.CREATE_NO_WINDOW)
+                                     creationflags=subprocess.CREATE_NEW_CONSOLE)
                 else:
                     subprocess.Popen(['sh', update_script])
                 sys.exit(0)
@@ -408,14 +409,26 @@ rm "$0"
             # Crear acceso directo en el escritorio usando PowerShell
             script_content = f"""@echo off
 echo Actualizando {__app_name__} (carpeta)...
-timeout /t 2 /nobreak >nul
-robocopy "{source_dir}" "{dest_dir}" /MIR /NFL /NDL /NJH /NJS /NP
-echo Actualizacion completada
+timeout /t 3 /nobreak >nul
+
+REM Robocopy con reintentos (códigos 0-7 son éxito)
+robocopy "{source_dir}" "{dest_dir}" /MIR /R:3 /W:1 /NFL /NDL /NJH /NJS /NP
+if %ERRORLEVEL% LSS 8 (
+    echo Actualizacion completada exitosamente
+) else (
+    echo ERROR: Robocopy fallo con codigo %ERRORLEVEL%
+    pause
+    exit /b 1
+)
 
 REM Crear acceso directo en el escritorio
-powershell -NoProfile -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut([Environment]::GetFolderPath('Desktop') + '\\{__app_name__}.lnk'); $s.TargetPath = '{ps_exe}'; $s.WorkingDirectory = '{ps_dest}'; $s.Save()"
+powershell -NoProfile -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut([Environment]::GetFolderPath('Desktop') + '\\{__app_name__}.lnk'); $s.TargetPath = '{ps_exe}'; $s.WorkingDirectory = '{ps_dest}'; $s.Save()" 2>nul
 
+REM Reiniciar la aplicación
+echo Reiniciando aplicacion...
+cd /d "{dest_dir}"
 start "" "{relaunch_exe}"
+timeout /t 1 /nobreak >nul
 del "%~f0"
 """
         else:
