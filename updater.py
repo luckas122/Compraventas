@@ -411,17 +411,55 @@ rm "$0"
 echo Actualizando {__app_name__} (carpeta)...
 timeout /t 3 /nobreak >nul
 
-REM Robocopy con reintentos (códigos 0-7 son éxito)
-REM IMPORTANTE: Excluir app_config.json para preservar configuración del usuario
-REM Excluir appcomprasventas.db para preservar la base de datos
-robocopy "{source_dir}" "{dest_dir}" /MIR /XF app_config.json appcomprasventas.db /R:3 /W:1 /NFL /NDL /NJH /NJS /NP
+REM ========================================
+REM PASO 1: Hacer backup de configuración y BD
+REM ========================================
+set "CONFIG_FILE={dest_dir}\\_internal\\app\\app_config.json"
+set "DB_FILE={dest_dir}\\appcomprasventas.db"
+set "TEMP_BACKUP=%TEMP%\\compraventas_backup_%RANDOM%"
+
+mkdir "%TEMP_BACKUP%" 2>nul
+
+if exist "%CONFIG_FILE%" (
+    echo Respaldando configuracion...
+    copy /Y "%CONFIG_FILE%" "%TEMP_BACKUP%\\app_config.json" >nul
+)
+
+if exist "%DB_FILE%" (
+    echo Respaldando base de datos...
+    copy /Y "%DB_FILE%" "%TEMP_BACKUP%\\appcomprasventas.db" >nul
+)
+
+REM ========================================
+REM PASO 2: Actualizar archivos con robocopy
+REM ========================================
+echo Copiando archivos nuevos...
+robocopy "{source_dir}" "{dest_dir}" /MIR /R:3 /W:1 /NFL /NDL /NJH /NJS /NP
 if %ERRORLEVEL% LSS 8 (
-    echo Actualizacion completada exitosamente
+    echo Archivos copiados exitosamente
 ) else (
     echo ERROR: Robocopy fallo con codigo %ERRORLEVEL%
     pause
     exit /b 1
 )
+
+REM ========================================
+REM PASO 3: Restaurar configuración y BD
+REM ========================================
+if exist "%TEMP_BACKUP%\\app_config.json" (
+    echo Restaurando configuracion...
+    copy /Y "%TEMP_BACKUP%\\app_config.json" "%CONFIG_FILE%" >nul
+)
+
+if exist "%TEMP_BACKUP%\\appcomprasventas.db" (
+    echo Restaurando base de datos...
+    copy /Y "%TEMP_BACKUP%\\appcomprasventas.db" "%DB_FILE%" >nul
+)
+
+REM Limpiar backup temporal
+rd /s /q "%TEMP_BACKUP%" 2>nul
+
+echo Actualizacion completada exitosamente
 
 REM Crear acceso directo en el escritorio
 powershell -NoProfile -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut([Environment]::GetFolderPath('Desktop') + '\\{__app_name__}.lnk'); $s.TargetPath = '{ps_exe}'; $s.WorkingDirectory = '{ps_dest}'; $s.Save()" 2>nul
@@ -438,8 +476,48 @@ del "%~f0"
             script_content = f"""#!/bin/bash
 echo "Actualizando {__app_name__} (carpeta)..."
 sleep 2
-# IMPORTANTE: Excluir app_config.json y base de datos para preservar configuración del usuario
-rsync -a --delete --exclude='app_config.json' --exclude='appcomprasventas.db' "{source_dir}/" "{dest_dir}/"
+
+# ========================================
+# PASO 1: Hacer backup de configuración y BD
+# ========================================
+CONFIG_FILE="{dest_dir}/_internal/app/app_config.json"
+DB_FILE="{dest_dir}/appcomprasventas.db"
+TEMP_BACKUP="/tmp/compraventas_backup_$$"
+
+mkdir -p "$TEMP_BACKUP"
+
+if [ -f "$CONFIG_FILE" ]; then
+    echo "Respaldando configuracion..."
+    cp "$CONFIG_FILE" "$TEMP_BACKUP/app_config.json"
+fi
+
+if [ -f "$DB_FILE" ]; then
+    echo "Respaldando base de datos..."
+    cp "$DB_FILE" "$TEMP_BACKUP/appcomprasventas.db"
+fi
+
+# ========================================
+# PASO 2: Actualizar archivos con rsync
+# ========================================
+echo "Copiando archivos nuevos..."
+rsync -a --delete "{source_dir}/" "{dest_dir}/"
+
+# ========================================
+# PASO 3: Restaurar configuración y BD
+# ========================================
+if [ -f "$TEMP_BACKUP/app_config.json" ]; then
+    echo "Restaurando configuracion..."
+    cp "$TEMP_BACKUP/app_config.json" "$CONFIG_FILE"
+fi
+
+if [ -f "$TEMP_BACKUP/appcomprasventas.db" ]; then
+    echo "Restaurando base de datos..."
+    cp "$TEMP_BACKUP/appcomprasventas.db" "$DB_FILE"
+fi
+
+# Limpiar backup temporal
+rm -rf "$TEMP_BACKUP"
+
 echo "Actualizacion completada"
 "{relaunch_exe}" &
 rm "$0"
