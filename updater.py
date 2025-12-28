@@ -315,7 +315,11 @@ class Updater:
                                      creationflags=subprocess.CREATE_NEW_CONSOLE)
                 else:
                     subprocess.Popen(['sh', update_script])
-                sys.exit(0)
+
+                # CRÍTICO: Usar os._exit(0) para forzar cierre INMEDIATO del proceso
+                # sys.exit(0) no cierra inmediatamente en PyQt5, deja DLLs cargadas
+                import os
+                os._exit(0)
 
             else:
                 # --- Fallback EXE (reemplazo de ejecutable) ---
@@ -341,7 +345,10 @@ class Updater:
                                      creationflags=subprocess.CREATE_NO_WINDOW)
                 else:
                     subprocess.Popen(['sh', update_script])
-                sys.exit(0)
+
+                # CRÍTICO: Usar os._exit(0) para forzar cierre INMEDIATO del proceso
+                import os
+                os._exit(0)
 
         except Exception as e:
             QMessageBox.critical(
@@ -369,7 +376,17 @@ class Updater:
             script_path = temp_dir / "update.bat"
             script_content = f"""@echo off
 echo Actualizando {__app_name__}...
-timeout /t 2 /nobreak >nul
+echo Esperando a que la aplicacion se cierre...
+timeout /t 5 /nobreak >nul
+
+REM Verificar que la app se cerró, si no, matarla
+tasklist /FI "IMAGENAME eq Tu local 2025.exe" 2>NUL | find /I /N "Tu local 2025.exe">NUL
+if "%ERRORLEVEL%"=="0" (
+    echo Forzando cierre de la aplicacion...
+    taskkill /F /IM "Tu local 2025.exe" >nul 2>&1
+    timeout /t 2 /nobreak >nul
+)
+
 move /y "{current_exe}" "{backup}" 2>nul
 move /y "{new_exe}" "{current_exe}"
 echo Actualizacion completada
@@ -380,7 +397,16 @@ del "%~f0"
             script_path = temp_dir / "update.sh"
             script_content = f"""#!/bin/bash
 echo "Actualizando {__app_name__}..."
-sleep 2
+echo "Esperando a que la aplicacion se cierre..."
+sleep 5
+
+# Verificar que la app se cerró, si no, matarla
+if pgrep -x "Tu local 2025" > /dev/null; then
+    echo "Forzando cierre de la aplicacion..."
+    pkill -9 "Tu local 2025"
+    sleep 2
+fi
+
 mv "{current_exe}" "{backup}" 2>/dev/null
 mv "{new_exe}" "{current_exe}"
 chmod +x "{current_exe}"
@@ -409,7 +435,20 @@ rm "$0"
             # Crear acceso directo en el escritorio usando PowerShell
             script_content = f"""@echo off
 echo Actualizando {__app_name__} (carpeta)...
-timeout /t 3 /nobreak >nul
+echo.
+echo Esperando a que la aplicacion se cierre completamente...
+timeout /t 5 /nobreak >nul
+
+REM ========================================
+REM PASO 0: Verificar que la app se cerró, si no, matarla
+REM ========================================
+echo Verificando procesos...
+tasklist /FI "IMAGENAME eq Tu local 2025.exe" 2>NUL | find /I /N "Tu local 2025.exe">NUL
+if "%ERRORLEVEL%"=="0" (
+    echo La aplicacion sigue corriendo, forzando cierre...
+    taskkill /F /IM "Tu local 2025.exe" >nul 2>&1
+    timeout /t 3 /nobreak >nul
+)
 
 REM ========================================
 REM PASO 1: Hacer backup de configuración y BD
@@ -475,7 +514,19 @@ del "%~f0"
             script_path = temp_dir / "update_dir.sh"
             script_content = f"""#!/bin/bash
 echo "Actualizando {__app_name__} (carpeta)..."
-sleep 2
+echo ""
+echo "Esperando a que la aplicacion se cierre completamente..."
+sleep 5
+
+# ========================================
+# PASO 0: Verificar que la app se cerró, si no, matarla
+# ========================================
+echo "Verificando procesos..."
+if pgrep -x "Tu local 2025" > /dev/null; then
+    echo "La aplicacion sigue corriendo, forzando cierre..."
+    pkill -9 "Tu local 2025"
+    sleep 2
+fi
 
 # ========================================
 # PASO 1: Hacer backup de configuración y BD
