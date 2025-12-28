@@ -421,156 +421,304 @@ rm "$0"
 
     def _create_update_script_dir(self, source_dir: str, dest_dir: str, relaunch_exe: str) -> str:
         """
-        Crea un script para actualizar la carpeta ONEDIR completa (ROBOCOPY/rsync) y relanzar.
+        Crea un script para actualizar mediante RENOMBRADO de carpetas (evita ERROR 32).
+
+        Estrategia:
+        1. Esperar cierre de app
+        2. Respaldar config y BD
+        3. RENOMBRAR carpeta actual → carpeta_backup
+        4. MOVER carpeta nueva → ubicación actual
+        5. Restaurar config y BD
+        6. Relanzar app
         """
         temp_dir = Path(tempfile.gettempdir()) / __app_name__.replace(" ", "_")
         temp_dir.mkdir(parents=True, exist_ok=True)
 
         if sys.platform == 'win32':
             script_path = temp_dir / "update_dir.bat"
-            # Escapar comillas en rutas para PowerShell
+
+            # Rutas para el script
+            dest_path = Path(dest_dir)
+            parent_dir = dest_path.parent
+            current_folder_name = dest_path.name
+            backup_folder_name = f"{current_folder_name}_backup_{int(__import__('time').time())}"
+            backup_path = parent_dir / backup_folder_name
+
+            # Escapar comillas para PowerShell
             ps_exe = relaunch_exe.replace('"', '`"')
             ps_dest = dest_dir.replace('"', '`"')
 
-            # Crear acceso directo en el escritorio usando PowerShell
             script_content = f"""@echo off
-echo Actualizando {__app_name__} (carpeta)...
+echo ========================================
+echo   ACTUALIZANDO {__app_name__}
+echo   Metodo: Renombrado de carpetas
+echo ========================================
 echo.
-echo Esperando a que la aplicacion se cierre completamente...
-timeout /t 5 /nobreak >nul
 
 REM ========================================
-REM PASO 0: Verificar que la app se cerró, si no, matarla
+REM PASO 0: Esperar cierre de aplicacion
 REM ========================================
-echo Verificando procesos...
+echo [1/6] Esperando cierre de aplicacion...
+timeout /t 5 /nobreak >nul
+
 tasklist /FI "IMAGENAME eq Tu local 2025.exe" 2>NUL | find /I /N "Tu local 2025.exe">NUL
 if "%ERRORLEVEL%"=="0" (
-    echo La aplicacion sigue corriendo, forzando cierre...
+    echo Forzando cierre de procesos...
     taskkill /F /IM "Tu local 2025.exe" >nul 2>&1
-    timeout /t 3 /nobreak >nul
+    timeout /t 2 /nobreak >nul
 )
 
 REM ========================================
-REM PASO 1: Hacer backup de configuración y BD
+REM PASO 1: Respaldar configuracion y BD
 REM ========================================
+echo [2/6] Respaldando configuracion y base de datos...
 set "CONFIG_FILE={dest_dir}\\_internal\\app\\app_config.json"
 set "DB_FILE={dest_dir}\\appcomprasventas.db"
-set "TEMP_BACKUP=%TEMP%\\compraventas_backup_%RANDOM%"
+set "TEMP_BACKUP=%TEMP%\\compraventas_config_%RANDOM%"
 
 mkdir "%TEMP_BACKUP%" 2>nul
 
 if exist "%CONFIG_FILE%" (
-    echo Respaldando configuracion...
-    copy /Y "%CONFIG_FILE%" "%TEMP_BACKUP%\\app_config.json" >nul
+    copy /Y "%CONFIG_FILE%" "%TEMP_BACKUP%\\app_config.json" >nul 2>&1
+    if exist "%TEMP_BACKUP%\\app_config.json" (
+        echo   - Configuracion respaldada OK
+    ) else (
+        echo   - ADVERTENCIA: No se pudo respaldar configuracion
+    )
+) else (
+    echo   - No se encontro configuracion previa
 )
 
 if exist "%DB_FILE%" (
-    echo Respaldando base de datos...
-    copy /Y "%DB_FILE%" "%TEMP_BACKUP%\\appcomprasventas.db" >nul
+    copy /Y "%DB_FILE%" "%TEMP_BACKUP%\\appcomprasventas.db" >nul 2>&1
+    if exist "%TEMP_BACKUP%\\appcomprasventas.db" (
+        echo   - Base de datos respaldada OK
+    ) else (
+        echo   - ADVERTENCIA: No se pudo respaldar BD
+    )
+) else (
+    echo   - No se encontro BD previa
 )
 
 REM ========================================
-REM PASO 2: Actualizar archivos con robocopy
+REM PASO 2: Renombrar carpeta actual → backup
 REM ========================================
-echo Copiando archivos nuevos...
-robocopy "{source_dir}" "{dest_dir}" /MIR /R:3 /W:1 /NFL /NDL /NJH /NJS /NP
-if %ERRORLEVEL% LSS 8 (
-    echo Archivos copiados exitosamente
+echo [3/6] Renombrando carpeta actual a backup...
+if exist "{dest_dir}" (
+    move "{dest_dir}" "{backup_path}" >nul 2>&1
+    if exist "{backup_path}" (
+        echo   - Carpeta renombrada: {backup_folder_name}
+    ) else (
+        echo ERROR: No se pudo renombrar carpeta actual
+        pause
+        exit /b 1
+    )
+)
+
+REM ========================================
+REM PASO 3: Mover carpeta nueva a ubicacion final
+REM ========================================
+echo [4/6] Instalando nueva version...
+move "{source_dir}" "{dest_dir}" >nul 2>&1
+if exist "{dest_dir}" (
+    echo   - Nueva version instalada OK
 ) else (
-    echo ERROR: Robocopy fallo con codigo %ERRORLEVEL%
+    echo ERROR: No se pudo mover carpeta nueva
+    echo Intentando restaurar backup...
+    move "{backup_path}" "{dest_dir}" >nul 2>&1
     pause
     exit /b 1
 )
 
 REM ========================================
-REM PASO 3: Restaurar configuración y BD
+REM PASO 4: Restaurar configuracion y BD
 REM ========================================
+echo [5/6] Restaurando configuracion y base de datos...
+set "NEW_CONFIG_FILE={dest_dir}\\_internal\\app\\app_config.json"
+set "NEW_DB_FILE={dest_dir}\\appcomprasventas.db"
+
 if exist "%TEMP_BACKUP%\\app_config.json" (
-    echo Restaurando configuracion...
-    copy /Y "%TEMP_BACKUP%\\app_config.json" "%CONFIG_FILE%" >nul
+    copy /Y "%TEMP_BACKUP%\\app_config.json" "%NEW_CONFIG_FILE%" >nul 2>&1
+    if exist "%NEW_CONFIG_FILE%" (
+        echo   - Configuracion restaurada OK
+    ) else (
+        echo   - ADVERTENCIA: No se pudo restaurar configuracion
+    )
 )
 
 if exist "%TEMP_BACKUP%\\appcomprasventas.db" (
-    echo Restaurando base de datos...
-    copy /Y "%TEMP_BACKUP%\\appcomprasventas.db" "%DB_FILE%" >nul
+    copy /Y "%TEMP_BACKUP%\\appcomprasventas.db" "%NEW_DB_FILE%" >nul 2>&1
+    if exist "%NEW_DB_FILE%" (
+        echo   - Base de datos restaurada OK
+    ) else (
+        echo   - ADVERTENCIA: No se pudo restaurar BD
+    )
 )
 
 REM Limpiar backup temporal
 rd /s /q "%TEMP_BACKUP%" 2>nul
 
-echo Actualizacion completada exitosamente
-
-REM Crear acceso directo en el escritorio
+REM ========================================
+REM PASO 5: Crear acceso directo
+REM ========================================
+echo [6/6] Creando acceso directo en escritorio...
 powershell -NoProfile -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut([Environment]::GetFolderPath('Desktop') + '\\{__app_name__}.lnk'); $s.TargetPath = '{ps_exe}'; $s.WorkingDirectory = '{ps_dest}'; $s.Save()" 2>nul
 
-REM Reiniciar la aplicación
+REM ========================================
+REM Relanzar aplicacion
+REM ========================================
+echo.
+echo ========================================
+echo   ACTUALIZACION COMPLETADA
+echo ========================================
+echo.
 echo Reiniciando aplicacion...
 cd /d "{dest_dir}"
 start "" "{relaunch_exe}"
-timeout /t 1 /nobreak >nul
+
+REM Nota: La carpeta backup se eliminará en proxima actualizacion
+echo.
+echo NOTA: Carpeta antigua guardada en:
+echo {backup_path}
+echo (Se puede eliminar manualmente si la app funciona correctamente)
+
+timeout /t 3 /nobreak >nul
 del "%~f0"
 """
         else:
             script_path = temp_dir / "update_dir.sh"
+
+            # Rutas para el script
+            dest_path = Path(dest_dir)
+            parent_dir = dest_path.parent
+            current_folder_name = dest_path.name
+            backup_folder_name = f"{current_folder_name}_backup_{int(__import__('time').time())}"
+            backup_path = parent_dir / backup_folder_name
+
             script_content = f"""#!/bin/bash
-echo "Actualizando {__app_name__} (carpeta)..."
+echo "========================================"
+echo "  ACTUALIZANDO {__app_name__}"
+echo "  Metodo: Renombrado de carpetas"
+echo "========================================"
 echo ""
-echo "Esperando a que la aplicacion se cierre completamente..."
-sleep 5
 
 # ========================================
-# PASO 0: Verificar que la app se cerró, si no, matarla
+# PASO 0: Esperar cierre de aplicacion
 # ========================================
-echo "Verificando procesos..."
+echo "[1/6] Esperando cierre de aplicacion..."
+sleep 5
+
 if pgrep -x "Tu local 2025" > /dev/null; then
-    echo "La aplicacion sigue corriendo, forzando cierre..."
+    echo "Forzando cierre de procesos..."
     pkill -9 "Tu local 2025"
     sleep 2
 fi
 
 # ========================================
-# PASO 1: Hacer backup de configuración y BD
+# PASO 1: Respaldar configuracion y BD
 # ========================================
+echo "[2/6] Respaldando configuracion y base de datos..."
 CONFIG_FILE="{dest_dir}/_internal/app/app_config.json"
 DB_FILE="{dest_dir}/appcomprasventas.db"
-TEMP_BACKUP="/tmp/compraventas_backup_$$"
+TEMP_BACKUP="/tmp/compraventas_config_$$"
 
 mkdir -p "$TEMP_BACKUP"
 
 if [ -f "$CONFIG_FILE" ]; then
-    echo "Respaldando configuracion..."
-    cp "$CONFIG_FILE" "$TEMP_BACKUP/app_config.json"
+    cp "$CONFIG_FILE" "$TEMP_BACKUP/app_config.json" 2>/dev/null
+    if [ -f "$TEMP_BACKUP/app_config.json" ]; then
+        echo "  - Configuracion respaldada OK"
+    else
+        echo "  - ADVERTENCIA: No se pudo respaldar configuracion"
+    fi
+else
+    echo "  - No se encontro configuracion previa"
 fi
 
 if [ -f "$DB_FILE" ]; then
-    echo "Respaldando base de datos..."
-    cp "$DB_FILE" "$TEMP_BACKUP/appcomprasventas.db"
+    cp "$DB_FILE" "$TEMP_BACKUP/appcomprasventas.db" 2>/dev/null
+    if [ -f "$TEMP_BACKUP/appcomprasventas.db" ]; then
+        echo "  - Base de datos respaldada OK"
+    else
+        echo "  - ADVERTENCIA: No se pudo respaldar BD"
+    fi
+else
+    echo "  - No se encontro BD previa"
 fi
 
 # ========================================
-# PASO 2: Actualizar archivos con rsync
+# PASO 2: Renombrar carpeta actual → backup
 # ========================================
-echo "Copiando archivos nuevos..."
-rsync -a --delete "{source_dir}/" "{dest_dir}/"
+echo "[3/6] Renombrando carpeta actual a backup..."
+if [ -d "{dest_dir}" ]; then
+    mv "{dest_dir}" "{backup_path}" 2>/dev/null
+    if [ -d "{backup_path}" ]; then
+        echo "  - Carpeta renombrada: {backup_folder_name}"
+    else
+        echo "ERROR: No se pudo renombrar carpeta actual"
+        exit 1
+    fi
+fi
 
 # ========================================
-# PASO 3: Restaurar configuración y BD
+# PASO 3: Mover carpeta nueva a ubicacion final
 # ========================================
+echo "[4/6] Instalando nueva version..."
+mv "{source_dir}" "{dest_dir}" 2>/dev/null
+if [ -d "{dest_dir}" ]; then
+    echo "  - Nueva version instalada OK"
+else
+    echo "ERROR: No se pudo mover carpeta nueva"
+    echo "Intentando restaurar backup..."
+    mv "{backup_path}" "{dest_dir}" 2>/dev/null
+    exit 1
+fi
+
+# ========================================
+# PASO 4: Restaurar configuracion y BD
+# ========================================
+echo "[5/6] Restaurando configuracion y base de datos..."
+NEW_CONFIG_FILE="{dest_dir}/_internal/app/app_config.json"
+NEW_DB_FILE="{dest_dir}/appcomprasventas.db"
+
 if [ -f "$TEMP_BACKUP/app_config.json" ]; then
-    echo "Restaurando configuracion..."
-    cp "$TEMP_BACKUP/app_config.json" "$CONFIG_FILE"
+    cp "$TEMP_BACKUP/app_config.json" "$NEW_CONFIG_FILE" 2>/dev/null
+    if [ -f "$NEW_CONFIG_FILE" ]; then
+        echo "  - Configuracion restaurada OK"
+    else
+        echo "  - ADVERTENCIA: No se pudo restaurar configuracion"
+    fi
 fi
 
 if [ -f "$TEMP_BACKUP/appcomprasventas.db" ]; then
-    echo "Restaurando base de datos..."
-    cp "$TEMP_BACKUP/appcomprasventas.db" "$DB_FILE"
+    cp "$TEMP_BACKUP/appcomprasventas.db" "$NEW_DB_FILE" 2>/dev/null
+    if [ -f "$NEW_DB_FILE" ]; then
+        echo "  - Base de datos restaurada OK"
+    else
+        echo "  - ADVERTENCIA: No se pudo restaurar BD"
+    fi
 fi
 
 # Limpiar backup temporal
 rm -rf "$TEMP_BACKUP"
 
-echo "Actualizacion completada"
+# ========================================
+# Relanzar aplicacion
+# ========================================
+echo ""
+echo "========================================"
+echo "  ACTUALIZACION COMPLETADA"
+echo "========================================"
+echo ""
+echo "Reiniciando aplicacion..."
+echo ""
+echo "NOTA: Carpeta antigua guardada en:"
+echo "{backup_path}"
+echo "(Se puede eliminar manualmente si la app funciona correctamente)"
+echo ""
+
 "{relaunch_exe}" &
+sleep 2
 rm "$0"
 """
         script_path.write_text(script_content, encoding='utf-8')
