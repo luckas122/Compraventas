@@ -412,7 +412,9 @@ echo Actualizando {__app_name__} (carpeta)...
 timeout /t 3 /nobreak >nul
 
 REM Robocopy con reintentos (códigos 0-7 son éxito)
-robocopy "{source_dir}" "{dest_dir}" /MIR /R:3 /W:1 /NFL /NDL /NJH /NJS /NP
+REM IMPORTANTE: Excluir app_config.json para preservar configuración del usuario
+REM Excluir appcomprasventas.db para preservar la base de datos
+robocopy "{source_dir}" "{dest_dir}" /MIR /XF app_config.json appcomprasventas.db /R:3 /W:1 /NFL /NDL /NJH /NJS /NP
 if %ERRORLEVEL% LSS 8 (
     echo Actualizacion completada exitosamente
 ) else (
@@ -436,7 +438,8 @@ del "%~f0"
             script_content = f"""#!/bin/bash
 echo "Actualizando {__app_name__} (carpeta)..."
 sleep 2
-rsync -a --delete "{source_dir}/" "{dest_dir}/"
+# IMPORTANTE: Excluir app_config.json y base de datos para preservar configuración del usuario
+rsync -a --delete --exclude='app_config.json' --exclude='appcomprasventas.db' "{source_dir}/" "{dest_dir}/"
 echo "Actualizacion completada"
 "{relaunch_exe}" &
 rm "$0"
