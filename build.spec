@@ -72,6 +72,7 @@ app_datas = [
     # 🆕 Scripts auxiliares necesarios para funcionalidad
     ("delete_db_helper.py", "."),           # Helper para eliminar DB y reiniciar (legacy)
     ("delete_db_and_restart.bat", "."),     # Script BAT para eliminar DB (frozen)
+    ("manual_update.bat", "."),             # Script para actualización manual (puente v2.7.2)
     ("updater.py", "."),                     # Sistema de actualizaciones
     ("version.py", "."),                     # Información de versión
 ]

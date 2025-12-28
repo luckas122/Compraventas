@@ -4,7 +4,7 @@ Control de versiones para App Compras y Ventas
 ⚠️ IMPORTANTE: Actualiza __version__ y __github_repo__ antes de cada release
 """
 
-__version__ = "2.7.1"
+__version__ = "2.7.2"
 __app_name__ = "Tu local 2025"   # nombre visible (puede tener espacio)
 __github_repo__ = "luckas122/Compraventas"
 __release_url__ = f"https://api.github.com/repos/{__github_repo__}/releases/latest"
