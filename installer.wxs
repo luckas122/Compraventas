@@ -1,11 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
-     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
 
   <Package
     Name="Tu local 2025"
     Manufacturer="Compraventas"
-    Version="2.8.0"
+    Version="2.8.1"
     UpgradeCode="A1B2C3D4-E5F6-4789-ABCD-123456789ABC"
     Scope="perUser">
 
@@ -31,37 +30,45 @@
 
     <StandardDirectory Id="DesktopFolder" />
 
-    <!-- Components -->
+    <!-- Components con shortcuts NO advertised -->
     <DirectoryRef Id="INSTALLFOLDER">
       <Component Id="MainExecutable">
-        <File Source="dist\Tu local 2025\Tu local 2025.exe">
-          <Shortcut
-            Id="DesktopShortcut"
-            Directory="DesktopFolder"
-            Name="Tu local 2025"
-            WorkingDirectory="INSTALLFOLDER"
-            Icon="AppIcon"
-            Advertise="yes" />
+        <File Id="MainExeFile" Source="dist\Tu local 2025\Tu local 2025.exe" KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
 
-          <Shortcut
-            Id="StartMenuShortcut"
-            Directory="ApplicationProgramsFolder"
-            Name="Tu local 2025"
-            WorkingDirectory="INSTALLFOLDER"
-            Icon="AppIcon"
-            Advertise="yes" />
-        </File>
+    <!-- Shortcuts como componentes separados -->
+    <DirectoryRef Id="DesktopFolder">
+      <Component Id="DesktopShortcutComponent">
+        <Shortcut
+          Id="DesktopShortcut"
+          Name="Tu local 2025"
+          Target="[INSTALLFOLDER]Tu local 2025.exe"
+          WorkingDirectory="INSTALLFOLDER"
+          Icon="AppIcon" />
+        <RegistryValue Root="HKCU" Key="Software\Compraventas\TuLocal2025" Name="DesktopShortcut" Type="integer" Value="1" KeyPath="yes" />
+        <RemoveFolder Id="RemoveDesktopFolder" On="uninstall" />
+      </Component>
+    </DirectoryRef>
+
+    <DirectoryRef Id="ApplicationProgramsFolder">
+      <Component Id="StartMenuShortcutComponent">
+        <Shortcut
+          Id="StartMenuShortcut"
+          Name="Tu local 2025"
+          Target="[INSTALLFOLDER]Tu local 2025.exe"
+          WorkingDirectory="INSTALLFOLDER"
+          Icon="AppIcon" />
+        <RegistryValue Root="HKCU" Key="Software\Compraventas\TuLocal2025" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+        <RemoveFolder Id="RemoveStartMenuFolder" On="uninstall" />
       </Component>
     </DirectoryRef>
 
     <!-- Feature -->
     <Feature Id="Complete" Level="1">
       <ComponentRef Id="MainExecutable" />
+      <ComponentRef Id="DesktopShortcutComponent" />
+      <ComponentRef Id="StartMenuShortcutComponent" />
     </Feature>
-
-    <!-- UI -->
-    <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
-
-    <WixVariable Id="WixUILicenseRtf" Value="license.rtf" />
   </Package>
 </Wix>
