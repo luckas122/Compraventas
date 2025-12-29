@@ -70,7 +70,13 @@ jobs:
         run: |
           Write-Host "Instalando WiX Toolset..."
           dotnet tool install --global wix --version 4.0.4
+
+          Write-Host "Instalando extension WixToolset.UI.wixext..."
+          wix extension add WixToolset.UI.wixext
+
+          Write-Host "Verificando instalación..."
           dotnet tool list -g
+          wix extension list
 
       # NUEVO: Compilar instalador MSI
       - name: Build MSI Installer
@@ -85,7 +91,7 @@ jobs:
           # Compilar con WiX
           if (!(Test-Path "msi_output")) { New-Item -ItemType Directory -Path "msi_output" }
 
-          wix build installer.wxs -o "msi_output\Tu.local.2025.v$ver.msi" -ext WixToolset.UI.wixext
+          wix build installer.wxs -o "msi_output\Tu.local.2025.v$ver.msi"
 
           if (Test-Path "msi_output\Tu.local.2025.v$ver.msi") {
             Write-Host "✓ MSI generado exitosamente"
