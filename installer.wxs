@@ -21,12 +21,8 @@
       </Directory>
     </StandardDirectory>
 
-    <!-- Components con shortcuts NO advertised -->
-    <DirectoryRef Id="INSTALLFOLDER">
-      <Component Id="MainExecutable">
-        <File Id="MainExeFile" Source="dist\Tu local 2025\Tu local 2025.exe" KeyPath="yes" />
-      </Component>
-    </DirectoryRef>
+    <!-- Este archivo será generado por heat.exe -->
+    <!-- Heat generará automáticamente todos los Component para archivos en dist\Tu local 2025 -->
 
     <!-- Shortcuts como componentes separados -->
     <StandardDirectory Id="DesktopFolder">
@@ -57,9 +53,14 @@
 
     <!-- Feature -->
     <Feature Id="Complete" Level="1">
-      <ComponentRef Id="MainExecutable" />
+      <ComponentGroupRef Id="HeatGenerated" />
       <ComponentRef Id="DesktopShortcutComponent" />
       <ComponentRef Id="StartMenuShortcutComponent" />
     </Feature>
   </Package>
+
+  <!-- Fragment para archivos generados por heat -->
+  <Fragment>
+    <ComponentGroup Id="HeatGenerated" Directory="INSTALLFOLDER" />
+  </Fragment>
 </Wix>

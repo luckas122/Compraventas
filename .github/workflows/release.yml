@@ -84,14 +84,26 @@ jobs:
         run: |
           Write-Host "Compilando instalador MSI..."
           $ver = "${{ steps.meta.outputs.VER }}"
+          $app = "${{ steps.meta.outputs.APP }}"
 
           # Actualizar versión en installer.wxs
-          (Get-Content installer.wxs) -replace '(?<=ProductVersion = ")[0-9.]+', $ver | Set-Content installer.wxs
+          (Get-Content installer.wxs) -replace '(?<=Version=")[0-9.]+', $ver | Set-Content installer.wxs
 
-          # Compilar con WiX
-          if (!(Test-Path "msi_output")) { New-Item -ItemType Directory -Path "msi_output" }
+          # PASO 1: Usar heat para generar archivos automáticamente
+          Write-Host "Generando lista de archivos con heat.exe..."
+          wix extension add WixToolset.Heat
 
-          wix build installer.wxs -o "msi_output\Tu.local.2025.v$ver.msi"
+          $distDir = "dist\$app"
+          wix build -ext WixToolset.Heat `
+            -harvester-arg:-gg `
+            -harvester-arg:-sfrag `
+            -harvester-arg:-srd `
+            -harvester-arg:-cg:HeatGenerated `
+            -harvester-arg:-dr:INSTALLFOLDER `
+            -harvester-arg:-var:var.SourceDir `
+            -d:SourceDir="$distDir" `
+            installer.wxs `
+            -o "msi_output\Tu.local.2025.v$ver.msi"
 
           if (Test-Path "msi_output\Tu.local.2025.v$ver.msi") {
             Write-Host "✓ MSI generado exitosamente"
