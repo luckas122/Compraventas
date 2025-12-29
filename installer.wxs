@@ -14,21 +14,12 @@
 
     <MediaTemplate EmbedCab="yes" />
 
-    <Icon Id="AppIcon" SourceFile="assets\icon.ico" />
-    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
-
     <!-- Standard directory structure -->
     <StandardDirectory Id="LocalAppDataFolder">
       <Directory Id="ManufacturerFolder" Name="Compraventas">
         <Directory Id="INSTALLFOLDER" Name="Tu local 2025" />
       </Directory>
     </StandardDirectory>
-
-    <StandardDirectory Id="ProgramMenuFolder">
-      <Directory Id="ApplicationProgramsFolder" Name="Tu local 2025" />
-    </StandardDirectory>
-
-    <StandardDirectory Id="DesktopFolder" />
 
     <!-- Components con shortcuts NO advertised -->
     <DirectoryRef Id="INSTALLFOLDER">
@@ -38,31 +29,31 @@
     </DirectoryRef>
 
     <!-- Shortcuts como componentes separados -->
-    <DirectoryRef Id="DesktopFolder">
+    <StandardDirectory Id="DesktopFolder">
       <Component Id="DesktopShortcutComponent">
         <Shortcut
           Id="DesktopShortcut"
           Name="Tu local 2025"
           Target="[INSTALLFOLDER]Tu local 2025.exe"
-          WorkingDirectory="INSTALLFOLDER"
-          Icon="AppIcon" />
+          WorkingDirectory="INSTALLFOLDER" />
         <RegistryValue Root="HKCU" Key="Software\Compraventas\TuLocal2025" Name="DesktopShortcut" Type="integer" Value="1" KeyPath="yes" />
         <RemoveFolder Id="RemoveDesktopFolder" On="uninstall" />
       </Component>
-    </DirectoryRef>
+    </StandardDirectory>
 
-    <DirectoryRef Id="ApplicationProgramsFolder">
-      <Component Id="StartMenuShortcutComponent">
-        <Shortcut
-          Id="StartMenuShortcut"
-          Name="Tu local 2025"
-          Target="[INSTALLFOLDER]Tu local 2025.exe"
-          WorkingDirectory="INSTALLFOLDER"
-          Icon="AppIcon" />
-        <RegistryValue Root="HKCU" Key="Software\Compraventas\TuLocal2025" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
-        <RemoveFolder Id="RemoveStartMenuFolder" On="uninstall" />
-      </Component>
-    </DirectoryRef>
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ApplicationProgramsFolder" Name="Tu local 2025">
+        <Component Id="StartMenuShortcutComponent">
+          <Shortcut
+            Id="StartMenuShortcut"
+            Name="Tu local 2025"
+            Target="[INSTALLFOLDER]Tu local 2025.exe"
+            WorkingDirectory="INSTALLFOLDER" />
+          <RegistryValue Root="HKCU" Key="Software\Compraventas\TuLocal2025" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+          <RemoveFolder Id="RemoveStartMenuFolder" On="uninstall" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
 
     <!-- Feature -->
     <Feature Id="Complete" Level="1">
