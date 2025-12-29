@@ -64,7 +64,39 @@ jobs:
           [System.IO.Compression.ZipFile]::CreateFromDirectory($src, $zip, [System.IO.Compression.CompressionLevel]::Optimal, $true)
           Write-Host "Created $zip at $(Resolve-Path $zip)"
 
-      # Crear el release y subir ambos assets con GH CLI
+      # NUEVO: Instalar WiX Toolset
+      - name: Install WiX Toolset
+        shell: pwsh
+        run: |
+          Write-Host "Instalando WiX Toolset..."
+          dotnet tool install --global wix --version 4.0.4
+          dotnet tool list -g
+
+      # NUEVO: Compilar instalador MSI
+      - name: Build MSI Installer
+        shell: pwsh
+        run: |
+          Write-Host "Compilando instalador MSI..."
+          $ver = "${{ steps.meta.outputs.VER }}"
+
+          # Actualizar versión en installer.wxs
+          (Get-Content installer.wxs) -replace '(?<=ProductVersion = ")[0-9.]+', $ver | Set-Content installer.wxs
+
+          # Compilar con WiX
+          if (!(Test-Path "msi_output")) { New-Item -ItemType Directory -Path "msi_output" }
+
+          wix build installer.wxs -o "msi_output\Tu.local.2025.v$ver.msi" -ext WixToolset.UI.wixext
+
+          if (Test-Path "msi_output\Tu.local.2025.v$ver.msi") {
+            Write-Host "✓ MSI generado exitosamente"
+            $size = (Get-Item "msi_output\Tu.local.2025.v$ver.msi").Length / 1MB
+            Write-Host "  Tamaño: $([math]::Round($size, 2)) MB"
+          } else {
+            Write-Host "✗ ERROR: No se generó el MSI"
+            exit 1
+          }
+
+      # Crear el release y subir assets (ZIP, EXE y MSI)
       - name: Create Release and Upload assets (gh)
         if: startsWith(github.ref, 'refs/tags/')
         shell: bash
@@ -76,12 +108,15 @@ jobs:
           VER="${{ steps.meta.outputs.VER }}"
           APP="${{ steps.meta.outputs.APP }}"
           ZIP="Compraventas-v${VER}-onedir.zip"
-          # 🔄 Nombre sin versión (v2.0.1+)
           EXE="dist/$APP/$APP.exe"
+          MSI="msi_output/Tu.local.2025.v${VER}.msi"
+
           echo "Creating release $TAG with assets:"
           echo " - $ZIP"
           echo " - $EXE"
-          gh release create "$TAG" "$ZIP" "$EXE" \
+          echo " - $MSI"
+
+          gh release create "$TAG" "$ZIP" "$EXE" "$MSI" \
             --title "$TAG" \
-            --notes "Release $TAG" \
+            --notes "Release $TAG - Incluye instalador MSI profesional" \
             --latest
