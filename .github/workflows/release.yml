@@ -64,19 +64,16 @@ jobs:
           [System.IO.Compression.ZipFile]::CreateFromDirectory($src, $zip, [System.IO.Compression.CompressionLevel]::Optimal, $true)
           Write-Host "Created $zip at $(Resolve-Path $zip)"
 
-      # NUEVO: Instalar Inno Setup
+      # NUEVO: Instalar Inno Setup vía Chocolatey (más confiable)
       - name: Install Inno Setup
         shell: pwsh
         run: |
-          Write-Host "Descargando Inno Setup..."
-          Invoke-WebRequest -Uri "https://jrsoftware.org/download.php/is.exe" -OutFile "innosetup.exe"
-
-          Write-Host "Instalando Inno Setup..."
-          Start-Process -FilePath "innosetup.exe" -ArgumentList "/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-" -Wait
+          Write-Host "Instalando Inno Setup via Chocolatey..."
+          choco install innosetup -y --no-progress
 
           Write-Host "Verificando instalación..."
-          $env:PATH += ";C:\Program Files (x86)\Inno Setup 6"
-          iscc /?
+          $env:PATH = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+          iscc /? 2>&1 | Select-Object -First 5
 
       # NUEVO: Compilar instalador con Inno Setup
       - name: Build Installer with Inno Setup
@@ -88,12 +85,15 @@ jobs:
           # Actualizar versión en installer.iss
           (Get-Content installer.iss) -replace '#define MyAppVersion ".*"', "#define MyAppVersion `"$ver`"" | Set-Content installer.iss
 
-          # Compilar con Inno Setup
-          $env:PATH += ";C:\Program Files (x86)\Inno Setup 6"
+          # Refrescar PATH para incluir Inno Setup
+          $env:PATH = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+
+          Write-Host "Ejecutando: iscc installer.iss"
           iscc installer.iss
 
           # Buscar el archivo generado
-          $setupFile = Get-ChildItem -Path "installer_output" -Filter "Tu.local.2025.v$ver.Setup.exe" -File | Select-Object -First 1
+          Write-Host "Buscando instalador generado..."
+          $setupFile = Get-ChildItem -Path "installer_output" -Filter "Tu.local.2025.v$ver.Setup.exe" -File -ErrorAction SilentlyContinue | Select-Object -First 1
 
           if ($setupFile) {
             Write-Host "✓ Instalador generado exitosamente"
@@ -102,7 +102,12 @@ jobs:
             Write-Host "  Tamaño: $([math]::Round($size, 2)) MB"
           } else {
             Write-Host "✗ ERROR: No se generó el instalador"
-            Get-ChildItem -Path "installer_output" -Recurse
+            Write-Host "Contenido de installer_output:"
+            if (Test-Path "installer_output") {
+              Get-ChildItem -Path "installer_output" -Recurse
+            } else {
+              Write-Host "La carpeta installer_output no existe"
+            }
             exit 1
           }
 
