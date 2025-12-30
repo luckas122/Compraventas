@@ -12,7 +12,7 @@ AppId={{A1B2C3D4-E5F6-4789-ABCD-123456789ABC}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-DefaultDirName={localappdata}\Compraventas\{#MyAppName}
+DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
 OutputDir=installer_output
@@ -23,6 +23,9 @@ WizardStyle=modern
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
+; Permitir que el usuario elija la ruta de instalación
+DisableDirPage=no
+UsePreviousAppDir=yes
 
 ; Accesos directos
 [Icons]
@@ -41,52 +44,53 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChang
 
 ; Código para preservar config y BD en actualizaciones
 [Code]
+procedure CurStepChanged(CurStep: TSetupStep);
 var
   ConfigFile: string;
   DBFile: string;
   ConfigBackup: string;
   DBBackup: string;
-
-procedure InitializeWizard();
 begin
-  // Rutas de archivos a preservar
-  ConfigFile := ExpandConstant('{app}\_internal\app\app_config.json');
-  DBFile := ExpandConstant('{app}\appcomprasventas.db');
-  ConfigBackup := ExpandConstant('{tmp}\app_config_backup.json');
-  DBBackup := ExpandConstant('{tmp}\db_backup.db');
-end;
-
-procedure CurStepChanged(CurStep: TSetupStep);
-begin
-  // Antes de instalar: respaldar config y BD
+  // ANTES de instalar: respaldar config y BD si existen
   if CurStep = ssInstall then
   begin
+    // Ahora sí podemos usar {app} porque ya se definió la ruta de instalación
+    ConfigFile := ExpandConstant('{app}\_internal\app\app_config.json');
+    DBFile := ExpandConstant('{app}\appcomprasventas.db');
+    ConfigBackup := ExpandConstant('{tmp}\app_config_backup.json');
+    DBBackup := ExpandConstant('{tmp}\db_backup.db');
+
     if FileExists(ConfigFile) then
     begin
-      Log('Respaldando configuración...');
+      Log('Respaldando configuración desde: ' + ConfigFile);
       FileCopy(ConfigFile, ConfigBackup, False);
     end;
 
     if FileExists(DBFile) then
     begin
-      Log('Respaldando base de datos...');
+      Log('Respaldando base de datos desde: ' + DBFile);
       FileCopy(DBFile, DBBackup, False);
     end;
   end;
 
-  // Después de instalar: restaurar config y BD
+  // DESPUÉS de instalar: restaurar config y BD
   if CurStep = ssPostInstall then
   begin
+    ConfigFile := ExpandConstant('{app}\_internal\app\app_config.json');
+    DBFile := ExpandConstant('{app}\appcomprasventas.db');
+    ConfigBackup := ExpandConstant('{tmp}\app_config_backup.json');
+    DBBackup := ExpandConstant('{tmp}\db_backup.db');
+
     if FileExists(ConfigBackup) then
     begin
-      Log('Restaurando configuración...');
+      Log('Restaurando configuración a: ' + ConfigFile);
       FileCopy(ConfigBackup, ConfigFile, False);
       DeleteFile(ConfigBackup);
     end;
 
     if FileExists(DBBackup) then
     begin
-      Log('Restaurando base de datos...');
+      Log('Restaurando base de datos a: ' + DBFile);
       FileCopy(DBBackup, DBFile, False);
       DeleteFile(DBBackup);
     end;
