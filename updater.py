@@ -300,6 +300,7 @@ class Updater:
 
                 # Ejecutar instalador con interfaz mínima
                 import subprocess
+                import sys
 
                 # Obtener carpeta de logs dentro de la app
                 if getattr(sys, 'frozen', False):
