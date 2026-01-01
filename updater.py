@@ -212,43 +212,55 @@ class Updater:
             return
 
         # ========================================================================
-        # PUENTE DE ACTUALIZACION: Detectar versiones antiguas (≤2.7.1)
+        # NUEVA POLÍTICA: Desde v2.8.0 usamos INSTALADOR INNO SETUP
+        # Actualizaciones automáticas via ZIP/robocopy/renombrado YA NO FUNCIONAN
         # ========================================================================
         from version import __version__, get_version_tuple
         current_version_tuple = get_version_tuple()
 
-        # Versiones antiguas que usan robocopy y fallan con ERROR 32
-        if current_version_tuple <= (2, 7, 1):
-            QMessageBox.warning(
-                self.parent,
-                "Actualización manual requerida",
-                f"Tu versión actual ({__version__}) requiere actualización manual.\n\n"
-                "Las versiones anteriores a 2.7.2 tienen problemas con actualización\n"
-                "automática (ERROR 32: archivos bloqueados).\n\n"
-                "INSTRUCCIONES PARA ACTUALIZAR:\n\n"
-                "1. Descarga el ZIP de GitHub manualmente:\n"
-                "   https://github.com/{update_info.get('repo', 'luckas122/Compraventas')}/releases/latest\n\n"
-                "2. CIERRA esta aplicación completamente\n\n"
-                "3. Extrae el ZIP en una carpeta temporal\n\n"
-                "4. Ejecuta el archivo 'manual_update.bat' que está dentro del ZIP\n\n"
-                "5. El script hará el resto automáticamente\n\n"
-                "Desde la versión 2.7.2 en adelante, las actualizaciones\n"
-                "automáticas funcionarán correctamente.\n\n"
-                "¿Deseas abrir la página de releases en tu navegador?"
-            )
+        # Obtener versión de destino
+        import re
+        latest_tag = update_info.get('tag_name', '')
+        match = re.search(r'v?(\d+)\.(\d+)\.(\d+)', latest_tag)
+        if match:
+            target_version = tuple(map(int, match.groups()))
+        else:
+            target_version = (9, 9, 9)  # Fallback alto
 
-            reply_browser = QMessageBox.question(
-                self.parent,
-                "Abrir navegador",
-                "¿Abrir página de releases en el navegador?",
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.Yes
+        # Si la versión de destino es >= 2.8.0, forzar instalador manual
+        if target_version >= (2, 8, 0):
+            repo = update_info.get('repo', 'luckas122/Compraventas')
+            release_url = f"https://github.com/{repo}/releases/latest"
+
+            msg = QMessageBox(self.parent)
+            msg.setIcon(QMessageBox.Information)
+            msg.setWindowTitle("Nueva forma de actualizar")
+            msg.setText(
+                f"Actualización disponible: {latest_tag}\n\n"
+                f"Tu versión actual: v{__version__}"
             )
+            msg.setInformativeText(
+                "A partir de la versión 2.8.0, usamos un INSTALADOR profesional "
+                "que preserva tu configuración y base de datos automáticamente.\n\n"
+                "Las actualizaciones automáticas desde la app ya no están disponibles.\n\n"
+                "INSTRUCCIONES:\n\n"
+                "1. Descarga el instalador desde GitHub:\n"
+                f"   {release_url}\n\n"
+                "2. Busca el archivo: Tu.local.2025.vX.X.X.Setup.exe\n\n"
+                "3. Ejecuta el instalador\n\n"
+                "4. El instalador preservará automáticamente:\n"
+                "   ✓ Tu base de datos\n"
+                "   ✓ Tu configuración (SMTP, AFIP, tickets, etc.)\n\n"
+                "¿Deseas abrir la página de releases ahora?"
+            )
+            msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+            msg.setDefaultButton(QMessageBox.Yes)
+
+            reply_browser = msg.exec_()
 
             if reply_browser == QMessageBox.Yes:
                 import webbrowser
-                repo = update_info.get('repo', 'luckas122/Compraventas')
-                webbrowser.open(f"https://github.com/{repo}/releases/latest")
+                webbrowser.open(release_url)
 
             return  # No continuar con descarga automática
 
