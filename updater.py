@@ -150,33 +150,46 @@ class Updater:
                                             "Ya tienes la última versión.")
                 return None
 
-            # Buscar assets: preferir ZIP, luego EXE
+            # Buscar assets: preferir Setup.exe (instalador), luego ZIP (legacy), luego cualquier EXE
             assets = data.get('assets', []) or []
+            setup_asset = None
             zip_asset = None
             exe_asset = None
             for asset in assets:
                 name = (asset.get('name') or '').lower()
-                if name.endswith('.zip') and not zip_asset:
+                if 'setup.exe' in name and not setup_asset:
+                    setup_asset = asset
+                elif name.endswith('.zip') and not zip_asset:
                     zip_asset = asset
-                if name.endswith('.exe') and not exe_asset:
+                elif name.endswith('.exe') and not exe_asset:
                     exe_asset = asset
 
-            chosen = zip_asset or exe_asset
+            # Prioridad: Setup.exe > ZIP > EXE
+            chosen = setup_asset or zip_asset or exe_asset
             if not chosen:
                 if not silent:
                     QMessageBox.information(self.parent, "Actualizaciones",
                                             "Hay una versión nueva, pero no se encontraron archivos para descargar.")
                 return None
 
-            filetype = 'zip' if zip_asset else 'exe'
+            # Determinar tipo de archivo
+            if setup_asset:
+                filetype = 'setup'
+            elif zip_asset:
+                filetype = 'zip'
+            else:
+                filetype = 'exe'
+
             return {
                 'version': tag_name,
+                'tag_name': tag_name,
                 'name': data.get('name') or tag_name,
                 'body': data.get('body', ''),
                 'download_url': chosen['browser_download_url'],
                 'filename': chosen['name'],
                 'size': chosen.get('size', 0),
-                'filetype': filetype
+                'filetype': filetype,
+                'repo': '/'.join(__release_url__.split('/')[-4:-2])  # owner/repo
             }
 
         except urllib.error.URLError as e:
@@ -213,7 +226,7 @@ class Updater:
 
         # ========================================================================
         # NUEVA POLÍTICA: Desde v2.8.0 usamos INSTALADOR INNO SETUP
-        # Actualizaciones automáticas via ZIP/robocopy/renombrado YA NO FUNCIONAN
+        # Las actualizaciones se hacen descargando y ejecutando el Setup.exe
         # ========================================================================
         from version import __version__, get_version_tuple
         current_version_tuple = get_version_tuple()
@@ -227,42 +240,11 @@ class Updater:
         else:
             target_version = (9, 9, 9)  # Fallback alto
 
-        # Si la versión de destino es >= 2.8.0, forzar instalador manual
-        if target_version >= (2, 8, 0):
-            repo = update_info.get('repo', 'luckas122/Compraventas')
-            release_url = f"https://github.com/{repo}/releases/latest"
-
-            msg = QMessageBox(self.parent)
-            msg.setIcon(QMessageBox.Information)
-            msg.setWindowTitle("Nueva forma de actualizar")
-            msg.setText(
-                f"Actualización disponible: {latest_tag}\n\n"
-                f"Tu versión actual: v{__version__}"
-            )
-            msg.setInformativeText(
-                "A partir de la versión 2.8.0, usamos un INSTALADOR profesional "
-                "que preserva tu configuración y base de datos automáticamente.\n\n"
-                "Las actualizaciones automáticas desde la app ya no están disponibles.\n\n"
-                "INSTRUCCIONES:\n\n"
-                "1. Descarga el instalador desde GitHub:\n"
-                f"   {release_url}\n\n"
-                "2. Busca el archivo: Tu.local.2025.vX.X.X.Setup.exe\n\n"
-                "3. Ejecuta el instalador\n\n"
-                "4. El instalador preservará automáticamente:\n"
-                "   ✓ Tu base de datos\n"
-                "   ✓ Tu configuración (SMTP, AFIP, tickets, etc.)\n\n"
-                "¿Deseas abrir la página de releases ahora?"
-            )
-            msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
-            msg.setDefaultButton(QMessageBox.Yes)
-
-            reply_browser = msg.exec_()
-
-            if reply_browser == QMessageBox.Yes:
-                import webbrowser
-                webbrowser.open(release_url)
-
-            return  # No continuar con descarga automática
+        # Si la versión de destino es >= 2.8.0 Y tenemos Setup.exe, usar instalador
+        if target_version >= (2, 8, 0) and update_info.get('filetype') == 'setup':
+            # Descarga automática del instalador
+            # El resto del flujo se maneja en _on_download_complete()
+            pass  # Continuar con la descarga normal
 
         # Diálogo de progreso
         progress = QProgressDialog(
@@ -297,7 +279,57 @@ class Updater:
         new_version = new_version_tag.strip().lstrip('vV')
 
         try:
-            if filetype == "zip":
+            if filetype == "setup":
+                # --- INSTALACIÓN CON INNO SETUP (v2.8.0+) ---
+                msg = QMessageBox(self.parent)
+                msg.setIcon(QMessageBox.Information)
+                msg.setWindowTitle("Actualización descargada")
+                msg.setText(
+                    f"La actualización v{new_version} se ha descargado correctamente.\n\n"
+                    "El instalador se ejecutará automáticamente y preservará:\n"
+                    "  ✓ Tu base de datos\n"
+                    "  ✓ Tu configuración (SMTP, AFIP, tickets, etc.)\n\n"
+                    "La aplicación se cerrará y el instalador se iniciará.\n\n"
+                    "¿Continuar con la instalación?"
+                )
+                msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+                msg.setDefaultButton(QMessageBox.Yes)
+
+                if msg.exec_() != QMessageBox.Yes:
+                    return
+
+                # Ejecutar instalador en modo silencioso con parámetros para preservar config
+                import subprocess
+                installer_args = [
+                    str(download_path),
+                    '/VERYSILENT',           # Instalación completamente silenciosa
+                    '/NORESTART',            # No reiniciar Windows
+                    '/CLOSEAPPLICATIONS',    # Cerrar app si está abierta
+                    '/RESTARTAPPLICATIONS',  # Reabrir app después de instalar
+                ]
+
+                try:
+                    # Iniciar instalador
+                    subprocess.Popen(installer_args, shell=False)
+
+                    # Dar tiempo a que el instalador inicie
+                    import time
+                    time.sleep(1)
+
+                    # Cerrar la aplicación actual para permitir que el instalador reemplace archivos
+                    import sys
+                    sys.exit(0)
+
+                except Exception as e:
+                    QMessageBox.critical(
+                        self.parent,
+                        "Error al ejecutar instalador",
+                        f"No se pudo ejecutar el instalador:\n{e}\n\n"
+                        f"Puedes ejecutarlo manualmente desde:\n{download_path}"
+                    )
+                    return
+
+            elif filetype == "zip":
                 # --- INSTALACIÓN POR CARPETA (ZIP ONEDIR) ---
                 # CORRECCIÓN: En PyInstaller ONEDIR, sys.executable apunta al ejecutable principal
                 # Si estamos en un ejecutable frozen, buscar correctamente la carpeta base
