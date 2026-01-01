@@ -298,14 +298,26 @@ class Updater:
                 if msg.exec_() != QMessageBox.Yes:
                     return
 
-                # Ejecutar instalador en modo silencioso con parámetros para preservar config
+                # Ejecutar instalador con interfaz mínima
                 import subprocess
+
+                # Obtener carpeta de logs dentro de la app
+                if getattr(sys, 'frozen', False):
+                    app_dir = Path(sys.executable).parent
+                else:
+                    app_dir = Path.cwd()
+
+                logs_dir = app_dir / "logs_instalador"
+                logs_dir.mkdir(exist_ok=True)
+                log_file = logs_dir / f"update_{new_version}.log"
+
                 installer_args = [
                     str(download_path),
-                    '/VERYSILENT',           # Instalación completamente silenciosa
+                    '/SILENT',               # Instalación con barra de progreso visible
                     '/NORESTART',            # No reiniciar Windows
                     '/CLOSEAPPLICATIONS',    # Cerrar app si está abierta
                     '/RESTARTAPPLICATIONS',  # Reabrir app después de instalar
+                    f'/LOG={log_file}',      # Log en carpeta de la app
                 ]
 
                 try:

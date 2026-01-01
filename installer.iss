@@ -28,6 +28,10 @@ ArchitecturesInstallIn64BitMode=x64
 ; Permitir que el usuario elija la ruta de instalación
 DisableDirPage=no
 UsePreviousAppDir=yes
+; Configuración de logs y actualizaciones
+SetupLogging=yes
+AlwaysShowComponentsList=no
+ShowLanguageDialog=no
 
 ; Accesos directos
 [Icons]
@@ -119,14 +123,22 @@ begin
     Log('DBBackup existe: ' + IntToStr(Integer(FileExists(DBBackup))));
 
     // Asegurar que existe la carpeta _internal\app
+    Log('Verificando carpeta config: ' + ConfigDir);
     if not DirExists(ConfigDir) then
     begin
-      Log('Creando carpeta: ' + ConfigDir);
+      Log('⚠ Carpeta no existe, intentando crear: ' + ConfigDir);
       if ForceDirectories(ConfigDir) then
-        Log('✓ Carpeta creada')
+        Log('✓ Carpeta creada exitosamente')
       else
-        Log('✗ ERROR: No se pudo crear carpeta');
-    end;
+        Log('✗ ERROR CRÍTICO: No se pudo crear carpeta');
+    end else
+      Log('✓ Carpeta ya existe');
+
+    // Verificar que el archivo destino no existe antes de copiar
+    if FileExists(ConfigFile) then
+      Log('⚠ ADVERTENCIA: ConfigFile ya existe, será sobrescrito: ' + ConfigFile)
+    else
+      Log('- ConfigFile no existe aún (normal en instalación limpia): ' + ConfigFile);
 
     if FileExists(ConfigBackup) then
     begin
