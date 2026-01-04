@@ -79,10 +79,6 @@ if __name__ == "__main__":
 
     # 4) Sesión y chequeo de primer usuario
     session = SessionLocal()
-    ...
-
-    # 4) Sesión y chequeo de primer usuario
-    session = SessionLocal()
     if len(UsuarioRepo(session).listar()) == 0:
         # No hay usuarios: lanzar asistente para crear el primero (admin)
         wizard = CreateAdminDialog(session)

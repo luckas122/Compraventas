@@ -27,15 +27,6 @@ from PyQt5.QtCore import QRectF
 from PyQt5.QtGui import QFont
 
 
-
-# Fallback con python-barcode si está disponible
-try:
-    import barcode
-    from barcode.writer import ImageWriter
-except Exception:
-    barcode = None
-    ImageWriter = None
-
 def _px_per_mm(painter):
     # conversión robusta a pixeles por milímetro
     try:

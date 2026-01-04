@@ -2,7 +2,7 @@
 ; Generado con Inno Setup 6
 
 #define MyAppName "Tu local 2025"
-#define MyAppVersion "2.8.5"
+#define MyAppVersion "2.9.6"
 #define MyAppPublisher "Compraventas"
 #define MyAppExeName "Tu local 2025.exe"
 
@@ -50,6 +50,9 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChang
 
 ; Código para preservar config y BD en actualizaciones
 [Code]
+var
+  BackupDir: string;
+
 function ForceDirectories(Dir: string): Boolean;
 var
   Parent: string;
@@ -78,47 +81,53 @@ begin
   // ANTES de instalar: respaldar config y BD si existen
   if CurStep = ssInstall then
   begin
+    // Usar {localappdata} para backup seguro (no se limpia como {tmp})
+    BackupDir := ExpandConstant('{localappdata}\Tu local 2025 Backup');
+    ForceDirectories(BackupDir);
+
     ConfigFile := ExpandConstant('{app}\_internal\app\app_config.json');
     DBFile := ExpandConstant('{app}\appcomprasventas.db');
-    ConfigBackup := ExpandConstant('{tmp}\app_config_backup.json');
-    DBBackup := ExpandConstant('{tmp}\db_backup.db');
+    ConfigBackup := BackupDir + '\app_config_backup.json';
+    DBBackup := BackupDir + '\db_backup.db';
 
-    Log('=== RESPALDO PRE-INSTALACIÓN ===');
+    Log('=== RESPALDO PRE-INSTALACION ===');
+    Log('Directorio de backup: ' + BackupDir);
     Log('Buscando config en: ' + ConfigFile);
     Log('Buscando BD en: ' + DBFile);
 
     if FileExists(ConfigFile) then
     begin
-      Log('✓ Config encontrado, respaldando...');
+      Log('Config encontrado, respaldando...');
       if FileCopy(ConfigFile, ConfigBackup, False) then
-        Log('✓ Config respaldado exitosamente')
+        Log('Config respaldado exitosamente a: ' + ConfigBackup)
       else
-        Log('✗ ERROR: No se pudo respaldar config');
+        Log('ERROR: No se pudo respaldar config');
     end else
-      Log('- Config no existe (instalación limpia)');
+      Log('Config no existe (instalacion limpia)');
 
     if FileExists(DBFile) then
     begin
-      Log('✓ BD encontrada, respaldando...');
+      Log('BD encontrada, respaldando...');
       if FileCopy(DBFile, DBBackup, False) then
-        Log('✓ BD respaldada exitosamente')
+        Log('BD respaldada exitosamente a: ' + DBBackup)
       else
-        Log('✗ ERROR: No se pudo respaldar BD');
+        Log('ERROR: No se pudo respaldar BD');
     end else
-      Log('- BD no existe (instalación limpia)');
+      Log('BD no existe (instalacion limpia)');
   end;
 
-  // DESPUÉS de instalar: restaurar config y BD
+  // DESPUES de instalar: restaurar config y BD
   if CurStep = ssPostInstall then
   begin
+    BackupDir := ExpandConstant('{localappdata}\Tu local 2025 Backup');
     ConfigFile := ExpandConstant('{app}\_internal\app\app_config.json');
     DBFile := ExpandConstant('{app}\appcomprasventas.db');
-    ConfigBackup := ExpandConstant('{tmp}\app_config_backup.json');
-    DBBackup := ExpandConstant('{tmp}\db_backup.db');
+    ConfigBackup := BackupDir + '\app_config_backup.json';
+    DBBackup := BackupDir + '\db_backup.db';
     ConfigDir := ExpandConstant('{app}\_internal\app');
 
-    Log('=== RESTAURACIÓN POST-INSTALACIÓN ===');
-    Log('Verificando backups...');
+    Log('=== RESTAURACION POST-INSTALACION ===');
+    Log('Verificando backups en: ' + BackupDir);
     Log('ConfigBackup existe: ' + IntToStr(Integer(FileExists(ConfigBackup))));
     Log('DBBackup existe: ' + IntToStr(Integer(FileExists(DBBackup))));
 
@@ -126,44 +135,51 @@ begin
     Log('Verificando carpeta config: ' + ConfigDir);
     if not DirExists(ConfigDir) then
     begin
-      Log('⚠ Carpeta no existe, intentando crear: ' + ConfigDir);
+      Log('Carpeta no existe, creando: ' + ConfigDir);
       if ForceDirectories(ConfigDir) then
-        Log('✓ Carpeta creada exitosamente')
+        Log('Carpeta creada exitosamente')
       else
-        Log('✗ ERROR CRÍTICO: No se pudo crear carpeta');
+        Log('ERROR CRITICO: No se pudo crear carpeta');
     end else
-      Log('✓ Carpeta ya existe');
+      Log('Carpeta ya existe');
 
-    // Verificar que el archivo destino no existe antes de copiar
-    if FileExists(ConfigFile) then
-      Log('⚠ ADVERTENCIA: ConfigFile ya existe, será sobrescrito: ' + ConfigFile)
-    else
-      Log('- ConfigFile no existe aún (normal en instalación limpia): ' + ConfigFile);
-
+    // Restaurar configuración
     if FileExists(ConfigBackup) then
     begin
       Log('Restaurando config a: ' + ConfigFile);
+      // Eliminar config por defecto primero para asegurar copia limpia
+      if FileExists(ConfigFile) then
+        DeleteFile(ConfigFile);
+
       if FileCopy(ConfigBackup, ConfigFile, False) then
       begin
-        Log('✓ Config restaurado exitosamente');
+        Log('Config restaurado exitosamente');
         DeleteFile(ConfigBackup);
       end else
-        Log('✗ ERROR: No se pudo restaurar config');
+        Log('ERROR: No se pudo restaurar config');
     end else
-      Log('- No hay config para restaurar');
+      Log('No hay config para restaurar (instalacion limpia)');
 
+    // Restaurar base de datos
     if FileExists(DBBackup) then
     begin
       Log('Restaurando BD a: ' + DBFile);
+      // Eliminar BD nueva primero para asegurar copia limpia
+      if FileExists(DBFile) then
+        DeleteFile(DBFile);
+
       if FileCopy(DBBackup, DBFile, False) then
       begin
-        Log('✓ BD restaurada exitosamente');
+        Log('BD restaurada exitosamente');
         DeleteFile(DBBackup);
       end else
-        Log('✗ ERROR: No se pudo restaurar BD');
+        Log('ERROR: No se pudo restaurar BD');
     end else
-      Log('- No hay BD para restaurar');
+      Log('No hay BD para restaurar (instalacion limpia)');
 
-    Log('=== FIN RESTAURACIÓN ===');
+    // Limpiar directorio de backup si está vacío
+    RemoveDir(BackupDir);
+
+    Log('=== FIN RESTAURACION ===');
   end;
 end;

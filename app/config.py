@@ -120,20 +120,7 @@ DEFAULTS: Dict[str, Any] = {
             "{{abonado}}", "{{vuelto}}"
         ]
     },
-        "fiscal": {
-            "enabled": False,
-            "provider": "afipsdk",
-            "mode": "test",
-            "only_card": True,
-            "cuit": "",
-            "punto_venta": 1,
-            "tipo_cbte": "FACTURA_B",
-            "afipsdk": {
-            "api_key": "",
-            "base_url_test": "",
-            "base_url_prod": ""
-            }
-        },
+
     # BACKUP
     "backup": {
         "enabled": True,

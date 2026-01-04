@@ -50,8 +50,8 @@ def _user_data_dir() -> Path:
 
 def _dev_root_dir() -> Path:
     # Carpeta raíz del proyecto cuando NO está frozen
-    # .../app/database.py -> /app -> /<root>
-    return Path(__file__).resolve().parent.parent.parent
+    # .../app/database.py -> .parent -> /app -> .parent -> /<root>
+    return Path(__file__).resolve().parent.parent
 
 def _db_path() -> Path:
     if getattr(sys, "frozen", False):

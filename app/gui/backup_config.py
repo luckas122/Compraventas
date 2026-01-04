@@ -421,7 +421,7 @@ class BackupConfigPanel(QWidget):
                 app_path = sys.executable
                 is_frozen = True
             else:
-                # Modo desarrollo
+                # Modo desarrollo: backup_config.py -> gui/ -> app/ -> raíz/
                 app_path = str(Path(__file__).parent.parent.parent / "main.py")
                 is_frozen = False
 
