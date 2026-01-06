@@ -264,6 +264,7 @@ class Updater:
                 '/NORESTART',            # No reiniciar Windows
                 '/CLOSEAPPLICATIONS',    # Cerrar app si está abierta
                 '/RESTARTAPPLICATIONS',  # Reabrir app después de instalar
+                '/TASKS=backupconfig',   # Forzar backup de configuración
                 f'/LOG={log_file}',      # Log en carpeta de la app
             ]
 
