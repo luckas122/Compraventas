@@ -2,7 +2,7 @@
 ; Generado con Inno Setup 6
 
 #define MyAppName "Tu local 2025"
-#define MyAppVersion "3.1.0"
+#define MyAppVersion "3.1.1"
 #define MyAppPublisher "Compraventas"
 #define MyAppExeName "Tu local 2025.exe"
 #define MyAppId "A1B2C3D4-E5F6-4789-ABCD-123456789ABC"
@@ -39,7 +39,7 @@ Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 Source: "dist\Tu local 2025\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Tasks]
-Name: "backupconfig"; Description: "Restaurar configuración anterior (si existe)"; GroupDescription: "Opciones adicionales:"; Flags: checked
+Name: "backupconfig"; Description: "Restaurar configuración anterior (si existe)"; GroupDescription: "Opciones adicionales:"; Flags: checkedonce
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall
@@ -138,6 +138,15 @@ begin
     Log('No hay instalación previa (instalación limpia)');
 
   Log('================================================');
+end;
+
+procedure InitializeWizard();
+begin
+  if ConfigFound then
+  begin
+    WizardSelectTasks('backupconfig');
+    Log('Task backupconfig seleccionada automaticamente (config detectada)');
+  end;
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
