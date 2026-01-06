@@ -64,7 +64,13 @@ if __name__ == "__main__":
                         "La aplicación se reiniciará para aplicar los cambios."
                     )
                     # Reiniciar la aplicación
-                    subprocess.Popen([sys.executable] + sys.argv)
+                    import os
+                    if getattr(sys, 'frozen', False):
+                        # Modo frozen: reiniciar el exe directamente
+                        os.startfile(sys.executable)
+                    else:
+                        # Modo desarrollo
+                        subprocess.Popen([sys.executable] + sys.argv)
                     sys.exit(0)
                 else:
                     QMessageBox.warning(

@@ -12,8 +12,42 @@ import os
 import copy
 from typing import Any, Dict
 
+# Función de logging a archivo (para debug en modo frozen)
+def _log_config(msg: str):
+    """Escribe logs tanto a consola como a archivo para debugging."""
+    import sys
+    from datetime import datetime
+
+    # Print a consola (útil en desarrollo)
+    print(msg)
+
+    # También escribir a archivo (útil en modo frozen)
+    try:
+        if getattr(sys, 'frozen', False):
+            log_dir = os.path.dirname(sys.executable)
+        else:
+            log_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+        log_file = os.path.join(log_dir, "config_restore.log")
+        with open(log_file, "a", encoding="utf-8") as f:
+            timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            f.write(f"[{timestamp}] {msg}\n")
+    except:
+        pass  # Silenciar errores de logging
+
 # Ruta del archivo JSON de configuración
-CONFIG_PATH = os.path.join(os.path.dirname(__file__), "app_config.json")
+def _get_config_path() -> str:
+    """Obtiene la ruta correcta del config tanto en desarrollo como frozen."""
+    import sys
+    if getattr(sys, 'frozen', False):
+        # Modo frozen: config está en _internal/app/
+        base = os.path.dirname(sys.executable)
+        return os.path.join(base, "_internal", "app", "app_config.json")
+    else:
+        # Modo desarrollo: junto a este archivo
+        return os.path.join(os.path.dirname(__file__), "app_config.json")
+
+CONFIG_PATH = _get_config_path()
 
 # -------------------- DEFAULTS --------------------
 # Estos valores sirven como base; cualquier clave faltante en el JSON
@@ -311,7 +345,9 @@ def get_backup_path() -> str:
         # Modo desarrollo: usar carpeta raíz del proyecto
         app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-    return os.path.join(app_dir, "config_backup", "app_config.json")
+    backup_path = os.path.join(app_dir, "config_backup", "app_config.json")
+    _log_config(f"get_backup_path() -> {backup_path}")
+    return backup_path
 
 
 def has_pending_backup() -> bool:
@@ -319,7 +355,9 @@ def has_pending_backup() -> bool:
     Verifica si existe un backup pendiente de restaurar.
     """
     backup_path = get_backup_path()
-    return os.path.exists(backup_path)
+    exists = os.path.exists(backup_path)
+    _log_config(f"has_pending_backup() -> {exists} (path: {backup_path})")
+    return exists
 
 
 def restore_from_backup() -> bool:
@@ -330,16 +368,37 @@ def restore_from_backup() -> bool:
     import shutil
     backup_path = get_backup_path()
 
+    _log_config("restore_from_backup() iniciando...")
+    _log_config(f"Backup path: {backup_path}")
+    _log_config(f"Config path destino: {CONFIG_PATH}")
+
     if not os.path.exists(backup_path):
+        _log_config(f"ERROR: Backup no existe en {backup_path}")
         return False
 
     try:
+        # Verificar que el directorio destino existe
+        config_dir = os.path.dirname(CONFIG_PATH)
+        if not os.path.exists(config_dir):
+            _log_config(f"Creando directorio: {config_dir}")
+            os.makedirs(config_dir, exist_ok=True)
+
         # Copiar backup sobre config actual
+        _log_config(f"Copiando {backup_path} -> {CONFIG_PATH}")
         shutil.copy2(backup_path, CONFIG_PATH)
+        _log_config("Copia exitosa!")
+
+        # Verificar que se copió
+        if os.path.exists(CONFIG_PATH):
+            _log_config("Verificación: CONFIG_PATH existe después de copiar")
+        else:
+            _log_config("ERROR: CONFIG_PATH no existe después de copiar!")
+
         # Eliminar backup después de restaurar
         delete_backup()
         return True
-    except Exception:
+    except Exception as e:
+        _log_config(f"ERROR en restore_from_backup: {e}")
         return False
 
 
@@ -351,11 +410,16 @@ def delete_backup() -> bool:
     backup_path = get_backup_path()
     backup_dir = os.path.dirname(backup_path)
 
+    _log_config(f"delete_backup() - eliminando {backup_dir}")
+
     try:
         if os.path.exists(backup_path):
             os.remove(backup_path)
+            _log_config("Archivo backup eliminado")
         if os.path.exists(backup_dir) and os.path.isdir(backup_dir):
             shutil.rmtree(backup_dir, ignore_errors=True)
+            _log_config("Carpeta backup eliminada")
         return True
-    except Exception:
+    except Exception as e:
+        _log_config(f"ERROR en delete_backup: {e}")
         return False

@@ -2,7 +2,7 @@
 ; Generado con Inno Setup 6
 
 #define MyAppName "Tu local 2025"
-#define MyAppVersion "3.0.3"
+#define MyAppVersion "3.0.4"
 #define MyAppPublisher "Compraventas"
 #define MyAppExeName "Tu local 2025.exe"
 #define MyAppId "A1B2C3D4-E5F6-4789-ABCD-123456789ABC"
@@ -38,6 +38,9 @@ Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 [Files]
 Source: "dist\Tu local 2025\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
+[Tasks]
+Name: "backupconfig"; Description: "Restaurar configuración anterior (si existe)"; GroupDescription: "Opciones adicionales:"; Flags: checkedonce
+
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall
 
@@ -46,6 +49,7 @@ var
   BackupDir: string;
   ConfigBackupPath: string;
   PreviousInstallDir: string;
+  ConfigFound: Boolean;
 
 function ForceDirectories(Dir: string): Boolean;
 var
@@ -98,6 +102,7 @@ var
   ConfigFile: string;
 begin
   Result := True;
+  ConfigFound := False;
 
   // Configurar rutas de backup (fuera de la carpeta de instalación)
   BackupDir := ExpandConstant('{userappdata}\Tu local 2025 Backup');
@@ -117,6 +122,7 @@ begin
 
     if FileExists(ConfigFile) then
     begin
+      ConfigFound := True;
       Log('Config encontrado! Haciendo backup...');
       if ForceDirectories(BackupDir) then
       begin
@@ -149,27 +155,58 @@ begin
     Log('================================================');
     Log('Backup temporal en: ' + ConfigBackupPath);
     Log('Destino final: ' + FinalBackupPath);
+    Log('Task backupconfig seleccionada: ' + BoolToStr(IsTaskSelected('backupconfig')));
 
-    if FileExists(ConfigBackupPath) then
+    // Solo mover el backup si el usuario marcó la opción
+    if IsTaskSelected('backupconfig') then
     begin
-      Log('Backup encontrado, moviendo a carpeta de la app...');
-      if ForceDirectories(FinalBackupDir) then
+      if FileExists(ConfigBackupPath) then
       begin
-        if FileCopy(ConfigBackupPath, FinalBackupPath, False) then
+        Log('Backup encontrado y usuario quiere restaurar, moviendo a carpeta de la app...');
+        if ForceDirectories(FinalBackupDir) then
         begin
-          Log('>>> BACKUP MOVIDO EXITOSAMENTE');
-          Log('>>> Ubicación: ' + FinalBackupPath);
-          DeleteFile(ConfigBackupPath);
-          RemoveDir(BackupDir);
+          if FileCopy(ConfigBackupPath, FinalBackupPath, False) then
+          begin
+            Log('>>> BACKUP MOVIDO EXITOSAMENTE');
+            Log('>>> Ubicación: ' + FinalBackupPath);
+            DeleteFile(ConfigBackupPath);
+            RemoveDir(BackupDir);
+          end else
+            Log('>>> ERROR: No se pudo mover backup');
         end else
-          Log('>>> ERROR: No se pudo mover backup');
+          Log('>>> ERROR: No se pudo crear carpeta config_backup');
       end else
-        Log('>>> ERROR: No se pudo crear carpeta config_backup');
+        Log('No hay backup para mover (instalación limpia o config no encontrado)');
     end else
-      Log('No hay backup para mover (instalación limpia)');
+    begin
+      Log('Usuario NO seleccionó restaurar configuración');
+      // Limpiar backup temporal si existe
+      if FileExists(ConfigBackupPath) then
+      begin
+        DeleteFile(ConfigBackupPath);
+        RemoveDir(BackupDir);
+        Log('Backup temporal eliminado');
+      end;
+    end;
 
     Log('================================================');
     Log('La aplicación se abrirá y preguntará si restaurar');
     Log('================================================');
   end;
+end;
+
+function UpdateReadyMemo(Space, NewLine, MemoUserInfoInfo, MemoDirInfo, MemoTypeInfo, MemoComponentsInfo, MemoGroupInfo, MemoTasksInfo: String): String;
+begin
+  Result := '';
+  if MemoDirInfo <> '' then
+    Result := Result + MemoDirInfo + NewLine + NewLine;
+
+  if ConfigFound then
+  begin
+    if IsTaskSelected('backupconfig') then
+      Result := Result + 'Configuración anterior:' + NewLine + Space + 'Se restaurará después de la instalación' + NewLine + NewLine
+    else
+      Result := Result + 'Configuración anterior:' + NewLine + Space + 'NO se restaurará (se usará configuración limpia)' + NewLine + NewLine;
+  end else
+    Result := Result + 'Configuración anterior:' + NewLine + Space + 'No se encontró configuración previa' + NewLine + NewLine;
 end;
