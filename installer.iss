@@ -2,7 +2,7 @@
 ; Generado con Inno Setup 6
 
 #define MyAppName "Tu local 2025"
-#define MyAppVersion "3.0.9"
+#define MyAppVersion "3.1.0"
 #define MyAppPublisher "Compraventas"
 #define MyAppExeName "Tu local 2025.exe"
 #define MyAppId "A1B2C3D4-E5F6-4789-ABCD-123456789ABC"
@@ -39,7 +39,7 @@ Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 Source: "dist\Tu local 2025\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Tasks]
-Name: "backupconfig"; Description: "Restaurar configuración anterior (si existe)"; GroupDescription: "Opciones adicionales:"; Flags: checkedonce
+Name: "backupconfig"; Description: "Restaurar configuración anterior (si existe)"; GroupDescription: "Opciones adicionales:"; Flags: checked
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall
