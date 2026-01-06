@@ -2,7 +2,7 @@
 ; Generado con Inno Setup 6
 
 #define MyAppName "Tu local 2025"
-#define MyAppVersion "2.9.8"
+#define MyAppVersion "3.0.0"
 #define MyAppPublisher "Compraventas"
 #define MyAppExeName "Tu local 2025.exe"
 
