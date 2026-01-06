@@ -2,13 +2,13 @@
 ; Generado con Inno Setup 6
 
 #define MyAppName "Tu local 2025"
-#define MyAppVersion "3.0.0"
+#define MyAppVersion "3.0.1"
 #define MyAppPublisher "Compraventas"
 #define MyAppExeName "Tu local 2025.exe"
+#define MyAppId "A1B2C3D4-E5F6-4789-ABCD-123456789ABC"
 
 [Setup]
-; Información básica
-AppId={{A1B2C3D4-E5F6-4789-ABCD-123456789ABC}
+AppId={{{#MyAppId}}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
@@ -20,44 +20,39 @@ OutputBaseFilename=Tu.local.2025.v{#MyAppVersion}.Setup
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
-; Permitir instalación en Program Files (requiere admin)
 PrivilegesRequired=admin
 PrivilegesRequiredOverridesAllowed=dialog
 ArchitecturesAllowed=x64
 ArchitecturesInstallIn64BitMode=x64
-; Permitir que el usuario elija la ruta de instalación
 DisableDirPage=no
 UsePreviousAppDir=yes
-; Configuración de logs y actualizaciones
 SetupLogging=yes
 AlwaysShowComponentsList=no
 ShowLanguageDialog=no
 
-; Accesos directos
 [Icons]
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 
-; Archivos a instalar
 [Files]
-; Copiar TODOS los archivos de la carpeta dist recursivamente
 Source: "dist\Tu local 2025\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
-; Ejecutar app después de instalar (sin skipifsilent para que siempre abra)
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall
 
-; Código para preservar config en actualizaciones
-; NUEVO ENFOQUE: Solo hacer backup, la app preguntará si restaurar
 [Code]
+var
+  BackupDir: string;
+  ConfigBackupPath: string;
+  PreviousInstallDir: string;
+
 function ForceDirectories(Dir: string): Boolean;
 var
   Parent: string;
 begin
   Result := DirExists(Dir);
   if Result then Exit;
-
   Parent := ExtractFileDir(Dir);
   if (Parent <> '') and (Parent <> Dir) then
   begin
@@ -68,53 +63,113 @@ begin
     Result := CreateDir(Dir);
 end;
 
-procedure CurStepChanged(CurStep: TSetupStep);
+function GetPreviousInstallDir(): string;
+var
+  InstallDir: string;
+begin
+  Result := '';
+
+  // Buscar en HKLM (instalación como admin)
+  if RegQueryStringValue(HKLM, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{{#MyAppId}}_is1', 'InstallLocation', InstallDir) then
+  begin
+    // Quitar trailing backslash
+    if (Length(InstallDir) > 0) and (InstallDir[Length(InstallDir)] = '\') then
+      InstallDir := Copy(InstallDir, 1, Length(InstallDir) - 1);
+    Result := InstallDir;
+    Log('Instalación previa encontrada en HKLM: ' + Result);
+    Exit;
+  end;
+
+  // Buscar en HKCU (instalación como usuario)
+  if RegQueryStringValue(HKCU, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{{#MyAppId}}_is1', 'InstallLocation', InstallDir) then
+  begin
+    if (Length(InstallDir) > 0) and (InstallDir[Length(InstallDir)] = '\') then
+      InstallDir := Copy(InstallDir, 1, Length(InstallDir) - 1);
+    Result := InstallDir;
+    Log('Instalación previa encontrada en HKCU: ' + Result);
+    Exit;
+  end;
+
+  Log('No se encontró instalación previa en el registro');
+end;
+
+function InitializeSetup(): Boolean;
 var
   ConfigFile: string;
-  BackupDir: string;
-  ConfigBackup: string;
 begin
-  // ANTES de instalar: respaldar config si existe
-  if CurStep = ssInstall then
-  begin
-    // Backup DENTRO de la carpeta de la app (sobrevive a la instalación)
-    BackupDir := ExpandConstant('{app}\config_backup');
-    ConfigFile := ExpandConstant('{app}\_internal\app\app_config.json');
-    ConfigBackup := BackupDir + '\app_config.json';
+  Result := True;
 
-    Log('=== RESPALDO PRE-INSTALACION ===');
-    Log('Directorio de backup: ' + BackupDir);
+  // Configurar rutas de backup (fuera de la carpeta de instalación)
+  BackupDir := ExpandConstant('{userappdata}\Tu local 2025 Backup');
+  ConfigBackupPath := BackupDir + '\app_config.json';
+
+  Log('================================================');
+  Log('INICIO DE INSTALACION - BACKUP DE CONFIGURACION');
+  Log('================================================');
+
+  // Obtener directorio de instalación previo desde el registro
+  PreviousInstallDir := GetPreviousInstallDir();
+
+  if PreviousInstallDir <> '' then
+  begin
+    ConfigFile := PreviousInstallDir + '\_internal\app\app_config.json';
     Log('Buscando config en: ' + ConfigFile);
 
     if FileExists(ConfigFile) then
     begin
-      Log('Config encontrado, creando carpeta backup...');
+      Log('Config encontrado! Haciendo backup...');
       if ForceDirectories(BackupDir) then
       begin
-        Log('Carpeta backup creada: ' + BackupDir);
-        if FileCopy(ConfigFile, ConfigBackup, False) then
-          Log('Config respaldado exitosamente a: ' + ConfigBackup)
+        if FileCopy(ConfigFile, ConfigBackupPath, False) then
+          Log('>>> BACKUP EXITOSO: ' + ConfigBackupPath)
         else
-          Log('ERROR: No se pudo respaldar config');
+          Log('>>> ERROR: No se pudo copiar el archivo');
       end else
-        Log('ERROR: No se pudo crear carpeta backup');
+        Log('>>> ERROR: No se pudo crear carpeta de backup');
     end else
-      Log('Config no existe (instalacion limpia, no hay backup que hacer)');
-  end;
+      Log('Config no existe en la instalación previa');
+  end else
+    Log('No hay instalación previa (instalación limpia)');
 
-  // DESPUES de instalar: NO restauramos automáticamente
-  // La app detectará el backup y preguntará al usuario
+  Log('================================================');
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  FinalBackupDir: string;
+  FinalBackupPath: string;
+begin
   if CurStep = ssPostInstall then
   begin
-    BackupDir := ExpandConstant('{app}\config_backup');
-    ConfigBackup := BackupDir + '\app_config.json';
+    FinalBackupDir := ExpandConstant('{app}\config_backup');
+    FinalBackupPath := FinalBackupDir + '\app_config.json';
 
-    Log('=== POST-INSTALACION ===');
-    if FileExists(ConfigBackup) then
-      Log('Backup de config existe en: ' + ConfigBackup + ' - La app preguntara al usuario si restaurar')
-    else
-      Log('No hay backup de config (instalacion limpia)');
+    Log('================================================');
+    Log('POST-INSTALACION - MOVER BACKUP A CARPETA APP');
+    Log('================================================');
+    Log('Backup temporal en: ' + ConfigBackupPath);
+    Log('Destino final: ' + FinalBackupPath);
 
-    Log('La aplicacion se abrira y manejara la restauracion');
+    if FileExists(ConfigBackupPath) then
+    begin
+      Log('Backup encontrado, moviendo a carpeta de la app...');
+      if ForceDirectories(FinalBackupDir) then
+      begin
+        if FileCopy(ConfigBackupPath, FinalBackupPath, False) then
+        begin
+          Log('>>> BACKUP MOVIDO EXITOSAMENTE');
+          Log('>>> Ubicación: ' + FinalBackupPath);
+          DeleteFile(ConfigBackupPath);
+          RemoveDir(BackupDir);
+        end else
+          Log('>>> ERROR: No se pudo mover backup');
+      end else
+        Log('>>> ERROR: No se pudo crear carpeta config_backup');
+    end else
+      Log('No hay backup para mover (instalación limpia)');
+
+    Log('================================================');
+    Log('La aplicación se abrirá y preguntará si restaurar');
+    Log('================================================');
   end;
 end;
