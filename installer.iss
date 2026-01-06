@@ -155,7 +155,10 @@ begin
     Log('================================================');
     Log('Backup temporal en: ' + ConfigBackupPath);
     Log('Destino final: ' + FinalBackupPath);
-    Log('Task backupconfig seleccionada: ' + BoolToStr(IsTaskSelected('backupconfig')));
+    if IsTaskSelected('backupconfig') then
+      Log('Task backupconfig seleccionada: SI')
+    else
+      Log('Task backupconfig seleccionada: NO');
 
     // Solo mover el backup si el usuario marcó la opción
     if IsTaskSelected('backupconfig') then
