@@ -31,6 +31,60 @@ if __name__ == "__main__":
     app.setApplicationName(__app_name__)
     app.setApplicationVersion(__version__)
 
+    # 3.5) Verificar si hay backup de configuración pendiente (después de actualización)
+    try:
+        from app.config import has_pending_backup, restore_from_backup, delete_backup
+        from PyQt5.QtWidgets import QMessageBox
+        import subprocess
+
+        if has_pending_backup():
+            msg = QMessageBox()
+            msg.setIcon(QMessageBox.Question)
+            msg.setWindowTitle("Configuración anterior detectada")
+            msg.setText(
+                "Se detectó una configuración guardada de una versión anterior.\n\n"
+                "¿Desea restaurar su configuración anterior?\n"
+                "(Esto incluye ajustes de SMTP, AFIP, tickets, etc.)"
+            )
+            msg.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+            msg.setDefaultButton(QMessageBox.Yes)
+            btn_yes = msg.button(QMessageBox.Yes)
+            btn_yes.setText("Sí, restaurar")
+            btn_no = msg.button(QMessageBox.No)
+            btn_no.setText("No, usar nueva")
+
+            respuesta = msg.exec_()
+
+            if respuesta == QMessageBox.Yes:
+                if restore_from_backup():
+                    QMessageBox.information(
+                        None,
+                        "Configuración restaurada",
+                        "La configuración se restauró correctamente.\n"
+                        "La aplicación se reiniciará para aplicar los cambios."
+                    )
+                    # Reiniciar la aplicación
+                    subprocess.Popen([sys.executable] + sys.argv)
+                    sys.exit(0)
+                else:
+                    QMessageBox.warning(
+                        None,
+                        "Error",
+                        "No se pudo restaurar la configuración.\n"
+                        "Se usará la configuración por defecto."
+                    )
+                    delete_backup()
+            else:
+                # Usuario eligió no restaurar, eliminar backup
+                delete_backup()
+                QMessageBox.information(
+                    None,
+                    "Configuración nueva",
+                    "Se usará la configuración por defecto."
+                )
+    except Exception as e:
+        print(f"[BACKUP] Error verificando backup de config: {e}")
+
     # Configuración general: minimizar a bandeja al cerrar
     try:
         from app.config import load as load_config

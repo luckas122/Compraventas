@@ -44,15 +44,13 @@ Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 ; Copiar TODOS los archivos de la carpeta dist recursivamente
 Source: "dist\Tu local 2025\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
-; Ejecutar app después de instalar
+; Ejecutar app después de instalar (sin skipifsilent para que siempre abra)
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall
 
-; Código para preservar config y BD en actualizaciones
+; Código para preservar config en actualizaciones
+; NUEVO ENFOQUE: Solo hacer backup, la app preguntará si restaurar
 [Code]
-var
-  BackupDir: string;
-
 function ForceDirectories(Dir: string): Boolean;
 var
   Parent: string;
@@ -73,113 +71,50 @@ end;
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   ConfigFile: string;
-  DBFile: string;
+  BackupDir: string;
   ConfigBackup: string;
-  DBBackup: string;
-  ConfigDir: string;
 begin
-  // ANTES de instalar: respaldar config y BD si existen
+  // ANTES de instalar: respaldar config si existe
   if CurStep = ssInstall then
   begin
-    // Usar {localappdata} para backup seguro (no se limpia como {tmp})
-    BackupDir := ExpandConstant('{localappdata}\Tu local 2025 Backup');
-    ForceDirectories(BackupDir);
-
+    // Backup DENTRO de la carpeta de la app (sobrevive a la instalación)
+    BackupDir := ExpandConstant('{app}\config_backup');
     ConfigFile := ExpandConstant('{app}\_internal\app\app_config.json');
-    DBFile := ExpandConstant('{app}\appcomprasventas.db');
-    ConfigBackup := BackupDir + '\app_config_backup.json';
-    DBBackup := BackupDir + '\db_backup.db';
+    ConfigBackup := BackupDir + '\app_config.json';
 
     Log('=== RESPALDO PRE-INSTALACION ===');
     Log('Directorio de backup: ' + BackupDir);
     Log('Buscando config en: ' + ConfigFile);
-    Log('Buscando BD en: ' + DBFile);
 
     if FileExists(ConfigFile) then
     begin
-      Log('Config encontrado, respaldando...');
-      if FileCopy(ConfigFile, ConfigBackup, False) then
-        Log('Config respaldado exitosamente a: ' + ConfigBackup)
-      else
-        Log('ERROR: No se pudo respaldar config');
+      Log('Config encontrado, creando carpeta backup...');
+      if ForceDirectories(BackupDir) then
+      begin
+        Log('Carpeta backup creada: ' + BackupDir);
+        if FileCopy(ConfigFile, ConfigBackup, False) then
+          Log('Config respaldado exitosamente a: ' + ConfigBackup)
+        else
+          Log('ERROR: No se pudo respaldar config');
+      end else
+        Log('ERROR: No se pudo crear carpeta backup');
     end else
-      Log('Config no existe (instalacion limpia)');
-
-    if FileExists(DBFile) then
-    begin
-      Log('BD encontrada, respaldando...');
-      if FileCopy(DBFile, DBBackup, False) then
-        Log('BD respaldada exitosamente a: ' + DBBackup)
-      else
-        Log('ERROR: No se pudo respaldar BD');
-    end else
-      Log('BD no existe (instalacion limpia)');
+      Log('Config no existe (instalacion limpia, no hay backup que hacer)');
   end;
 
-  // DESPUES de instalar: restaurar config y BD
+  // DESPUES de instalar: NO restauramos automáticamente
+  // La app detectará el backup y preguntará al usuario
   if CurStep = ssPostInstall then
   begin
-    BackupDir := ExpandConstant('{localappdata}\Tu local 2025 Backup');
-    ConfigFile := ExpandConstant('{app}\_internal\app\app_config.json');
-    DBFile := ExpandConstant('{app}\appcomprasventas.db');
-    ConfigBackup := BackupDir + '\app_config_backup.json';
-    DBBackup := BackupDir + '\db_backup.db';
-    ConfigDir := ExpandConstant('{app}\_internal\app');
+    BackupDir := ExpandConstant('{app}\config_backup');
+    ConfigBackup := BackupDir + '\app_config.json';
 
-    Log('=== RESTAURACION POST-INSTALACION ===');
-    Log('Verificando backups en: ' + BackupDir);
-    Log('ConfigBackup existe: ' + IntToStr(Integer(FileExists(ConfigBackup))));
-    Log('DBBackup existe: ' + IntToStr(Integer(FileExists(DBBackup))));
-
-    // Asegurar que existe la carpeta _internal\app
-    Log('Verificando carpeta config: ' + ConfigDir);
-    if not DirExists(ConfigDir) then
-    begin
-      Log('Carpeta no existe, creando: ' + ConfigDir);
-      if ForceDirectories(ConfigDir) then
-        Log('Carpeta creada exitosamente')
-      else
-        Log('ERROR CRITICO: No se pudo crear carpeta');
-    end else
-      Log('Carpeta ya existe');
-
-    // Restaurar configuración
+    Log('=== POST-INSTALACION ===');
     if FileExists(ConfigBackup) then
-    begin
-      Log('Restaurando config a: ' + ConfigFile);
-      // Eliminar config por defecto primero para asegurar copia limpia
-      if FileExists(ConfigFile) then
-        DeleteFile(ConfigFile);
+      Log('Backup de config existe en: ' + ConfigBackup + ' - La app preguntara al usuario si restaurar')
+    else
+      Log('No hay backup de config (instalacion limpia)');
 
-      if FileCopy(ConfigBackup, ConfigFile, False) then
-      begin
-        Log('Config restaurado exitosamente');
-        DeleteFile(ConfigBackup);
-      end else
-        Log('ERROR: No se pudo restaurar config');
-    end else
-      Log('No hay config para restaurar (instalacion limpia)');
-
-    // Restaurar base de datos
-    if FileExists(DBBackup) then
-    begin
-      Log('Restaurando BD a: ' + DBFile);
-      // Eliminar BD nueva primero para asegurar copia limpia
-      if FileExists(DBFile) then
-        DeleteFile(DBFile);
-
-      if FileCopy(DBBackup, DBFile, False) then
-      begin
-        Log('BD restaurada exitosamente');
-        DeleteFile(DBBackup);
-      end else
-        Log('ERROR: No se pudo restaurar BD');
-    end else
-      Log('No hay BD para restaurar (instalacion limpia)');
-
-    // Limpiar directorio de backup si está vacío
-    RemoveDir(BackupDir);
-
-    Log('=== FIN RESTAURACION ===');
+    Log('La aplicacion se abrira y manejara la restauracion');
   end;
 end;

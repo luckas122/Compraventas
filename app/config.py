@@ -295,3 +295,67 @@ def save(cfg: Dict[str, Any]) -> bool:
         return True
     except Exception:
         return False
+
+
+# -------------------- BACKUP / RESTORE --------------------
+def get_backup_path() -> str:
+    """
+    Retorna la ruta del backup de configuración creado por el instalador.
+    El instalador guarda en: {app}/config_backup/app_config.json
+    """
+    import sys
+    if getattr(sys, 'frozen', False):
+        # Modo frozen: el exe está en {app}/Tu local 2025.exe
+        app_dir = os.path.dirname(sys.executable)
+    else:
+        # Modo desarrollo: usar carpeta raíz del proyecto
+        app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+    return os.path.join(app_dir, "config_backup", "app_config.json")
+
+
+def has_pending_backup() -> bool:
+    """
+    Verifica si existe un backup pendiente de restaurar.
+    """
+    backup_path = get_backup_path()
+    return os.path.exists(backup_path)
+
+
+def restore_from_backup() -> bool:
+    """
+    Restaura la configuración desde el backup.
+    Retorna True si se restauró correctamente.
+    """
+    import shutil
+    backup_path = get_backup_path()
+
+    if not os.path.exists(backup_path):
+        return False
+
+    try:
+        # Copiar backup sobre config actual
+        shutil.copy2(backup_path, CONFIG_PATH)
+        # Eliminar backup después de restaurar
+        delete_backup()
+        return True
+    except Exception:
+        return False
+
+
+def delete_backup() -> bool:
+    """
+    Elimina el backup y su carpeta.
+    """
+    import shutil
+    backup_path = get_backup_path()
+    backup_dir = os.path.dirname(backup_path)
+
+    try:
+        if os.path.exists(backup_path):
+            os.remove(backup_path)
+        if os.path.exists(backup_dir) and os.path.isdir(backup_dir):
+            shutil.rmtree(backup_dir, ignore_errors=True)
+        return True
+    except Exception:
+        return False
