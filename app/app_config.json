@@ -102,20 +102,6 @@
       "{{vuelto}}"
     ]
   },
-  "fiscal": {
-    "enabled": false,
-    "provider": "afipsdk",
-    "mode": "test",
-    "only_card": true,
-    "cuit": "",
-    "punto_venta": 1,
-    "tipo_cbte": "FACTURA_B",
-    "afipsdk": {
-      "api_key": "",
-      "base_url_test": "",
-      "base_url_prod": ""
-    }
-  },
   "backup": {
     "enabled": true,
     "dir": null,
@@ -172,6 +158,20 @@
       "password": ""
     },
     "attach_format": "xlsx"
+  },
+  "fiscal": {
+    "enabled": false,
+    "provider": "afipsdk",
+    "mode": "test",
+    "only_card": true,
+    "cuit": "",
+    "punto_venta": 1,
+    "tipo_cbte": "FACTURA_B",
+    "afipsdk": {
+      "api_key": "",
+      "base_url_test": "",
+      "base_url_prod": ""
+    }
   },
   "startup": {
     "default_sucursal": "ask"
