@@ -2,7 +2,7 @@
 ; Generado con Inno Setup 6
 
 #define MyAppName "Tu local 2025"
-#define MyAppVersion "3.1.3"
+#define MyAppVersion "3.1.4"
 #define MyAppPublisher "Compraventas"
 #define MyAppExeName "Tu local 2025.exe"
 #define MyAppId "A1B2C3D4-E5F6-4789-ABCD-123456789ABC"
@@ -36,7 +36,7 @@ Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 
 [Files]
-Source: "dist\Tu local 2025\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "dist\Tu local 2025\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "*.lnk"
 
 [Tasks]
 Name: "backupconfig"; Description: "Restaurar configuración anterior (si existe)"; GroupDescription: "Opciones adicionales:"; Flags: checkedonce
@@ -109,7 +109,7 @@ begin
   BackupDir := ExpandConstant('{userappdata}\Tu local 2025 Backup');
   ConfigBackupPath := BackupDir + '\app_config.json';
 
-  Log('================================================');
+    Log('================================================');
   Log('INICIO DE INSTALACION - BACKUP DE CONFIGURACION');
   Log('================================================');
 
@@ -170,38 +170,24 @@ begin
     else
       Log('Task backupconfig seleccionada: NO');
 
-    // Solo mover el backup si el usuario marcó la opción
-    if IsTaskSelected('backupconfig') then
+    // Siempre mover el backup si existe; la app preguntara si restaurar
+    if FileExists(ConfigBackupPath) then
     begin
-      if FileExists(ConfigBackupPath) then
+      Log('Backup encontrado, moviendo a carpeta de la app...');
+      if ForceDirectories(FinalBackupDir) then
       begin
-        Log('Backup encontrado y usuario quiere restaurar, moviendo a carpeta de la app...');
-        if ForceDirectories(FinalBackupDir) then
+        if FileCopy(ConfigBackupPath, FinalBackupPath, False) then
         begin
-          if FileCopy(ConfigBackupPath, FinalBackupPath, False) then
-          begin
-            Log('>>> BACKUP MOVIDO EXITOSAMENTE');
-            Log('>>> Ubicación: ' + FinalBackupPath);
-            DeleteFile(ConfigBackupPath);
-            RemoveDir(BackupDir);
-          end else
-            Log('>>> ERROR: No se pudo mover backup');
+          Log('>>> BACKUP MOVIDO EXITOSAMENTE');
+          Log('>>> Ubicacion: ' + FinalBackupPath);
+          DeleteFile(ConfigBackupPath);
+          RemoveDir(BackupDir);
         end else
-          Log('>>> ERROR: No se pudo crear carpeta config_backup');
+          Log('>>> ERROR: No se pudo mover backup');
       end else
-        Log('No hay backup para mover (instalación limpia o config no encontrado)');
+        Log('>>> ERROR: No se pudo crear carpeta config_backup');
     end else
-    begin
-      Log('Usuario NO seleccionó restaurar configuración');
-      // Limpiar backup temporal si existe
-      if FileExists(ConfigBackupPath) then
-      begin
-        DeleteFile(ConfigBackupPath);
-        RemoveDir(BackupDir);
-        Log('Backup temporal eliminado');
-      end;
-    end;
-
+      Log('No hay backup para mover (instalacion limpia o config no encontrado)');
     Log('================================================');
     Log('La aplicación se abrirá y preguntará si restaurar');
     Log('================================================');

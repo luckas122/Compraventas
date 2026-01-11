@@ -209,25 +209,5 @@
         ]
       }
     }
-  },
-  "sync": {
-    "enabled": false,
-    "mode": "interval",
-    "interval_minutes": 5,
-    "gmail_smtp": {
-      "host": "smtp.gmail.com",
-      "port": 587,
-      "username": "susi.perfumeria65@gmail.com",
-      "password": "rdli iqoa qxhv ucbv"
-    },
-    "gmail_imap": {
-      "host": "imap.gmail.com",
-      "port": 993,
-      "username": "susi.perfumeria65@gmail.com",
-      "password": "rdli iqoa qxhv ucbv"
-    },
-    "sync_productos": true,
-    "sync_proveedores": true,
-    "last_sync": null
   }
 }

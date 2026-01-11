@@ -45,7 +45,15 @@ from app.gui.ventas_helpers import build_product_completer, imprimir_ticket
 from app.gui.fastui import make_filterable_combo, update_filterable_combo
 from app.email_helper import send_mail_with_attachments
 from app.database import SessionLocal
-from app.config import load as load_config, save as save_config,CONFIG_PATH
+from app.config import (
+    load as load_config,
+    save as save_config,
+    CONFIG_PATH,
+    has_pending_backup,
+    restore_from_backup,
+    restore_from_path,
+    get_backup_path,
+)
 from app.models import Producto, Proveedor, Venta, VentaItem
 from app.repository import prod_repo, VentaRepo, UsuarioRepo
 from app.gui.qt_helpers import freeze_table
@@ -212,6 +220,7 @@ class MainWindow(ProductosMixin, VentasMixin ,ProveedoresMixin, UsuariosMixin, C
         self._apply_theme_stylesheet()
 ## Backups programados       
         self._setup_backups()
+        QTimer.singleShot(500, self._check_pending_config_restore)
     
  # Icono en bandeja (si está activado en config)
         self._init_tray_icon()
@@ -437,19 +446,33 @@ class MainWindow(ProductosMixin, VentasMixin ,ProveedoresMixin, UsuariosMixin, C
         if hasattr(self, 'btn_sync_manual'):
             cfg = load_config()
             enabled = cfg.get("sync", {}).get("enabled", False)
-            self.btn_sync_manual.setVisible(enabled)
+            self.btn_sync_manual.setVisible(True)
+            if not enabled:
+                self.btn_sync_manual.setToolTip("Sincronizacion desactivada. Activalo en Configuracion.")
+            else:
+                self.btn_sync_manual.setToolTip("Click para sincronizar manualmente")
         
         #EJECUTAR SINCRO
         
     def _ejecutar_sincronizacion(self):
-        """Ejecuta un ciclo de sincronización"""
+        """Ejecuta un ciclo de sincronizacion"""
+        cfg = load_config()
+        sync_cfg = cfg.get("sync", {})
+        enabled = sync_cfg.get("enabled", False)
+        if not enabled:
+            QMessageBox.information(self, "Sincronizacion", "La sincronizacion esta desactivada en Configuracion.")
+            return
+
+        if not self._sync_manager:
+            from app.database import SessionLocal
+            session = SessionLocal()
+            sucursal_actual = getattr(self, 'sucursal', 'Sarmiento')
+            self._sync_manager = SyncManager(session, sucursal_actual)
+
         if not self._sync_manager:
             return
 
-        cfg = load_config()
-        sync_cfg = cfg.get("sync", {})
         mode = sync_cfg.get("mode", "interval")
-
         # Si es modo "on_change", verificar si hay cambios
         if mode == "on_change":
             if not self._sync_manager.detectar_cambios_pendientes():
@@ -529,21 +552,56 @@ class MainWindow(ProductosMixin, VentasMixin ,ProveedoresMixin, UsuariosMixin, C
     ### 6. (Opcional) Botón manual en status bar para modo manual
 
     def _crear_boton_sync_manual(self):
-        """Crea un botón en la status bar para sincronización manual"""
-        self.btn_sync_manual = QPushButton("🔄 Sincronizar")
+        """Crea un boton en la status bar para sincronizacion manual"""
+        self.btn_sync_manual = QPushButton("?? Sincronizar")
         self.btn_sync_manual.setFlat(True)
         self.btn_sync_manual.setToolTip("Click para sincronizar manualmente")
         self.btn_sync_manual.clicked.connect(self._ejecutar_sincronizacion)
         self.statusBar().addPermanentWidget(self.btn_sync_manual)
 
-        # Mostrar solo si modo es "manual" o siempre visible
         cfg = load_config()
-        mode = cfg.get("sync", {}).get("mode", "interval")
         enabled = cfg.get("sync", {}).get("enabled", False)
 
-        # Mostrar botón si sync está habilitado
-        self.btn_sync_manual.setVisible(enabled)
-#SONIDO
+        self.btn_sync_manual.setVisible(True)
+        if not enabled:
+            self.btn_sync_manual.setToolTip("Sincronizacion desactivada. Activalo en Configuracion.")
+
+    def _check_pending_config_restore(self):
+        """Pregunta si hay backup de configuracion pendiente."""
+        try:
+            if not has_pending_backup():
+                return
+        except Exception:
+            return
+
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Restaurar configuracion")
+        msg.setText("Se encontro un backup de configuracion.")
+        msg.setInformativeText("Quieres restaurarlo ahora? Puedes buscar un archivo manualmente.")
+        btn_restore = msg.addButton("Restaurar", QMessageBox.AcceptRole)
+        btn_browse = msg.addButton("Buscar archivo...", QMessageBox.ActionRole)
+        btn_skip = msg.addButton("Omitir", QMessageBox.RejectRole)
+        msg.setIcon(QMessageBox.Question)
+        msg.exec_()
+
+        if msg.clickedButton() == btn_restore:
+            ok = restore_from_backup()
+            if ok:
+                QMessageBox.information(self, "Restaurar configuracion", "Configuracion restaurada. Reinicia la aplicacion para aplicar los cambios.")
+            else:
+                QMessageBox.warning(self, "Restaurar configuracion", "No se pudo restaurar la configuracion.")
+        elif msg.clickedButton() == btn_browse:
+            try:
+                default_dir = str(Path(get_backup_path()).parent)
+            except Exception:
+                default_dir = ""
+            path, _ = QFileDialog.getOpenFileName(self, "Elegir app_config.json", default_dir, "JSON (*.json);;Todos (*.*)")
+            if path:
+                ok = restore_from_path(path)
+                if ok:
+                    QMessageBox.information(self, "Restaurar configuracion", "Configuracion restaurada. Reinicia la aplicacion para aplicar los cambios.")
+                else:
+                    QMessageBox.warning(self, "Restaurar configuracion", "No se pudo restaurar la configuracion.")
 
     def _init_sound(self):
         # Intentamos varias rutas posibles del proyecto y exigimos la extensión .wav

@@ -401,6 +401,25 @@ def restore_from_backup() -> bool:
         _log_config(f"ERROR en restore_from_backup: {e}")
         return False
 
+def restore_from_path(src_path: str) -> bool:
+    """
+    Restaura la configuracion desde un archivo JSON especifico.
+    """
+    import shutil
+    if not src_path or not os.path.exists(src_path):
+        _log_config(f"restore_from_path() -> archivo no existe: {src_path}")
+        return False
+    try:
+        config_dir = os.path.dirname(CONFIG_PATH)
+        if not os.path.exists(config_dir):
+            os.makedirs(config_dir, exist_ok=True)
+        shutil.copy2(src_path, CONFIG_PATH)
+        _log_config(f"restore_from_path() -> OK: {src_path} -> {CONFIG_PATH}")
+        return True
+    except Exception as e:
+        _log_config(f"ERROR en restore_from_path: {e}")
+        return False
+
 
 def delete_backup() -> bool:
     """
