@@ -12,22 +12,61 @@ import os
 import copy
 from typing import Any, Dict
 
+APP_DIRNAME = "CompraventasV2"
+CONFIG_FILENAME = "app_config.json"
+RESTORE_MARKER_FILENAME = "config_restore.marker"
+
+def _get_app_data_dir() -> str:
+    """Retorna la carpeta persistente de datos (AppData)."""
+    base = os.environ.get("APPDATA") or os.environ.get("LOCALAPPDATA")
+    if base:
+        path = os.path.join(base, APP_DIRNAME)
+    else:
+        path = os.path.join(os.path.expanduser("~"), f".{APP_DIRNAME.lower()}")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+def _get_log_dir() -> str:
+    """Carpeta persistente para logs."""
+    log_dir = os.path.join(_get_app_data_dir(), "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    return log_dir
+
+def _get_restore_marker_path() -> str:
+    return os.path.join(_get_app_data_dir(), RESTORE_MARKER_FILENAME)
+
+def _write_restore_marker(src_path: str) -> None:
+    try:
+        data = {"path": src_path, "mtime": os.path.getmtime(src_path)}
+        marker_path = _get_restore_marker_path()
+        with open(marker_path, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+    except Exception as e:
+        _log_config(f"No se pudo escribir marker de restore: {e}")
+
+def _is_same_backup_restored(src_path: str) -> bool:
+    try:
+        marker_path = _get_restore_marker_path()
+        if not os.path.exists(marker_path):
+            return False
+        with open(marker_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data.get("path") == src_path and data.get("mtime") == os.path.getmtime(src_path)
+    except Exception:
+        return False
+
 # Función de logging a archivo (para debug en modo frozen)
 def _log_config(msg: str):
     """Escribe logs tanto a consola como a archivo para debugging."""
     import sys
     from datetime import datetime
 
-    # Print a consola (útil en desarrollo)
+    # Print a consola (util en desarrollo)
     print(msg)
 
-    # También escribir a archivo (útil en modo frozen)
+    # Tambien escribir a archivo (util en modo frozen)
     try:
-        if getattr(sys, 'frozen', False):
-            log_dir = os.path.dirname(sys.executable)
-        else:
-            log_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
+        log_dir = _get_log_dir()
         log_file = os.path.join(log_dir, "config_restore.log")
         with open(log_file, "a", encoding="utf-8") as f:
             timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -35,19 +74,42 @@ def _log_config(msg: str):
     except:
         pass  # Silenciar errores de logging
 
-# Ruta del archivo JSON de configuración
+# Ruta del archivo JSON de configuracion
+def _get_legacy_config_path() -> str:
+    """Ubicacion legacy del config dentro de la instalacion."""
+    import sys
+    if getattr(sys, 'frozen', False):
+        base = os.path.dirname(sys.executable)
+        return os.path.join(base, '_internal', 'app', CONFIG_FILENAME)
+    return os.path.join(os.path.dirname(__file__), CONFIG_FILENAME)
+
 def _get_config_path() -> str:
     """Obtiene la ruta correcta del config tanto en desarrollo como frozen."""
     import sys
     if getattr(sys, 'frozen', False):
-        # Modo frozen: config está en _internal/app/
-        base = os.path.dirname(sys.executable)
-        return os.path.join(base, "_internal", "app", "app_config.json")
-    else:
-        # Modo desarrollo: junto a este archivo
-        return os.path.join(os.path.dirname(__file__), "app_config.json")
+        return os.path.join(_get_app_data_dir(), CONFIG_FILENAME)
+    return os.path.join(os.path.dirname(__file__), CONFIG_FILENAME)
 
 CONFIG_PATH = _get_config_path()
+
+def _migrate_legacy_config() -> None:
+    """Copia el config legacy a AppData si hace falta."""
+    import sys
+    import shutil
+    if not getattr(sys, 'frozen', False):
+        return
+    if os.path.exists(CONFIG_PATH):
+        return
+    legacy_path = _get_legacy_config_path()
+    if os.path.exists(legacy_path):
+        try:
+            os.makedirs(os.path.dirname(CONFIG_PATH), exist_ok=True)
+            shutil.copy2(legacy_path, CONFIG_PATH)
+            _log_config(f"Migrado config legacy: {legacy_path} -> {CONFIG_PATH}")
+        except Exception as e:
+            _log_config(f"Error migrando config legacy: {e}")
+
+
 
 # -------------------- DEFAULTS --------------------
 # Estos valores sirven como base; cualquier clave faltante en el JSON
@@ -264,6 +326,28 @@ DEFAULTS: Dict[str, Any] = {
                 "monthly": ["ventas_por_dia", "resumen_semanal_del_mes", "productos_mas_vendidos", "comparativa_2_meses"]
             }
         }
+    },
+
+    "sync": {
+        "enabled": False,
+        "mode": "interval",
+        "interval_minutes": 5,
+        "gmail_smtp": {
+            "host": "smtp.gmail.com",
+            "port": 587,
+            "username": "",
+            "password": ""
+        },
+        "gmail_imap": {
+            "host": "imap.gmail.com",
+            "port": 993,
+            "username": "",
+            "password": ""
+        },
+        "sync_productos": False,
+        "sync_proveedores": False,
+        "last_sync": None,
+        "imap_last_uid": 0
     }
 }
 
@@ -292,6 +376,7 @@ def load() -> Dict[str, Any]:
     Carga el archivo de configuración y completa con DEFAULTS.
     Si el archivo no existe o está corrupto, retorna sólo DEFAULTS.
     """
+    _migrate_legacy_config()
     try:
         if os.path.exists(CONFIG_PATH):
             with open(CONFIG_PATH, "r", encoding="utf-8") as f:
@@ -331,6 +416,12 @@ def save(cfg: Dict[str, Any]) -> bool:
         return False
 
 
+# -------------------- RUTAS PUBLICAS --------------------
+def get_log_dir() -> str:
+    """Carpeta persistente de logs."""
+    return _get_log_dir()
+
+
 # -------------------- BACKUP / RESTORE --------------------
 def get_backup_path() -> str:
     """
@@ -351,13 +442,17 @@ def get_backup_path() -> str:
 
 
 def has_pending_backup() -> bool:
-    """
-    Verifica si existe un backup pendiente de restaurar.
-    """
+    """Verifica si existe un backup pendiente de restaurar."""
     backup_path = get_backup_path()
     exists = os.path.exists(backup_path)
-    _log_config(f"has_pending_backup() -> {exists} (path: {backup_path})")
-    return exists
+    if not exists:
+        _log_config(f"has_pending_backup() -> False (no existe: {backup_path})")
+        return False
+    if _is_same_backup_restored(backup_path):
+        _log_config(f"has_pending_backup() -> False (ya restaurado: {backup_path})")
+        return False
+    _log_config(f"has_pending_backup() -> True (path: {backup_path})")
+    return True
 
 
 def restore_from_backup() -> bool:
@@ -414,6 +509,7 @@ def restore_from_path(src_path: str) -> bool:
         if not os.path.exists(config_dir):
             os.makedirs(config_dir, exist_ok=True)
         shutil.copy2(src_path, CONFIG_PATH)
+        _write_restore_marker(src_path)
         _log_config(f"restore_from_path() -> OK: {src_path} -> {CONFIG_PATH}")
         return True
     except Exception as e:

@@ -553,7 +553,7 @@ class MainWindow(ProductosMixin, VentasMixin ,ProveedoresMixin, UsuariosMixin, C
 
     def _crear_boton_sync_manual(self):
         """Crea un boton en la status bar para sincronizacion manual"""
-        self.btn_sync_manual = QPushButton("?? Sincronizar")
+        self.btn_sync_manual = QPushButton("Sincronizar")
         self.btn_sync_manual.setFlat(True)
         self.btn_sync_manual.setToolTip("Click para sincronizar manualmente")
         self.btn_sync_manual.clicked.connect(self._ejecutar_sincronizacion)

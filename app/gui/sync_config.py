@@ -2,15 +2,13 @@
 """
 Pestaña de configuración de Sincronización entre sucursales
 """
-import os
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QFormLayout, QHBoxLayout, QGroupBox, QLabel,
     QCheckBox, QComboBox, QLineEdit, QPushButton, QMessageBox, QSpinBox,
     QTextEdit, QFrame
 )
-from app.config import load as load_config, save as save_config
-from app.database import APP_DIRNAME
+from app.config import load as load_config, save as save_config, get_log_dir
 
 
 class SyncConfigPanel(QWidget):
@@ -287,16 +285,7 @@ class SyncConfigPanel(QWidget):
         from pathlib import Path
 
         # 🆕 Configurar logging detallado a archivo
-        log_base = os.environ.get("APPDATA") or os.environ.get("LOCALAPPDATA")
-        if log_base:
-            log_dir = Path(log_base) / APP_DIRNAME / "logs"
-        else:
-            log_dir = Path.home() / f".{APP_DIRNAME.lower()}" / "logs"
-        try:
-            log_dir.mkdir(parents=True, exist_ok=True)
-        except Exception:
-            log_dir = Path("logs")
-            log_dir.mkdir(parents=True, exist_ok=True)
+        log_dir = Path(get_log_dir())
         log_file = log_dir / "sync_test_connection.log"
 
         # Crear logger específico

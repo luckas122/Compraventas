@@ -42,6 +42,11 @@ except ImportError:
     __release_url__ = ""
     __app_name__ = "Tu local 2025"
 
+try:
+    from app.config import get_log_dir
+except Exception:
+    get_log_dir = None
+
 
 # ----------------------------- Descarga en hilo ------------------------------ #
 class DownloadThread(QThread):
@@ -247,14 +252,12 @@ class Updater:
             if msg.exec_() != QMessageBox.Yes:
                 return
 
-            # Obtener carpeta de logs
-            if getattr(sys, 'frozen', False):
-                app_dir = Path(sys.executable).parent
+            # Obtener carpeta de logs persistente
+            if get_log_dir:
+                logs_dir = Path(get_log_dir()) / "updates"
             else:
-                app_dir = Path.cwd()
-
-            logs_dir = app_dir / "logs_instalador"
-            logs_dir.mkdir(exist_ok=True)
+                logs_dir = Path(tempfile.gettempdir()) / "TuLocal_Logs"
+            logs_dir.mkdir(parents=True, exist_ok=True)
             log_file = logs_dir / f"update_{new_version}.log"
 
             # Ejecutar instalador Inno Setup

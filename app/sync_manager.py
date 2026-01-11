@@ -16,7 +16,7 @@ from typing import List, Dict, Tuple, Optional
 from sqlalchemy.orm import Session
 
 from app.models import SyncLog, Venta, VentaItem, Producto, Proveedor
-from app.config import load as load_config
+from app.config import load as load_config, save as save_config, get_log_dir
 
 
 class SyncManager:
@@ -27,6 +27,15 @@ class SyncManager:
         self.sucursal_local = sucursal_local
         self.config = load_config()
         self.sync_config = self.config.get("sync", {})
+
+    def _log_sync(self, msg: str) -> None:
+        try:
+            log_dir = get_log_dir()
+            path = os.path.join(log_dir, "sync.log")
+            with open(path, "a", encoding="utf-8") as f:
+                f.write(f"[{datetime.now().isoformat()}] {msg}\n")
+        except Exception:
+            pass
 
     def _generar_sync_id(self) -> str:
         """Genera un ID único para la sincronización"""
@@ -243,6 +252,7 @@ class SyncManager:
         password = smtp_config.get("password", "")
 
         if not username or not password:
+            self._log_sync("SMTP: Credenciales no configuradas")
             return False, "Credenciales SMTP no configuradas"
 
         try:
@@ -287,15 +297,18 @@ Cambios: {len(paquete['cambios'])} registros
 
             self.session.commit()
 
+            self._log_sync(f"SMTP: Enviado paquete con {len(paquete.get('cambios', []))} cambios")
             return True, None
 
         except Exception as e:
+            self._log_sync(f"SMTP: Error enviando paquete: {e}")
             return False, str(e)
 
+    
     def recibir_sync_via_imap(self) -> Tuple[int, List[str]]:
         """
-        Descarga emails de sincronización no leídos desde Gmail.
-
+        Descarga emails de sincronizacion desde Gmail.
+    
         Returns:
             (cantidad_procesados, lista_de_errores)
         """
@@ -304,39 +317,51 @@ Cambios: {len(paquete['cambios'])} registros
         port = int(imap_config.get("port", 993))
         username = imap_config.get("username", "")
         password = imap_config.get("password", "")
-
+    
         if not username or not password:
+            self._log_sync("IMAP: Credenciales no configuradas")
             return 0, ["Credenciales IMAP no configuradas"]
-
+    
         errores = []
         procesados = 0
-
+        last_uid = int(self.sync_config.get("imap_last_uid", 0) or 0)
+        max_uid = last_uid
+    
         try:
             # Conectar a IMAP
             mail = imaplib.IMAP4_SSL(host, port)
             mail.login(username, password)
             mail.select("INBOX")
-
-            # Buscar emails con [SYNC] en asunto que NO sean de esta sucursal
-            status, messages = mail.search(None, 'UNSEEN SUBJECT "[SYNC]"')
-
+    
+            # Buscar emails con [SYNC] por UID para no depender de UNSEEN
+            if last_uid > 0:
+                criteria = f'(UID {last_uid + 1}:* SUBJECT "[SYNC]")'
+                status, messages = mail.uid("search", None, criteria)
+            else:
+                status, messages = mail.uid("search", None, 'SUBJECT "[SYNC]"')
+    
             if status != "OK":
+                self._log_sync("IMAP: Error buscando emails")
                 return 0, ["Error buscando emails"]
-
-            email_ids = messages[0].split()
-
-            for email_id in email_ids:
+    
+            uid_list = messages[0].split()
+    
+            for uid in uid_list:
                 try:
-                    # Descargar email
-                    status, msg_data = mail.fetch(email_id, "(RFC822)")
-
+                    uid_int = int(uid)
+                    # Descargar email sin marcar como leido
+                    status, msg_data = mail.uid("fetch", uid, "(BODY.PEEK[])")
+    
                     if status != "OK":
                         continue
-
-                    # Parsear email
-                    raw_email = msg_data[0][1]
+    
+                    raw_email = msg_data[0][1] if msg_data and msg_data[0] else None
+                    if not raw_email:
+                        max_uid = max(max_uid, uid_int)
+                        continue
+    
                     msg = email.message_from_bytes(raw_email)
-
+    
                     # Buscar adjunto JSON
                     paquete_data = None
                     for part in msg.walk():
@@ -344,36 +369,55 @@ Cambios: {len(paquete['cambios'])} registros
                             filename = part.get_filename()
                             if filename and filename.endswith(".json"):
                                 payload = part.get_payload(decode=True)
-                                paquete_data = json.loads(payload.decode('utf-8'))
+                                paquete_data = json.loads(payload.decode("utf-8"))
                                 break
-
+    
                     if paquete_data:
-                        # Verificar que no sea de esta sucursal
-                        if paquete_data.get("sucursal_origen") != self.sucursal_local:
-                            # Aplicar cambios
+                        origen = paquete_data.get("sucursal_origen")
+                        if origen != self.sucursal_local:
                             ok, err = self.aplicar_paquete(paquete_data)
                             if ok:
                                 procesados += 1
-                                # Marcar como leído
-                                mail.store(email_id, '+FLAGS', '\\Seen')
+                                mail.uid("store", uid, "+FLAGS", "\\Seen")
+                                max_uid = max(max_uid, uid_int)
                             else:
                                 errores.append(f"Error aplicando paquete: {err}")
                         else:
-                            # Es de esta sucursal: NO marcar como leído
-                            # para que la otra sucursal pueda procesarlo.
-                            pass
-
+                            # Es de esta sucursal, marcar leido y avanzar UID
+                            mail.uid("store", uid, "+FLAGS", "\\Seen")
+                            max_uid = max(max_uid, uid_int)
+                    else:
+                        # Email sin paquete valido, avanzar UID para no trabar
+                        max_uid = max(max_uid, uid_int)
+    
                 except Exception as e:
-                    errores.append(f"Error procesando email {email_id}: {str(e)}")
-
+                    errores.append(f"Error procesando email {uid}: {str(e)}")
+    
             mail.close()
             mail.logout()
-
+    
         except Exception as e:
             errores.append(f"Error conectando a IMAP: {str(e)}")
+            self._log_sync(f"IMAP: Error conectando: {e}")
+    
+        if max_uid > last_uid:
+            try:
+                cfg = load_config()
+                cfg.setdefault("sync", {})["imap_last_uid"] = max_uid
+                save_config(cfg)
+                self.sync_config["imap_last_uid"] = max_uid
+            except Exception as e:
+                errores.append(f"Error guardando imap_last_uid: {e}")
+                self._log_sync(f"IMAP: Error guardando imap_last_uid: {e}")
+
+        if errores:
+            for err in errores:
+                self._log_sync(f"IMAP: {err}")
+        else:
+            self._log_sync(f"IMAP: procesados={procesados}, last_uid={max_uid}")
 
         return procesados, errores
-
+    
     def aplicar_paquete(self, paquete: Dict) -> Tuple[bool, Optional[str]]:
         """
         Aplica un paquete de sincronización recibido.
