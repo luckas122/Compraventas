@@ -415,7 +415,7 @@ class MainWindow(ProductosMixin, VentasMixin ,ProveedoresMixin, UsuariosMixin, C
         session = SessionLocal()
 
         # Obtener sucursal actual
-        sucursal_actual = getattr(self, 'sucursal_actual', 'Sarmiento')
+        sucursal_actual = getattr(self, 'sucursal', 'Sarmiento')
         self._sync_manager = SyncManager(session, sucursal_actual)
 
         # Configurar según modo

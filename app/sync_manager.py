@@ -359,8 +359,9 @@ Cambios: {len(paquete['cambios'])} registros
                             else:
                                 errores.append(f"Error aplicando paquete: {err}")
                         else:
-                            # Marcar como leído (es de esta sucursal, ignorar)
-                            mail.store(email_id, '+FLAGS', '\\Seen')
+                            # Es de esta sucursal: NO marcar como leído
+                            # para que la otra sucursal pueda procesarlo.
+                            pass
 
                 except Exception as e:
                     errores.append(f"Error procesando email {email_id}: {str(e)}")
