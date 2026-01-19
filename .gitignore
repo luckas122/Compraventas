@@ -1,0 +1,46 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.eggs/
+*.dist-info/
+
+# --- Entornos ---
+.venv/
+venv/
+env/
+
+# --- PyInstaller (artefactos de build) ---
+build/
+dist/
+# No ignores build.spec: lo versionamos
+# (Si tuvieras otros .spec que no quieras, ignóralos individualmente)
+
+# --- Logs y temporales ---
+*.log
+logs/
+*.tmp
+*.bak
+
+# --- Herramientas / IDE ---
+.vscode/
+.idea/
+*.code-workspace
+
+# --- Caches varias ---
+.pytest_cache/
+.mypy_cache/
+
+# --- Windows ---
+Thumbs.db
+desktop.ini
+
+# --- Base de datos local ---
+*.db-shm
+*.db-wal
+*.db.backup_tmp.sqlite
+app/backups/
+nul

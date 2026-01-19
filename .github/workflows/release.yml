@@ -1,0 +1,137 @@
+name: Build Windows EXE and Release
+
+permissions:
+  contents: write
+
+on:
+  push:
+    tags: ['v*.*.*']     # corre sólo al pushear un tag vX.Y.Z
+  workflow_dispatch:      # opcional: ejecutarlo manualmente
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        shell: bash
+        run: |
+          python -m pip install -U pip
+          python -m pip install -r requirements.txt
+          python -m pip install pyinstaller
+
+      - name: Clean dist/build
+        shell: pwsh
+        run: |
+          if (Test-Path "dist")  { Remove-Item -Recurse -Force "dist" }
+          if (Test-Path "build") { Remove-Item -Recurse -Force "build" }
+
+      - name: Build with PyInstaller (ONEDIR)
+        shell: bash
+        run: |
+          python -m PyInstaller build.spec --clean --noconfirm
+          ls -la dist || dir dist
+
+      # Tomamos el nombre de la app desde version.py y la versión desde el TAG
+      - name: Resolve app & version (from TAG)
+        id: meta
+        shell: bash
+        run: |
+          APP="$(python -c "from version import __app_name__; print(__app_name__)")"
+          VER="${GITHUB_REF_NAME#v}"   # e.g. v1.2.3 -> 1.2.3
+          echo "APP=$APP" >> "$GITHUB_OUTPUT"
+          echo "VER=$VER" >> "$GITHUB_OUTPUT"
+          echo "Ref=$GITHUB_REF  Name=$GITHUB_REF_NAME  App=$APP  Ver=$VER"
+
+      - name: Zip ONEDIR folder (handles spaces)
+        shell: pwsh
+        run: |
+          $app = "${{ steps.meta.outputs.APP }}"
+          $ver = "${{ steps.meta.outputs.VER }}"
+          $src = Join-Path "dist" $app
+          $zip = "Compraventas-v$ver-onedir.zip"
+          if (Test-Path $zip) { Remove-Item $zip -Force }
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          # IMPORTANTE: Usar $true para incluir la carpeta raíz en el ZIP
+          [System.IO.Compression.ZipFile]::CreateFromDirectory($src, $zip, [System.IO.Compression.CompressionLevel]::Optimal, $true)
+          Write-Host "Created $zip at $(Resolve-Path $zip)"
+
+      # NUEVO: Instalar Inno Setup vía Chocolatey (más confiable)
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          Write-Host "Instalando Inno Setup via Chocolatey..."
+          choco install innosetup -y --no-progress
+
+          Write-Host "Verificando instalación..."
+          $env:PATH = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+          iscc /? 2>&1 | Select-Object -First 5
+
+      # NUEVO: Compilar instalador con Inno Setup
+      - name: Build Installer with Inno Setup
+        shell: pwsh
+        run: |
+          Write-Host "Compilando instalador con Inno Setup..."
+          $ver = "${{ steps.meta.outputs.VER }}"
+
+          # Actualizar versión en installer.iss
+          (Get-Content installer.iss) -replace '#define MyAppVersion ".*"', "#define MyAppVersion `"$ver`"" | Set-Content installer.iss
+
+          # Refrescar PATH para incluir Inno Setup
+          $env:PATH = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+
+          Write-Host "Ejecutando: iscc installer.iss"
+          iscc installer.iss
+
+          # Buscar el archivo generado
+          Write-Host "Buscando instalador generado..."
+          $setupFile = Get-ChildItem -Path "installer_output" -Filter "Tu.local.2025.v$ver.Setup.exe" -File -ErrorAction SilentlyContinue | Select-Object -First 1
+
+          if ($setupFile) {
+            Write-Host "✓ Instalador generado exitosamente"
+            $size = $setupFile.Length / 1MB
+            Write-Host "  Archivo: $($setupFile.Name)"
+            Write-Host "  Tamaño: $([math]::Round($size, 2)) MB"
+          } else {
+            Write-Host "✗ ERROR: No se generó el instalador"
+            Write-Host "Contenido de installer_output:"
+            if (Test-Path "installer_output") {
+              Get-ChildItem -Path "installer_output" -Recurse
+            } else {
+              Write-Host "La carpeta installer_output no existe"
+            }
+            exit 1
+          }
+
+      # Crear el release y subir assets (ZIP, EXE y Setup)
+      - name: Create Release and Upload assets (gh)
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -e
+          TAG="${GITHUB_REF_NAME}"
+          VER="${{ steps.meta.outputs.VER }}"
+          APP="${{ steps.meta.outputs.APP }}"
+          ZIP="Compraventas-v${VER}-onedir.zip"
+          EXE="dist/$APP/$APP.exe"
+          SETUP="installer_output/Tu.local.2025.v${VER}.Setup.exe"
+
+          echo "Creating release $TAG with assets:"
+          echo " - $ZIP"
+          echo " - $EXE"
+          echo " - $SETUP"
+
+          gh release create "$TAG" "$ZIP" "$EXE" "$SETUP" \
+            --title "$TAG" \
+            --notes "Release $TAG - Instalador profesional con Inno Setup (preserva configuración y base de datos)" \
+            --latest

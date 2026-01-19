@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+  <Package
+    Name="Tu local 2025"
+    Manufacturer="Compraventas"
+    Version="2.8.1"
+    UpgradeCode="A1B2C3D4-E5F6-4789-ABCD-123456789ABC"
+    Scope="perUser">
+
+    <MajorUpgrade
+      DowngradeErrorMessage="Ya existe una versión más reciente instalada."
+      AllowSameVersionUpgrades="yes" />
+
+    <MediaTemplate EmbedCab="yes" />
+
+    <!-- Standard directory structure -->
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="ManufacturerFolder" Name="Compraventas">
+        <Directory Id="INSTALLFOLDER" Name="Tu local 2025" />
+      </Directory>
+    </StandardDirectory>
+
+    <!-- Este archivo será generado por heat.exe -->
+    <!-- Heat generará automáticamente todos los Component para archivos en dist\Tu local 2025 -->
+
+    <!-- Shortcuts como componentes separados -->
+    <StandardDirectory Id="DesktopFolder">
+      <Component Id="DesktopShortcutComponent">
+        <Shortcut
+          Id="DesktopShortcut"
+          Name="Tu local 2025"
+          Target="[INSTALLFOLDER]Tu local 2025.exe"
+          WorkingDirectory="INSTALLFOLDER" />
+        <RegistryValue Root="HKCU" Key="Software\Compraventas\TuLocal2025" Name="DesktopShortcut" Type="integer" Value="1" KeyPath="yes" />
+        <RemoveFolder Id="RemoveDesktopFolder" On="uninstall" />
+      </Component>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ApplicationProgramsFolder" Name="Tu local 2025">
+        <Component Id="StartMenuShortcutComponent">
+          <Shortcut
+            Id="StartMenuShortcut"
+            Name="Tu local 2025"
+            Target="[INSTALLFOLDER]Tu local 2025.exe"
+            WorkingDirectory="INSTALLFOLDER" />
+          <RegistryValue Root="HKCU" Key="Software\Compraventas\TuLocal2025" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+          <RemoveFolder Id="RemoveStartMenuFolder" On="uninstall" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <!-- Feature -->
+    <Feature Id="Complete" Level="1">
+      <ComponentGroupRef Id="HeatGenerated" />
+      <ComponentRef Id="DesktopShortcutComponent" />
+      <ComponentRef Id="StartMenuShortcutComponent" />
+    </Feature>
+  </Package>
+
+  <!-- Fragment para archivos generados por heat -->
+  <Fragment>
+    <ComponentGroup Id="HeatGenerated" Directory="INSTALLFOLDER" />
+  </Fragment>
+</Wix>

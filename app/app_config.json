@@ -1,0 +1,261 @@
+{
+  "business": {
+    "nombre": "Mi Negocio",
+    "cuit": "00-00000000-0",
+    "iva_responsable": "Consumidor Final",
+    "telefono": "+54 11 0000-0000",
+    "sucursales": {
+      "Sarmiento": "Pte. Sarmiento 1695, Gerli",
+      "Salta": "Salta 1694, Gerli"
+    }
+  },
+  "general": {
+    "timezone": "America/Argentina/Buenos_Aires",
+    "default_send_time": "20:30",
+    "minimize_to_tray_on_close": true
+  },
+  "shortcuts": {
+    "global": {
+      "productos": "F1",
+      "proveedores": "F2",
+      "ventas": "F3",
+      "historial": "F4",
+      "configuraciones": "F5",
+      "usuarios": "F6"
+    },
+    "section": {
+      "productos": {
+        "agregar": "A",
+        "editar": "E",
+        "eliminar": "Delete",
+        "imprimir_codigo": "I"
+      },
+      "ventas": {
+        "finalizar": "V",
+        "efectivo": "E",
+        "tarjeta": "T",
+        "devolucion": "D",
+        "whatsapp": "W",
+        "imprimir": "F"
+      }
+    },
+    "section_mode_enabled": true
+  },
+  "theme": {
+    "dark_mode": false,
+    "dark_variant": "soft",
+    "background": "#2B2D31",
+    "panel_bg": "#32343A",
+    "tab_bg": "#3A3D44",
+    "border": "#4A4D55",
+    "accent_title": "#9CC4FF",
+    "accent_text": "#ECEFF1",
+    "muted_text": "#BFC5CF",
+    "light_background": "#F5F6F8",
+    "light_panel_bg": "#FFFFFF",
+    "light_tab_bg": "#ECEFF1",
+    "light_border": "#D0D4DB",
+    "light_title": "#4F6B95",
+    "light_text": "#222222",
+    "font_family": "Roboto",
+    "font_size": 10
+  },
+  "printers": {
+    "ticket_printer": null,
+    "barcode_printer": "Microsoft Print to PDF",
+    "ask_each_time": true
+  },
+  "ticket": {
+    "paper": {
+      "width_mm": 80,
+      "height_mm": 200,
+      "dynamic_height": true
+    },
+    "margins_mm": 12,
+    "fonts": {
+      "title_px": 18,
+      "head_px": 12,
+      "text_px": 11,
+      "total_px": 20
+    },
+    "color": {
+      "total_hex": "#2e7d32"
+    },
+    "show_interest_line": false,
+    "slots": {
+      "slot1": "{{centerb: SUSI PERFUMERÍA}}\n{{center: ================================}}\n{{b: TICKET DE VENTA}}\nNº: {{ticket.numero}}\nFecha: {{ticket.fecha_hora}}\nSucursal: {{sucursal}}\n{{hr}}\n{{items}}\n{{hr}}\nSubtotal: {{totales.subtotal}}\nDescuento: {{totales.descuento}}\n{{b: TOTAL: {{totales.total}}}}\n{{hr}}\nForma de pago: {{pago.modo}}\nAbonado: {{abonado}}\nVuelto: {{vuelto}}\n{{cae}}\n{{hr}}\n{{center: ¡Gracias por su compra!}}",
+      "slot2": "{{centerb: SUSI PERFUMERÍA}}\n{{hr}}\nTicket: {{ticket.numero}} | {{ticket.fecha_hora}}\n{{sucursal}}\n{{hr}}\n{{items}}\n{{hr}}\n{{rightb: TOTAL: {{totales.total}}}}\n{{hr}}\n{{pago.modo}} | Abonado: {{abonado}} | Vuelto: {{vuelto}}\n{{cae}}\n{{center: Gracias por su compra}}",
+      "slot3": "{{centerb: SUSI PERFUMERÍA}}\n{{center: ================================}}\n{{b: TICKET DE VENTA}}\nNº: {{ticket.numero}}\nFecha: {{ticket.fecha_hora}}\nSucursal: {{sucursal}}\n{{hr}}\n{{items}}\n{{hr}}\nSubtotal: {{totales.subtotal}}\nDescuento: {{totales.descuento}}\nInterés: {{totales.interes}}\n{{b: TOTAL: {{totales.total}}}}\n{{hr}}\nForma de pago: {{pago.modo}}\nCuotas: {{pago.cuotas}} x {{pago.monto_cuota}}\n{{cae}}\n{{hr}}\n{{center: ¡Gracias por su compra!}}",
+      "slot4": "{{centerb: SUSI PERFUMERÍA}}\n{{hr}}\nTicket: {{ticket.numero}} | {{ticket.fecha_hora}}\n{{sucursal}}\n{{hr}}\n{{items}}\n{{hr}}\nInterés: {{totales.interes}}\n{{rightb: TOTAL: {{totales.total}}}}\n{{hr}}\n{{pago.modo}} - {{pago.cuotas}} cuotas de {{pago.monto_cuota}}\n{{cae}}\n{{center: Gracias por su compra}}"
+    },
+    "slot_names": {
+      "slot1": "Efectivo - Clásica",
+      "slot2": "Efectivo - Minimalista",
+      "slot3": "Tarjeta - Clásica",
+      "slot4": "Tarjeta - Minimalista"
+    },
+    "template_efectivo": "slot1",
+    "template_tarjeta": "slot3",
+    "placeholders": [
+      "{{ticket.numero}}",
+      "{{ticket.fecha_hora}}",
+      "{{sucursal}}",
+      "{{cliente.nombre}}",
+      "{{cliente.doc}}",
+      "{{pago.modo}}",
+      "{{pago.cuotas}}",
+      "{{pago.monto_cuota}}",
+      "{{totales.subtotal}}",
+      "{{totales.descuento}}",
+      "{{totales.interes}}",
+      "{{totales.total}}",
+      "{{abonado}}",
+      "{{vuelto}}",
+      "{{business}}",
+      "{{title}}",
+      "{{hr}}",
+      "{{items}}",
+      "{{cae}}"
+    ],
+    "template": "{{centerb: SUSI PERFUMERÍA}}\n{{center: ================================}}\n{{b: TICKET DE VENTA}}\nNº: {{ticket.numero}}\nFecha: {{ticket.fecha_hora}}\nSucursal: {{sucursal}}\n{{hr}}\n{{items}}\n{{hr}}\nSubtotal: {{totales.subtotal}}\nDescuento: {{totales.descuento}}\nInterés: {{totales.interes}}\n{{b: TOTAL: {{totales.total}}}}\n{{hr}}\nForma de pago: {{pago.modo}}\nCuotas: {{pago.cuotas}} x {{pago.monto_cuota}}\n{{cae}}\n{{hr}}\n{{center: ¡Gracias por su compra!}}"
+  },
+  "barcode": {
+    "width_cm": 5.0,
+    "height_cm": 3.0,
+    "barcode_ratio": 0.75,
+    "text_ratio": 0.25
+  },
+  "backup": {
+    "enabled": true,
+    "dir": null,
+    "times_daily": [
+      "13:00",
+      "20:00"
+    ],
+    "daily_times": [
+      "13:00",
+      "20:00"
+    ],
+    "weekly": {
+      "weekday": 7,
+      "time": "23:30"
+    },
+    "retention": {
+      "daily_days": 30,
+      "weekly_weeks": 26
+    },
+    "retention_days": {
+      "daily": 30,
+      "weekly": 180
+    },
+    "compress": {
+      "format": "zip",
+      "level": 9
+    }
+  },
+  "export": {
+    "default_dir": null,
+    "ticket_pdf": {
+      "dpi": 203,
+      "abrir_al_finalizar": true
+    }
+  },
+  "whatsapp": {
+    "usar_web": true,
+    "preguntar_antes": true,
+    "formato_ticket": "pdf"
+  },
+  "email": {
+    "enabled": false,
+    "sender": "ventas@tudominio.com",
+    "recipients": [
+      "dueno@tudominio.com"
+    ],
+    "bcc": [],
+    "subject_prefix": "[Historial]",
+    "smtp": {
+      "host": "smtp.tudominio.com",
+      "port": 587,
+      "use_tls": true,
+      "username": "",
+      "password": ""
+    },
+    "attach_format": "xlsx"
+  },
+  "fiscal": {
+    "enabled": true,
+    "provider": "afipsdk",
+    "mode": "test",
+    "only_card": true,
+    "cuit": "20409378472",
+    "punto_venta": 1,
+    "tipo_cbte": "FACTURA_A",
+    "afipsdk": {
+      "api_key": "79itkBetJEkAgCtYsLQCZrrwMESNake3yOmWvJYcIpotGhzOYKoSg1qnW2ffqvfW",
+      "base_url_test": "",
+      "base_url_prod": ""
+    }
+  },
+  "startup": {
+    "default_sucursal": "ask"
+  },
+  "reports": {
+    "historial": {
+      "default_filters": {
+        "sucursal": "*",
+        "forma_pago": "*",
+        "desde": "hoy",
+        "hasta": "hoy"
+      },
+      "auto_send": {
+        "enabled": false,
+        "freq": "Diario",
+        "time": "21:00",
+        "last_sent": null
+      },
+      "export_content": {
+        "daily": [
+          "ventas_diarias",
+          "productos_mas_vendidos"
+        ],
+        "weekly": [
+          "ventas_diarias",
+          "resumen_semanal",
+          "productos_mas_vendidos",
+          "comparativa_2_semanas"
+        ],
+        "monthly": [
+          "ventas_por_dia",
+          "resumen_semanal_del_mes",
+          "productos_mas_vendidos",
+          "comparativa_2_meses"
+        ]
+      }
+    }
+  },
+  "sync": {
+    "enabled": false,
+    "mode": "interval",
+    "interval_minutes": 5,
+    "gmail_smtp": {
+      "host": "smtp.gmail.com",
+      "port": 587,
+      "username": "",
+      "password": ""
+    },
+    "gmail_imap": {
+      "host": "imap.gmail.com",
+      "port": 993,
+      "username": "",
+      "password": ""
+    },
+    "sync_productos": false,
+    "sync_proveedores": false,
+    "last_sync": null,
+    "imap_last_uid": 0
+  },
+  "scanner": {
+    "source": null,
+    "url": ""
+  }
+}
