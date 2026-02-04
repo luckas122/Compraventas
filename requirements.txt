@@ -1,0 +1,13 @@
+PyQt5
+SQLAlchemy
+pandas
+python-barcode
+pillow
+openpyxl
+Werkzeug
+certifi>=2024.2.0
+requests>=2.31.0
+pytz
+rapidfuzz>=3.0.0
+matplotlib>=3.5.0
+
