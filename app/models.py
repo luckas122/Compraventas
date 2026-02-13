@@ -23,6 +23,8 @@ class Producto(Base):
     telefono      = Column(String)
     numero_cuenta = Column(String)
     cbu           = Column(String)
+    last_modified = Column(DateTime, default=datetime.datetime.now,
+                           onupdate=datetime.datetime.now, nullable=True)
 
 class Venta(Base):
     __tablename__ = 'ventas'
@@ -76,6 +78,8 @@ class Proveedor(Base):
     telefono = Column(String)
     numero_cuenta = Column(String)
     cbu = Column(String)
+    last_modified = Column(DateTime, default=datetime.datetime.now,
+                           onupdate=datetime.datetime.now, nullable=True)
 
 class VentaLog(Base):
     __tablename__ = 'venta_logs'
@@ -121,22 +125,5 @@ class VentaBorradorItem(Base):
 
     borrador = relationship("VentaBorrador", back_populates="items")
     producto = relationship("Producto")
-
-class SyncLog(Base):
-    """Registro de sincronizaciones entre sucursales"""
-    __tablename__ = 'sync_log'
-    id = Column(Integer, primary_key=True)
-    sync_id = Column(String, unique=True, nullable=False, index=True)  # UUID único
-    tipo = Column(String, nullable=False)  # 'venta', 'producto', 'proveedor'
-    accion = Column(String, nullable=False)  # 'create', 'update', 'delete'
-    timestamp = Column(DateTime, nullable=False, default=datetime.datetime.now)
-    aplicado = Column(Boolean, default=False, nullable=False)
-    sucursal_origen = Column(String, nullable=False)
-    data_hash = Column(String, nullable=True)  # Hash del contenido para detectar duplicados
-
-    __table_args__ = (
-        Index('ix_sync_log_tipo_timestamp', 'tipo', 'timestamp'),
-        Index('ix_sync_log_sucursal_timestamp', 'sucursal_origen', 'timestamp'),
-    )
 
 

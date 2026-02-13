@@ -32,10 +32,9 @@ hiddenimports = list(set(
         "subprocess",
         "app.gui.main_window.configuracion_mixin",
         "app.gui.main_window.core",
-        # 🆕 Módulos SSL necesarios para sync
+        # Módulos SSL/email (usados por email_helper para reportes)
         "ssl",
         "smtplib",
-        "imaplib",
         "_ssl",
         "_hashlib",
         "email",

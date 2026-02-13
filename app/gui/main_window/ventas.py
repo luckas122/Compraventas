@@ -1451,6 +1451,9 @@ class VentasMixin:
         else:
             self._afip_emitir_si_corresponde(venta, modo)
 
+        # Sync: publicar venta en Firebase
+        self._sync_push("venta", venta)
+
         # Guardar último id para exportar a PNG
         self._last_venta_id = venta.id
 

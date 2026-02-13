@@ -705,7 +705,7 @@ class ProductosDialog(QDialog):
         path, _ = QFileDialog.getOpenFileName(self, 'Importar Excel', '', 'Excel Files (*.xlsx *.xls)')
         if not path: return
         try:
-            df = pandas.read_excel(path)
+            df = pandas.read_excel(path, dtype={'codigo_barra': str})
         except Exception as e:
             QMessageBox.warning(self,'Error',f'No se pudo leer:\n{e}')
             return

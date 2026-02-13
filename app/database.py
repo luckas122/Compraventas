@@ -84,7 +84,41 @@ def _set_pragmas(dbapi_connection, connection_record):
     finally:
         cur.close()
 
+def _run_migrations():
+    """Migraciones incrementales para actualizar esquema existente."""
+    from sqlalchemy import inspect, text
+    inspector = inspect(engine)
+
+    with engine.connect() as conn:
+        # Agregar last_modified a productos si no existe
+        if "productos" in inspector.get_table_names():
+            cols = [c["name"] for c in inspector.get_columns("productos")]
+            if "last_modified" not in cols:
+                conn.execute(text("ALTER TABLE productos ADD COLUMN last_modified DATETIME"))
+                conn.execute(text("UPDATE productos SET last_modified = datetime('now')"))
+
+        # Agregar last_modified a proveedores si no existe
+        if "proveedores" in inspector.get_table_names():
+            cols = [c["name"] for c in inspector.get_columns("proveedores")]
+            if "last_modified" not in cols:
+                conn.execute(text("ALTER TABLE proveedores ADD COLUMN last_modified DATETIME"))
+                conn.execute(text("UPDATE proveedores SET last_modified = datetime('now')"))
+
+        # Agregar afip_error a ventas si no existe
+        if "ventas" in inspector.get_table_names():
+            cols = [c["name"] for c in inspector.get_columns("ventas")]
+            if "afip_error" not in cols:
+                conn.execute(text("ALTER TABLE ventas ADD COLUMN afip_error VARCHAR"))
+
+        # Eliminar tabla sync_log si existe (reemplazada por Firebase)
+        if "sync_log" in inspector.get_table_names():
+            conn.execute(text("DROP TABLE sync_log"))
+
+        conn.commit()
+
+
 def init_db():
     # Si la BD no existe, se crea con las tablas al vuelo
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     Base.metadata.create_all(bind=engine)
+    _run_migrations()

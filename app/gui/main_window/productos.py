@@ -212,9 +212,9 @@ class ProductosMixin:
                 return
 
             nuevo = Producto(codigo_barra=c,nombre=n,precio=pr,categoria=ca)
-            self.session.add(nuevo); 
+            self.session.add(nuevo);
             self.session.commit()
-            
+            self._sync_push("producto", nuevo)
 
             datos = {'codigo_barra':c,'nombre':n,'precio':pr,'categoria':ca}
             self.history.append(('add',datos))
@@ -243,6 +243,8 @@ class ProductosMixin:
 
         if deleted:
             self.session.commit()
+            for d in deleted:
+                self._sync_push("producto_del", d["codigo_barra"])
             self.history.append(('del', deleted))
             self.statusBar().showMessage(f'{len(deleted)} productos eliminados', 3000)
             self.refrescar_productos()
@@ -329,7 +331,7 @@ class ProductosMixin:
         if not path:
             return
         try:
-            df = pd.read_excel(path)
+            df = pd.read_excel(path, dtype={'codigo_barra': str})
         except Exception as e:
             QMessageBox.warning(self, 'Error', f'No se pudo leer el archivo:\n{e}')
             return
@@ -360,6 +362,13 @@ class ProductosMixin:
             cont_tot += 1
 
         self.session.commit()
+        # Sync: publicar todos los productos importados/actualizados
+        for _, row in df.iterrows():
+            codigo = str(row.get('codigo_barra','')).strip()
+            if codigo:
+                prod = self.session.query(Producto).filter_by(codigo_barra=codigo).first()
+                if prod:
+                    self._sync_push("producto", prod)
         self.refrescar_productos()
         QMessageBox.information(
             self, 'Importación completada',
@@ -527,6 +536,10 @@ class ProductosMixin:
                 self.prod_repo.actualizar_nombre(prod_id, item.text().strip())
             elif col == 5:
                 self.prod_repo.actualizar_categoria(prod_id, item.text().strip())
+            # Sync: publicar producto editado
+            prod = self.prod_repo.obtener(prod_id)
+            if prod:
+                self._sync_push("producto", prod)
         finally:
             del blocker
             

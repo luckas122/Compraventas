@@ -75,6 +75,7 @@ class ProveedoresMixin:
             QMessageBox.warning(self, 'Atención', 'El nombre del proveedor es obligatorio.')
             return
 
+        self._sync_push("proveedor", p)
         self.statusBar().showMessage('Proveedor guardado', 3000)
         self.limpiar_inputs_proveedor()
         self.cargar_lista_proveedores()
@@ -90,7 +91,9 @@ class ProveedoresMixin:
         for r in range(self.table_proveedores.rowCount()):
             if self.table_proveedores.item(r, 0).checkState() == Qt.Checked:
                 pid = int(self.table_proveedores.item(r, 1).text())
+                nombre = self.table_proveedores.item(r, 2).text()
                 if self.proveedores.eliminar(pid):
+                    self._sync_push("proveedor_del", nombre)
                     eliminados += 1
 
         self.statusBar().showMessage(f'Proveedores eliminados: {eliminados}', 3000)

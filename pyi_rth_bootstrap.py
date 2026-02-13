@@ -11,7 +11,7 @@ except Exception:
     __app_name__ = "Tu local 2025"
     __version__ = "0.0.0"
 
-APP_DIRNAME = "Compraventas"     # carpeta raíz de la app de usuario
+APP_DIRNAME = "Compraventas"     # carpeta raiz de la app de usuario
 SUBDIR_APP  = "app"              # donde vive ONEDIR
 # Destino final: %LocalAppData%\Compraventas\app\
 def _target_root() -> Path:
@@ -20,8 +20,9 @@ def _target_root() -> Path:
 
 def _ensure_user_install():
     """
-    Si el ejecutable NO está en %LocalAppData%\Compraventas\app,
-    copia toda la carpeta ONEDIR ahí y relanza desde ese lugar.
+    Fallback: si el ejecutable NO esta en %LocalAppData%\\Compraventas\\app,
+    copia la carpeta ONEDIR ahi y relanza desde ese lugar.
+    Usa /E (no destructivo) para no borrar la DB ni otros archivos del usuario.
     """
     if sys.platform != "win32":
         return  # solo hacemos esto en Windows
@@ -30,7 +31,7 @@ def _ensure_user_install():
     cur_dir  = cur_exe.parent
     tgt_dir  = _target_root()
 
-    # Normaliza a minúsculas para comparar rutas en Windows
+    # Normaliza a minusculas para comparar rutas en Windows
     if str(cur_dir).lower() == str(tgt_dir).lower():
         return  # ya estamos en el lugar correcto
 
@@ -45,14 +46,17 @@ def _ensure_user_install():
     # Relanzar el mismo exe pero desde el destino
     relaunch_exe = tgt_dir / cur_exe.name
 
+    # /E = copia recursiva incluyendo subdirectorios vacios
+    # /IS /IT = sobreescribe archivos iguales y mas nuevos
+    # NO usa /MIR para no borrar archivos del usuario (DB, backups, etc.)
     script.write_text(f"""@echo off
 echo Instalando {__app_name__} en %LocalAppData%...
 timeout /t 2 /nobreak >nul
-robocopy "{cur_dir}" "{tgt_dir}" /MIR /NFL /NDL /NJH /NJS /NP
+robocopy "{cur_dir}" "{tgt_dir}" /E /IS /IT /NFL /NDL /NJH /NJS /NP
 echo Instalacion completada
 
-REM Crear acceso directo en el escritorio
-powershell -NoProfile -Command "$ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut([Environment]::GetFolderPath('Desktop') + '\\{__app_name__}.lnk'); $s.TargetPath = '{relaunch_exe}'; $s.WorkingDirectory = '{tgt_dir}'; $s.Save()"
+REM Actualizar acceso directo existente para apuntar a la ubicacion correcta
+powershell -NoProfile -Command "$lnk = [Environment]::GetFolderPath('Desktop') + '\\{__app_name__}.lnk'; if (Test-Path $lnk) {{ $ws = New-Object -ComObject WScript.Shell; $s = $ws.CreateShortcut($lnk); $s.TargetPath = '{relaunch_exe}'; $s.WorkingDirectory = '{tgt_dir}'; $s.Save() }}"
 
 start "" "{relaunch_exe}"
 del "%~f0"
@@ -62,7 +66,5 @@ del "%~f0"
     subprocess.Popen(['cmd', '/c', str(script)], creationflags=subprocess.CREATE_NO_WINDOW)
     sys.exit(0)
 
-# --- Ejecutar auto-instalación al inicio ---
+# --- Ejecutar auto-instalacion al inicio ---
 _ensure_user_install()
-
-# (Aquí puedes dejar el bootstrap que ya tuvieras para preparar DB, etc.)

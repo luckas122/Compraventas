@@ -409,22 +409,18 @@ Interés: {{totales.interes}}
         "enabled": False,
         "mode": "interval",
         "interval_minutes": 5,
-        "gmail_smtp": {
-            "host": "smtp.gmail.com",
-            "port": 587,
-            "username": "",
-            "password": ""
+        "firebase": {
+            "database_url": "",
+            "auth_token": ""
         },
-        "gmail_imap": {
-            "host": "imap.gmail.com",
-            "port": 993,
-            "username": "",
-            "password": ""
-        },
-        "sync_productos": False,
-        "sync_proveedores": False,
+        "sync_productos": True,
+        "sync_proveedores": True,
         "last_sync": None,
-        "imap_last_uid": 0
+        "last_processed_keys": {
+            "ventas": None,
+            "productos": None,
+            "proveedores": None
+        }
     }
 }
 

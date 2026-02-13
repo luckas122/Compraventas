@@ -65,7 +65,7 @@ from app.gui.historialventas import HistorialVentasWidget
 # Importar helpers y diálogos desde el paquete nuevo
 from app.gui.common import BASE_ICONS_PATH, MIN_BTN_HEIGHT, ICON_SIZE, icon, _safe_viewport, _mouse_release_event_type, _checked_states, FullCellCheckFilter
 from app.gui.dialogs import DevolucionDialog, ProductosDialog
-from app.sync_manager import SyncManager
+from app.firebase_sync import FirebaseSyncManager
 
 
 
@@ -186,13 +186,13 @@ class MainWindow(ProductosMixin, VentasMixin ,ProveedoresMixin, UsuariosMixin, C
         # Barra de estado
         self._setup_status_bar()
 
-        # Sistema de sincronización (inicializar antes de setup)
-        self._sync_manager = None
+        # Sistema de sincronizacion via Firebase
+        self._firebase_sync = None
         self._sync_timer = QTimer(self)
         self._sync_timer.timeout.connect(self._ejecutar_sincronizacion)
         self._last_sync_time = None
         self._setup_sync_scheduler()
-        self._crear_boton_sync_manual()  # Crear botón para modo manual
+        self._crear_boton_sync_manual()
 
         from PyQt5.QtCore import QSize
         self.setMinimumSize(980, 640)  # un mínimo razonable que siempre cabe
@@ -417,9 +417,9 @@ class MainWindow(ProductosMixin, VentasMixin ,ProveedoresMixin, UsuariosMixin, C
                 
                 
                 
-#SINCRONIZACION
+#SINCRONIZACION (Firebase)
     def _setup_sync_scheduler(self):
-        """Configura el scheduler de sincronización desde app_config.json"""
+        """Configura el scheduler de sincronizacion desde app_config.json"""
         cfg = load_config()
         sync_cfg = cfg.get("sync", {})
 
@@ -427,36 +427,27 @@ class MainWindow(ProductosMixin, VentasMixin ,ProveedoresMixin, UsuariosMixin, C
         mode = sync_cfg.get("mode", "interval")
         interval_min = sync_cfg.get("interval_minutes", 5)
 
-        # Detener timer si ya está corriendo
         self._sync_timer.stop()
 
         if not enabled:
+            self._firebase_sync = None
             return
 
-        # Crear SyncManager
+        # Crear FirebaseSyncManager
         from app.database import SessionLocal
         session = SessionLocal()
-
-        # Obtener sucursal actual
         sucursal_actual = getattr(self, 'sucursal', 'Sarmiento')
-        self._sync_manager = SyncManager(session, sucursal_actual)
+        self._firebase_sync = FirebaseSyncManager(session, sucursal_actual)
 
-        # Configurar según modo
         if mode == "interval":
-            # Sincronizar cada X minutos
-            self._sync_timer.setInterval(interval_min * 60 * 1000)  # Convertir a ms
-            self._sync_timer.start()
-        elif mode == "on_change":
-            # Revisar cada 30 segundos si hay cambios
-            self._sync_timer.setInterval(30 * 1000)
+            self._sync_timer.setInterval(interval_min * 60 * 1000)
             self._sync_timer.start()
         # Si mode == "manual", no iniciar timer
 
     def _reiniciar_sync_scheduler(self):
-        """Reinicia el scheduler cuando se guarda la configuración"""
+        """Reinicia el scheduler cuando se guarda la configuracion"""
         self._setup_sync_scheduler()
 
-        # Actualizar visibilidad del botón manual
         if hasattr(self, 'btn_sync_manual'):
             cfg = load_config()
             enabled = cfg.get("sync", {}).get("enabled", False)
@@ -465,40 +456,26 @@ class MainWindow(ProductosMixin, VentasMixin ,ProveedoresMixin, UsuariosMixin, C
                 self.btn_sync_manual.setToolTip("Sincronizacion desactivada. Activalo en Configuracion.")
             else:
                 self.btn_sync_manual.setToolTip("Click para sincronizar manualmente")
-        
-        #EJECUTAR SINCRO
-        
-    def _ejecutar_sincronizacion(self):
-        """Ejecuta un ciclo de sincronizacion"""
+
+    def _ejecutar_sincronizacion(self, manual=False):
+        """Ejecuta un ciclo de sincronizacion via Firebase"""
         cfg = load_config()
         sync_cfg = cfg.get("sync", {})
         enabled = sync_cfg.get("enabled", False)
         if not enabled:
-            QMessageBox.information(self, "Sincronizacion", "La sincronizacion esta desactivada en Configuracion.")
+            if manual:
+                QMessageBox.information(self, "Sincronizacion", "La sincronizacion esta desactivada en Configuracion.")
             return
 
-        if not self._sync_manager:
+        if not self._firebase_sync:
             from app.database import SessionLocal
             session = SessionLocal()
             sucursal_actual = getattr(self, 'sucursal', 'Sarmiento')
-            self._sync_manager = SyncManager(session, sucursal_actual)
+            self._firebase_sync = FirebaseSyncManager(session, sucursal_actual)
 
-        if not self._sync_manager:
-            return
-
-        mode = sync_cfg.get("mode", "interval")
-        # Si es modo "on_change", verificar si hay cambios
-        if mode == "on_change":
-            if not self._sync_manager.detectar_cambios_pendientes():
-                # No hay cambios, actualizar indicador y salir
-                self._actualizar_indicador_sync(pendiente=False)
-                return
-
-        # Ejecutar sincronización
         try:
-            resultado = self._sync_manager.ejecutar_sincronizacion_completa()
+            resultado = self._firebase_sync.ejecutar_sincronizacion_completa()
 
-            # Actualizar indicador
             self._last_sync_time = datetime.now()
             self._actualizar_indicador_sync(
                 enviados=resultado["enviados"],
@@ -506,23 +483,26 @@ class MainWindow(ProductosMixin, VentasMixin ,ProveedoresMixin, UsuariosMixin, C
                 errores=resultado["errores"]
             )
 
-            # Guardar timestamp
             cfg = load_config()
             cfg["sync"]["last_sync"] = self._last_sync_time.isoformat()
-            from app.config import save as save_config
             save_config(cfg)
+
+            # Refrescar UI si se recibieron cambios
+            if resultado["recibidos"] > 0:
+                try:
+                    self.refrescar_productos()
+                    self.refrescar_completer()
+                    self.cargar_lista_proveedores()
+                except Exception:
+                    pass
 
         except Exception as e:
             print(f"[SYNC] Error: {e}")
             self._actualizar_indicador_sync(error=str(e))
-            
-            
-            
-    #INDICADOR SINC Y  SINC MANUAL
-    def _actualizar_indicador_sync(self, enviados=0, recibidos=0, errores=None, pendiente=False, error=None):
-        """Actualiza el indicador de sincronización en la barra de estado"""
+
+    def _actualizar_indicador_sync(self, enviados=0, recibidos=0, errores=None, error=None):
+        """Actualiza el indicador de sincronizacion en la barra de estado"""
         if not hasattr(self, 'lbl_sync_status'):
-            # Crear label si no existe
             self.lbl_sync_status = QLabel()
             self.statusBar().addPermanentWidget(self.lbl_sync_status)
 
@@ -534,17 +514,13 @@ class MainWindow(ProductosMixin, VentasMixin ,ProveedoresMixin, UsuariosMixin, C
             return
 
         if error:
-            self.lbl_sync_status.setText(f"🔴 Sync error: {error[:30]}")
+            self.lbl_sync_status.setText(f"Sync error: {error[:30]}")
             self.lbl_sync_status.setStyleSheet("color: #E74C3C;")
         elif errores:
-            self.lbl_sync_status.setText(f"⚠️ Sync: {len(errores)} errores")
+            self.lbl_sync_status.setText(f"Sync: {len(errores)} errores")
             self.lbl_sync_status.setStyleSheet("color: #F39C12;")
-        elif pendiente:
-            self.lbl_sync_status.setText("⏳ Cambios pendientes")
-            self.lbl_sync_status.setStyleSheet("color: #3498DB;")
         else:
             if self._last_sync_time:
-                # Calcular tiempo desde última sync
                 delta = datetime.now() - self._last_sync_time
                 if delta.seconds < 60:
                     tiempo_str = "hace un momento"
@@ -553,32 +529,49 @@ class MainWindow(ProductosMixin, VentasMixin ,ProveedoresMixin, UsuariosMixin, C
                 else:
                     tiempo_str = f"hace {delta.seconds // 3600}h"
 
-                msg = f"✓ Sync: {tiempo_str}"
+                msg = f"Sync: {tiempo_str}"
                 if enviados > 0 or recibidos > 0:
-                    msg += f" ({enviados}↑ {recibidos}↓)"
+                    msg += f" ({enviados} env, {recibidos} rec)"
 
                 self.lbl_sync_status.setText(msg)
                 self.lbl_sync_status.setStyleSheet("color: #27AE60;")
             else:
-                self.lbl_sync_status.setText("🔄 Sync activa")
+                self.lbl_sync_status.setText("Sync activa")
                 self.lbl_sync_status.setStyleSheet("color: #95A5A6;")
-    
-    ### 6. (Opcional) Botón manual en status bar para modo manual
 
     def _crear_boton_sync_manual(self):
         """Crea un boton en la status bar para sincronizacion manual"""
         self.btn_sync_manual = QPushButton("Sincronizar")
         self.btn_sync_manual.setFlat(True)
         self.btn_sync_manual.setToolTip("Click para sincronizar manualmente")
-        self.btn_sync_manual.clicked.connect(self._ejecutar_sincronizacion)
+        self.btn_sync_manual.clicked.connect(lambda: self._ejecutar_sincronizacion(manual=True))
         self.statusBar().addPermanentWidget(self.btn_sync_manual)
 
         cfg = load_config()
         enabled = cfg.get("sync", {}).get("enabled", False)
-
         self.btn_sync_manual.setVisible(True)
         if not enabled:
             self.btn_sync_manual.setToolTip("Sincronizacion desactivada. Activalo en Configuracion.")
+
+    def _sync_push(self, tipo, entity, accion="upsert"):
+        """Helper para publicar un cambio en Firebase desde cualquier mixin."""
+        if not self._firebase_sync:
+            return
+        try:
+            if tipo == "venta":
+                self._firebase_sync.push_venta(entity)
+            elif tipo == "venta_mod":
+                self._firebase_sync.push_venta_modificada(entity)
+            elif tipo == "producto":
+                self._firebase_sync.push_producto(entity, accion)
+            elif tipo == "producto_del":
+                self._firebase_sync.push_producto_eliminado(entity)
+            elif tipo == "proveedor":
+                self._firebase_sync.push_proveedor(entity, accion)
+            elif tipo == "proveedor_del":
+                self._firebase_sync.push_proveedor_eliminado(entity)
+        except Exception as e:
+            self._firebase_sync._log(f"Push {tipo} error: {e}")
 
     def _check_pending_config_restore(self):
         """Pregunta si hay backup de configuracion pendiente."""
@@ -995,7 +988,10 @@ class MainWindow(ProductosMixin, VentasMixin ,ProveedoresMixin, UsuariosMixin, C
                 f"Se debe regresar: ${monto_devolucion:.2f}"
             )
             mostro_msg_efectivo = True
-        
+
+        # Sync: publicar venta modificada
+        self._sync_push("venta_mod", venta)
+
     # ---------------- Historial de ventas ----------------
     def tab_historial(self):
         from PyQt5.QtWidgets import (

@@ -62,8 +62,7 @@
   },
   "printers": {
     "ticket_printer": null,
-    "barcode_printer": "Microsoft Print to PDF",
-    "ask_each_time": true
+    "barcode_printer": null
   },
   "ticket": {
     "paper": {
@@ -116,8 +115,7 @@
       "{{hr}}",
       "{{items}}",
       "{{cae}}"
-    ],
-    "template": "{{centerb: SUSI PERFUMERÍA}}\n{{center: ================================}}\n{{b: TICKET DE VENTA}}\nNº: {{ticket.numero}}\nFecha: {{ticket.fecha_hora}}\nSucursal: {{sucursal}}\n{{hr}}\n{{items}}\n{{hr}}\nSubtotal: {{totales.subtotal}}\nDescuento: {{totales.descuento}}\nInterés: {{totales.interes}}\n{{b: TOTAL: {{totales.total}}}}\n{{hr}}\nForma de pago: {{pago.modo}}\nCuotas: {{pago.cuotas}} x {{pago.monto_cuota}}\n{{cae}}\n{{hr}}\n{{center: ¡Gracias por su compra!}}"
+    ]
   },
   "barcode": {
     "width_cm": 5.0,
@@ -183,15 +181,15 @@
     "attach_format": "xlsx"
   },
   "fiscal": {
-    "enabled": true,
+    "enabled": false,
     "provider": "afipsdk",
     "mode": "test",
     "only_card": true,
-    "cuit": "20409378472",
+    "cuit": "",
     "punto_venta": 1,
-    "tipo_cbte": "FACTURA_A",
+    "tipo_cbte": "FACTURA_B",
     "afipsdk": {
-      "api_key": "79itkBetJEkAgCtYsLQCZrrwMESNake3yOmWvJYcIpotGhzOYKoSg1qnW2ffqvfW",
+      "api_key": "",
       "base_url_test": "",
       "base_url_prod": ""
     }
@@ -237,25 +235,17 @@
     "enabled": false,
     "mode": "interval",
     "interval_minutes": 5,
-    "gmail_smtp": {
-      "host": "smtp.gmail.com",
-      "port": 587,
-      "username": "",
-      "password": ""
+    "firebase": {
+      "database_url": "",
+      "auth_token": ""
     },
-    "gmail_imap": {
-      "host": "imap.gmail.com",
-      "port": 993,
-      "username": "",
-      "password": ""
-    },
-    "sync_productos": false,
-    "sync_proveedores": false,
+    "sync_productos": true,
+    "sync_proveedores": true,
     "last_sync": null,
-    "imap_last_uid": 0
-  },
-  "scanner": {
-    "source": null,
-    "url": ""
+    "last_processed_keys": {
+      "ventas": null,
+      "productos": null,
+      "proveedores": null
+    }
   }
 }
