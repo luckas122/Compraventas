@@ -382,6 +382,162 @@ class AfipSDKClient:
                 error_message=str(e)
             )
 
+    def emitir_factura_a(
+        self,
+        items: List[Dict],
+        total: float,
+        subtotal: float,
+        iva: float,
+        cuit_cliente: str,
+        fecha: Optional[datetime] = None,
+    ) -> AfipResponse:
+        """
+        Emite una Factura A electrónica en AFIP.
+
+        Factura A se emite a Responsables Inscriptos (requiere CUIT del cliente).
+
+        Args:
+            items: Lista de ítems de la venta (para log)
+            total: Total de la venta con IVA
+            subtotal: Subtotal sin IVA (base imponible)
+            iva: Monto de IVA (21%)
+            cuit_cliente: CUIT del cliente (11 dígitos, sin guiones)
+            fecha: Fecha del comprobante (default: hoy)
+
+        Returns:
+            AfipResponse con el CAE y datos del comprobante
+        """
+        if not self.config.enabled:
+            logger.warning("AFIP deshabilitado en configuración, saltando emisión")
+            return AfipResponse(success=False, error_message="AFIP deshabilitado")
+
+        # Validar CUIT
+        cuit_clean = (cuit_cliente or "").replace("-", "").strip()
+        if not cuit_clean or len(cuit_clean) != 11 or not cuit_clean.isdigit():
+            return AfipResponse(
+                success=False,
+                error_message=f"CUIT inválido: '{cuit_cliente}'. Debe tener 11 dígitos."
+            )
+
+        logger.info(f"Emitiendo Factura A - Total: ${total:.2f}, CUIT cliente: {cuit_clean}")
+
+        try:
+            token, sign = self.get_auth_token()
+            ultimo_nro = self.get_ultimo_comprobante(self.FACTURA_A)
+            proximo_nro = ultimo_nro + 1
+
+            if fecha is None:
+                if PYTZ_AVAILABLE:
+                    tz_arg = pytz.timezone('America/Argentina/Buenos_Aires')
+                    fecha = datetime.now(tz_arg).date()
+                elif ZONEINFO_AVAILABLE:
+                    tz_arg = ZoneInfo('America/Argentina/Buenos_Aires')
+                    fecha = datetime.now(tz_arg).date()
+                else:
+                    from datetime import timedelta
+                    utc_now = datetime.now(timezone.utc)
+                    arg_now = utc_now - timedelta(hours=3)
+                    fecha = arg_now.date()
+                fecha_str = fecha.strftime("%Y%m%d")
+            else:
+                if hasattr(fecha, 'strftime'):
+                    fecha_str = fecha.strftime("%Y%m%d")
+                else:
+                    fecha_str = str(fecha)
+
+            payload = {
+                "environment": self.config.environment,
+                "method": "FECAESolicitar",
+                "wsid": self.WSID,
+                "params": {
+                    "Auth": {
+                        "Token": token,
+                        "Sign": sign,
+                        "Cuit": self.config.cuit
+                    },
+                    "FeCAEReq": {
+                        "FeCabReq": {
+                            "CantReg": 1,
+                            "PtoVta": self.config.punto_venta,
+                            "CbteTipo": self.FACTURA_A
+                        },
+                        "FeDetReq": {
+                            "FECAEDetRequest": {
+                                "Concepto": 1,
+                                "DocTipo": self.DOC_CUIT,
+                                "DocNro": int(cuit_clean),
+                                "CbteDesde": proximo_nro,
+                                "CbteHasta": proximo_nro,
+                                "CbteFch": fecha_str,
+                                "ImpTotal": round(total, 2),
+                                "ImpTotConc": 0,
+                                "ImpNeto": round(subtotal, 2),
+                                "ImpOpEx": 0,
+                                "ImpIVA": round(iva, 2),
+                                "ImpTrib": 0,
+                                "MonId": "PES",
+                                "MonCotiz": 1,
+                                "CondicionIVAReceptorId": self.IVA_RESPONSABLE_INSCRIPTO,
+                                "Iva": {
+                                    "AlicIva": [{
+                                        "Id": 5,
+                                        "BaseImp": round(subtotal, 2),
+                                        "Importe": round(iva, 2)
+                                    }]
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            logger.info(f"Emitiendo Factura A Nº {proximo_nro} con fecha {fecha_str}")
+            response = self._make_request("requests", payload)
+
+            result = response.get("FECAESolicitarResult", {})
+            fe_det_resp = result.get("FeDetResp", {})
+            fe_det_list = fe_det_resp.get("FECAEDetResponse", [])
+            fe_det = fe_det_list[0] if fe_det_list else {}
+
+            cae = fe_det.get("CAE", "")
+            cae_vto = fe_det.get("CAEFchVto", "")
+            resultado = fe_det.get("Resultado", "")
+
+            if resultado == "A" and cae:
+                logger.info(f"Factura A emitida exitosamente - CAE: {cae}, Vto: {cae_vto}")
+                return AfipResponse(
+                    success=True,
+                    cae=cae,
+                    cae_vencimiento=cae_vto,
+                    numero_comprobante=proximo_nro,
+                    raw_response=response
+                )
+            else:
+                errors = result.get("Errors", {})
+                err_list = errors.get("Err", [])
+                if err_list:
+                    error_msg = "; ".join([f"[{e.get('Code')}] {e.get('Msg', '')}" for e in err_list])
+                else:
+                    observaciones = fe_det.get("Observaciones", {}).get("Obs", [])
+                    if observaciones:
+                        error_msg = "; ".join([f"[{o.get('Code')}] {o.get('Msg', '')}" for o in observaciones])
+                    else:
+                        error_msg = "Error desconocido"
+
+                logger.error(f"AFIP rechazó la Factura A: {error_msg}")
+                return AfipResponse(
+                    success=False,
+                    error_message=error_msg,
+                    raw_response=response
+                )
+
+        except Exception as e:
+            logger.error(f"Error al emitir Factura A en AFIP: {e}", exc_info=True)
+            return AfipResponse(
+                success=False,
+                error_message=str(e)
+            )
+
     def emitir_nota_credito_b(
         self,
         total: float,

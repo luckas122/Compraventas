@@ -18,7 +18,7 @@ from PyQt5.QtCore import Qt, QTimer, QDate,QTime
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QLineEdit, QPushButton,
     QComboBox, QDateEdit, QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox,
-    QFileDialog, QMessageBox, QDialog, QTableWidgetSelectionRange,QTimeEdit, QSpinBox,
+    QFileDialog, QMessageBox, QDialog, QDialogButtonBox, QTableWidgetSelectionRange,QTimeEdit, QSpinBox,
     QTabWidget, QScrollArea, QFrame, QGroupBox, QGridLayout
 )
 
@@ -242,9 +242,12 @@ class HistorialVentasWidget(QWidget):
             "Cuotas","Interés", "Descuento", "Monto x cuota", "Total", "Pagado", "Vuelto", "CAE", "Vto CAE", "Comentario", "ID"
         ])
         hdr = self.tbl.horizontalHeader()
-        hdr.setSectionResizeMode(QHeaderView.Stretch)
-        for col in (5, 6, 7):  # Interés, Descuento, Monto x cuota
-            hdr.setSectionResizeMode(col, QHeaderView.ResizeToContents)
+        # Fecha/Hora y Comentario expanden; el resto ajusta al contenido
+        hdr.setSectionResizeMode(QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(1, QHeaderView.Stretch)   # Fecha/Hora - necesita espacio
+        hdr.setSectionResizeMode(13, QHeaderView.Stretch)  # Comentario - necesita espacio
+        # ID oculto
+        self.tbl.setColumnHidden(14, True)
         self.tbl.verticalHeader().setVisible(False)
         self.tbl.setSelectionBehavior(QTableWidget.SelectRows)
         self.tbl.setEditTriggers(QTableWidget.NoEditTriggers)
@@ -1512,3 +1515,71 @@ class _VentaDetalleDialog(QDialog):
                 tbl.setItem(row, c, cell)
 
         tbl.setColumnHidden(5, True)
+
+        # Mostrar info de CAE si existe
+        from app.models import Venta
+        venta = session.query(Venta).get(venta_id)
+        if venta:
+            info_lay = QHBoxLayout()
+            if venta.cae:
+                info_lay.addWidget(QLabel(f"CAE: {venta.cae}  |  Vto: {venta.cae_vencimiento or ''}"))
+
+            if getattr(venta, 'afip_error', None):
+                lbl_err = QLabel(f"Error AFIP: {venta.afip_error}")
+                lbl_err.setStyleSheet("color: red;")
+                lbl_err.setWordWrap(True)
+                info_lay.addWidget(lbl_err)
+
+                btn_retry = QPushButton("Reintentar CAE")
+                btn_retry.setStyleSheet("background: #E67E22; color: white; padding: 6px 16px; font-weight: bold;")
+                btn_retry.clicked.connect(lambda: self._reintentar_cae(session, venta))
+                info_lay.addWidget(btn_retry)
+
+            lay.addLayout(info_lay)
+
+        btns = QDialogButtonBox(QDialogButtonBox.Close)
+        btns.rejected.connect(self.close)
+        lay.addWidget(btns)
+
+    def _reintentar_cae(self, session, venta):
+        """Reintenta la emisión de CAE para una venta con error."""
+        from app.afip_integration import crear_cliente_afip
+        from app.config import load as load_config
+
+        cfg = load_config()
+        fiscal = cfg.get("fiscal", {})
+        if not fiscal.get("enabled"):
+            QMessageBox.warning(self, "AFIP", "La facturación electrónica no está habilitada en Configuración.")
+            return
+
+        client = crear_cliente_afip(fiscal)
+        if not client:
+            QMessageBox.warning(self, "AFIP", "No se pudo crear el cliente AFIP. Verifica la configuración.")
+            return
+
+        # Calcular totales desde items
+        items_data = []
+        total = float(venta.total or 0)
+        # IVA 21%
+        subtotal = round(total / 1.21, 2)
+        iva = round(total - subtotal, 2)
+
+        try:
+            response = client.emitir_factura_b(
+                items=items_data,
+                total=total,
+                subtotal=subtotal,
+                iva=iva
+            )
+
+            if response.success:
+                venta.cae = response.cae
+                venta.cae_vencimiento = response.cae_vencimiento
+                venta.afip_error = None
+                session.commit()
+                QMessageBox.information(self, "AFIP", f"CAE obtenido exitosamente: {response.cae}")
+                self.accept()  # Close dialog
+            else:
+                QMessageBox.warning(self, "AFIP", f"AFIP rechazó la factura:\n{response.error_message}")
+        except Exception as e:
+            QMessageBox.warning(self, "AFIP", f"Error al reintentar:\n{e}")

@@ -180,7 +180,7 @@ class SyncNotificationsMixin:
                 self.btn_sync_manual.setToolTip("Click para sincronizar manualmente")
 
     def _ejecutar_sincronizacion(self, manual=False):
-        """Ejecuta un ciclo de sincronizacion via Firebase"""
+        """Ejecuta un ciclo de sincronizacion via Firebase (en hilo background)"""
         cfg = load_config()
         sync_cfg = cfg.get("sync", {})
         enabled = sync_cfg.get("enabled", False)
@@ -193,9 +193,46 @@ class SyncNotificationsMixin:
             sucursal_actual = getattr(self, 'sucursal', 'Sarmiento')
             self._firebase_sync = FirebaseSyncManager(self.session, sucursal_actual)
 
-        try:
-            resultado = self._firebase_sync.ejecutar_sincronizacion_completa()
+        # Evitar multiples syncs simultaneas
+        if getattr(self, '_sync_running', False):
+            if manual:
+                QMessageBox.information(self, "Sincronizacion", "Ya hay una sincronizacion en curso.")
+            return
+        self._sync_running = True
 
+        # Indicar visualmente que se esta sincronizando
+        if hasattr(self, 'status_online'):
+            self.status_online.setText("● Sincronizando...")
+            self.status_online.setStyleSheet("color: #F39C12; font-weight: bold;")
+
+        import threading
+
+        def _sync_worker():
+            try:
+                # Crear sesion y sync manager propios para este hilo
+                # (las sesiones de SQLAlchemy no son thread-safe)
+                from app.database import SessionLocal
+                thread_session = SessionLocal()
+                try:
+                    sucursal = getattr(self, 'sucursal', 'Sarmiento')
+                    sync_manager = FirebaseSyncManager(thread_session, sucursal)
+                    resultado = sync_manager.ejecutar_sincronizacion_completa()
+                    # Recuperar mismatches antes de cerrar la sesion
+                    mismatches = sync_manager.get_price_mismatches()
+                    resultado["_mismatches"] = mismatches
+                    QTimer.singleShot(0, lambda: self._on_sync_finished(resultado))
+                finally:
+                    thread_session.close()
+            except Exception as e:
+                QTimer.singleShot(0, lambda: self._on_sync_error(str(e)))
+
+        t = threading.Thread(target=_sync_worker, daemon=True)
+        t.start()
+
+    def _on_sync_finished(self, resultado):
+        """Callback en el hilo principal cuando la sync termina exitosamente."""
+        self._sync_running = False
+        try:
             self._last_sync_time = datetime.now()
             self._actualizar_indicador_sync(
                 enviados=resultado["enviados"],
@@ -210,6 +247,8 @@ class SyncNotificationsMixin:
             # Refrescar UI si se recibieron cambios
             if resultado["recibidos"] > 0:
                 try:
+                    # Refrescar la sesion principal para ver cambios del hilo de sync
+                    self.session.expire_all()
                     self.refrescar_productos()
                     self.refrescar_completer()
                     self.cargar_lista_proveedores()
@@ -218,21 +257,24 @@ class SyncNotificationsMixin:
 
             # Verificar precios inconsistentes
             try:
-                mismatches = self._firebase_sync.get_price_mismatches()
+                mismatches = resultado.get("_mismatches", [])
                 if mismatches:
                     self._price_mismatches = mismatches
                     self._mostrar_alerta_precios(mismatches)
             except Exception:
                 pass
 
-            # Sync exitosa = estamos online, actualizar indicador de conexión
+            # Sync exitosa = estamos online
             self._update_online_indicator(True, 0)
-
         except Exception as e:
-            logger.error(f"[SYNC] Error: {e}")
-            self._actualizar_indicador_sync(error=str(e))
-            # Error de sync = posiblemente offline
-            self._check_online_status()
+            logger.error(f"[SYNC] Error procesando resultado: {e}")
+
+    def _on_sync_error(self, error_msg):
+        """Callback en el hilo principal cuando la sync falla."""
+        self._sync_running = False
+        logger.error(f"[SYNC] Error: {error_msg}")
+        self._actualizar_indicador_sync(error=error_msg)
+        self._check_online_status()
 
     def _actualizar_indicador_sync(self, enviados=0, recibidos=0, errores=None, error=None):
         """Actualiza el indicador de sincronizacion en la barra de estado"""

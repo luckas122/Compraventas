@@ -101,7 +101,6 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
                 self.setWindowIcon(app.windowIcon())
         except Exception:
             pass
-        self.productos_pagina_actual = 0
         self.productos_filtro = ""
         self._comp_inicializado = False
         self._comp_timer = QTimer(self)
@@ -606,16 +605,6 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
 
     # (Historial/estadísticas methods moved to stats_mixin.py)
 
-    def ir_pagina_anterior(self):
-        if getattr(self, "productos_pagina_actual", 0) > 0:
-            self.productos_pagina_actual -= 1
-            self.refrescar_productos()
-
-    def ir_pagina_siguiente(self):
-        # El límite real lo corrige refrescar_productos()
-        self.productos_pagina_actual = getattr(self, "productos_pagina_actual", 0) + 1
-        self.refrescar_productos()
-  
     def _ensure_completer(self):
         """Carga ligera del completer una sola vez (sólo columnas necesarias)."""
         if getattr(self, "_comp_inicializado", False):

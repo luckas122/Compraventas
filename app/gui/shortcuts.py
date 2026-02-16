@@ -77,6 +77,9 @@ class ShortcutManager(QObject):
         # Seguir cambios de pestaña
         self.w.tabs.currentChanged.connect(self.set_section_by_tabindex)
 
+        # Interceptar +/-/letras de cesta en QLineEdits de ventas
+        QApplication.instance().installEventFilter(self)
+
     # ---------- Status icon ----------
     def _ensure_status_icon(self):
             sb = self.w.statusBar() if hasattr(self.w, "statusBar") else None
@@ -291,8 +294,50 @@ class ShortcutManager(QObject):
         return None
 
     # ---------- INDICADOR ----------
-    
-    
+
+    def eventFilter(self, obj, event):
+        """Intercepta teclas +/-/X/C/Z en QLineEdits para que funcionen como atajos de cesta."""
+        try:
+            from PyQt5.QtCore import QEvent
+            if event.type() != QEvent.KeyPress:
+                return False
+
+            if not self._section_mode_enabled:
+                return False
+
+            if self._current_section_key != "ventas":
+                return False
+
+            from PyQt5.QtWidgets import QLineEdit
+            if not isinstance(obj, QLineEdit):
+                return False
+
+            key_text = event.text()
+            mapping = self._section_map.get("ventas", {})
+
+            # Build reverse map of key -> action for special keys
+            intercept_keys = {}
+            for action, kt in mapping.items():
+                kt_stripped = (kt or "").strip()
+                if kt_stripped in ("+", "-"):
+                    intercept_keys[kt_stripped] = action
+                elif action in ("editar_cantidad", "descuento_item", "vaciar_cesta"):
+                    # Single letter keys for cart actions
+                    intercept_keys[kt_stripped.lower()] = action
+                    intercept_keys[kt_stripped.upper()] = action
+
+            if key_text in intercept_keys:
+                action = intercept_keys[key_text]
+                full_key = f"ventas.{action}"
+                # Only intercept if it's in ALWAYS_ALLOWED
+                cb = self.callbacks.get(full_key)
+                if callable(cb):
+                    cb()
+                    return True  # consume the event
+        except Exception:
+            pass
+        return False
+
     def _invoke(self, key: str):
         """
         Invoca el callback asociado a 'key'.
@@ -306,6 +351,7 @@ class ShortcutManager(QObject):
         """
         # Lista blanca de atajos que siempre funcionan, incluso con foco en input
         ALWAYS_ALLOWED = [
+            "ventas.finalizar",
             "ventas.guardar_borrador",
             "ventas.abrir_borradores",
             "ventas.sumar",

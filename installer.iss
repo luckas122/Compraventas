@@ -4,7 +4,7 @@
 ; Config vive en %APPDATA%\CompraventasV2\ y NO se toca durante instalacion
 
 #define MyAppName "Tu local 2025"
-#define MyAppVersion "3.5.0"
+#define MyAppVersion "3.5.1"
 #define MyAppPublisher "Compraventas"
 #define MyAppExeName "Tu local 2025.exe"
 #define MyAppId "A1B2C3D4-E5F6-4789-ABCD-123456789ABC"

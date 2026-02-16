@@ -22,8 +22,6 @@ from io import BytesIO
 
 logger = logging.getLogger(__name__)
 
-PRODUCTOS_POR_PAGINA = 25
-
 
 # Dependencias del dominio / helpers que usan tus métodos de productos:
 from app.models import Producto
@@ -83,9 +81,7 @@ class ProductosMixin:
         btn_exp = QPushButton('Exportar a Excel'); btn_exp.setIcon(icon('export.svg'));btn_exp.setToolTip('Exportar a Excel');      btn_exp.clicked.connect(self.exportar_productos)
         btn_list = QPushButton('Ver listado con filtros'); btn_list.setIcon(icon('list.svg'));btn_list.setToolTip('Ver listado con filtros');btn_list.setMinimumHeight(MIN_BTN_HEIGHT);btn_list.setIconSize(ICON_SIZE);btn_list.clicked.connect(self.abrir_listado_productos)
         btn_sin_ventas = QPushButton('Sin movimiento'); btn_sin_ventas.setIcon(icon('list.svg'));btn_sin_ventas.setToolTip('Productos sin ventas en 90 días');btn_sin_ventas.setMinimumHeight(MIN_BTN_HEIGHT);btn_sin_ventas.setIconSize(ICON_SIZE);btn_sin_ventas.clicked.connect(self._ver_productos_sin_ventas)
-        self.btn_anterior = QPushButton("← Anterior")
-        self.btn_siguiente = QPushButton("Siguiente →")
-        self.lbl_paginacion = QLabel("Página 1")
+        self.lbl_paginacion = QLabel("")
         self.btn_export_png = QPushButton("Exportar PNG")
 
         hb = QHBoxLayout()
@@ -138,18 +134,12 @@ class ProductosMixin:
         self.table_productos.setColumnWidth(5, 200)
 
         layout.addWidget(self.table_productos)
-        nav_layout = QHBoxLayout()
-        nav_layout.addWidget(self.btn_anterior)
-        nav_layout.addWidget(self.lbl_paginacion)
-        nav_layout.addWidget(self.btn_siguiente)
         layout.addWidget(self.btn_export_png)
-        layout.addLayout(nav_layout)
+        layout.addWidget(self.lbl_paginacion)
 
         self.table_productos.itemChanged.connect(self._on_producto_item_changed)
         self.table_productos.cellClicked.connect(self.cargar_producto)
         self.table_productos.cellDoubleClicked.connect(self.cargar_producto)
-        self.btn_anterior.clicked.connect(self.ir_pagina_anterior)
-        self.btn_siguiente.clicked.connect(self.ir_pagina_siguiente)
         self.btn_export_png.clicked.connect(self.exportar_codigos_png)
 
         w.setLayout(layout)
@@ -459,7 +449,6 @@ class ProductosMixin:
         self.buscar_productos(self.input_buscar.text())
 
     def buscar_productos(self, txt):
-            self.productos_pagina_actual = 0
             self.refrescar_productos()
 
             # Autoseleccionar primer resultado y cargarlo al formulario
@@ -574,23 +563,11 @@ class ProductosMixin:
             else:
                 productos = self.prod_repo.listar_todos()
 
-            # 2) Página
             total = len(productos)
-            por_pagina = PRODUCTOS_POR_PAGINA
-            pagina_actual = getattr(self, "productos_pagina_actual", 0)
-            max_pag = max(0, (total - 1) // por_pagina)
-            if pagina_actual > max_pag:
-                pagina_actual = max_pag
-                self.productos_pagina_actual = pagina_actual
 
-            ini = pagina_actual * por_pagina
-            fin = ini + por_pagina
-            paginados = productos[ini:fin]
-
-            # 3) Pintar tabla: 0=Sel, 1=ID, 2=Código, 3=Nombre, 4=Precio, 5=Categoría
+            # 2) Pintar tabla: 0=Sel, 1=ID, 2=Código, 3=Nombre, 4=Precio, 5=Categoría
             tbl = self.table_productos
 
-            # --- Si el header vertical está oculto, asegurate de que el ID es visible en columna 1 ---
             tbl.setColumnCount(6)
             tbl.setHorizontalHeaderLabels(
                 ['Sel','ID','Código','Nombre','Precio','Categoría']
@@ -599,8 +576,8 @@ class ProductosMixin:
             from app.gui.qt_helpers import freeze_table
             with freeze_table(tbl):
                 tbl.setRowCount(0)
-                tbl.setRowCount(len(paginados))
-                for r, p in enumerate(paginados):
+                tbl.setRowCount(total)
+                for r, p in enumerate(productos):
                     # Col 0: checkbox
                     chk = QTableWidgetItem()
                     chk.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
@@ -618,12 +595,8 @@ class ProductosMixin:
                             it.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
                         tbl.setItem(r, c, it)
 
-            # 4) Footer
-            self.lbl_paginacion.setText(
-                f"Página {pagina_actual+1} de {max_pag+1}  (Mostrando {ini+1}-{min(fin,total)} de {total})"
-            )
-            self.btn_anterior.setEnabled(pagina_actual > 0)
-            self.btn_siguiente.setEnabled(pagina_actual < max_pag)
+            # 3) Footer
+            self.lbl_paginacion.setText(f"Total: {total} productos")
             
     def exportar_codigos_png(self):
         from PyQt5.QtWidgets import QFileDialog, QMessageBox
