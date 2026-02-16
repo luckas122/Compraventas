@@ -4,19 +4,24 @@ from PyInstaller.utils.hooks import collect_submodules, collect_data_files
 from PyInstaller.building.build_main import Analysis, PYZ, EXE, COLLECT
 from PyInstaller.building.datastruct import Tree
 
-# 🆕 Importar versión
+# Directorio base = donde está este .spec
+import sys
+SPEC_DIR = os.path.abspath(SPECPATH) if 'SPECPATH' in dir() else os.path.abspath('.')
+
+# 🆕 Importar versión (asegurar que el CWD del spec sea el correcto)
+sys.path.insert(0, SPEC_DIR)
 try:
     from version import __version__, __app_name__
 except ImportError:
     __version__ = "1.0.0"
-    __app_name__ = "TuLocalV12025"
+    __app_name__ = "Tu local 2025"
 
-APP_NAME    = __app_name__
+APP_NAME    = "Tu local 2025"  # Hardcoded para consistencia con installer.iss
 VERSION     = __version__
 ENTRY       = "main.py"
 
-# Ruta absoluta al icono, relativa al propio .spec
-BASE_DIR   = os.path.abspath(os.path.dirname(__name__))
+# Ruta absoluta al icono
+BASE_DIR   = SPEC_DIR
 ICON_PATH  = os.path.join(BASE_DIR, "assets", "shop_106574.ico")
 hiddenimports = list(set(
     collect_submodules("PyQt5")
