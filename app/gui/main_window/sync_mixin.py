@@ -145,6 +145,8 @@ class SyncNotificationsMixin:
         if not enabled:
             self._firebase_sync = None
             logger.info("[SYNC] Sincronizacion desactivada")
+            # Actualizar indicador inmediatamente para no quedar en "Verificando..."
+            QTimer.singleShot(0, lambda: self._update_online_indicator(False, 0))
             return
 
         # Crear FirebaseSyncManager usando la sesion principal de la app
@@ -223,9 +225,14 @@ class SyncNotificationsMixin:
             except Exception:
                 pass
 
+            # Sync exitosa = estamos online, actualizar indicador de conexión
+            self._update_online_indicator(True, 0)
+
         except Exception as e:
             logger.error(f"[SYNC] Error: {e}")
             self._actualizar_indicador_sync(error=str(e))
+            # Error de sync = posiblemente offline
+            self._check_online_status()
 
     def _actualizar_indicador_sync(self, enviados=0, recibidos=0, errores=None, error=None):
         """Actualiza el indicador de sincronizacion en la barra de estado"""
@@ -771,3 +778,6 @@ class SyncNotificationsMixin:
         layout.addWidget(btns)
 
         dlg.exec_()
+
+        # Actualizar indicador después de cerrar el diálogo
+        self._update_online_indicator(online, len(queue))

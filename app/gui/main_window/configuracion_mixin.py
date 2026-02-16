@@ -591,7 +591,12 @@ class ConfiguracionMixin:
         self.ed_sc_ven_F = QLineEdit((_sec.get("ventas", {}) or {}).get("imprimir", "F"))
         self.ed_sc_ven_G = QLineEdit((_sec.get("ventas", {}) or {}).get("guardar_borrador", "G"))
         self.ed_sc_ven_B = QLineEdit((_sec.get("ventas", {}) or {}).get("abrir_borradores", "B"))
-        for w_ in (self.ed_sc_ven_V, self.ed_sc_ven_E, self.ed_sc_ven_T, self.ed_sc_ven_D, self.ed_sc_ven_W, self.ed_sc_ven_F, self.ed_sc_ven_G, self.ed_sc_ven_B):
+        self.ed_sc_ven_plus = QLineEdit((_sec.get("ventas", {}) or {}).get("sumar", "+"))
+        self.ed_sc_ven_minus = QLineEdit((_sec.get("ventas", {}) or {}).get("restar", "-"))
+        self.ed_sc_ven_C = QLineEdit((_sec.get("ventas", {}) or {}).get("editar_cantidad", "C"))
+        self.ed_sc_ven_X = QLineEdit((_sec.get("ventas", {}) or {}).get("descuento_item", "X"))
+        self.ed_sc_ven_Z = QLineEdit((_sec.get("ventas", {}) or {}).get("vaciar_cesta", "Z"))
+        for w_ in (self.ed_sc_ven_V, self.ed_sc_ven_E, self.ed_sc_ven_T, self.ed_sc_ven_D, self.ed_sc_ven_W, self.ed_sc_ven_F, self.ed_sc_ven_G, self.ed_sc_ven_B, self.ed_sc_ven_plus, self.ed_sc_ven_minus, self.ed_sc_ven_C, self.ed_sc_ven_X, self.ed_sc_ven_Z):
             w_.setMaxLength(10)
             w_.setPlaceholderText("A–Z, F1–F12 o Delete")
         lv.addWidget(QLabel("V = Finalizar"), 0, 0); lv.addWidget(self.ed_sc_ven_V, 0, 1)
@@ -602,6 +607,14 @@ class ConfiguracionMixin:
         lv.addWidget(QLabel("F = Imprimir"), 5, 0);  lv.addWidget(self.ed_sc_ven_F, 5, 1)
         lv.addWidget(QLabel("G = Guardar Borrador"), 6, 0); lv.addWidget(self.ed_sc_ven_G, 6, 1)
         lv.addWidget(QLabel("B = Abrir Borradores"), 7, 0); lv.addWidget(self.ed_sc_ven_B, 7, 1)
+
+        # Separador visual para atajos de cesta
+        lv.addWidget(QLabel("<b>— Cesta —</b>"), 8, 0, 1, 2)
+        lv.addWidget(QLabel("+ = Sumar cantidad"), 9, 0); lv.addWidget(self.ed_sc_ven_plus, 9, 1)
+        lv.addWidget(QLabel("- = Restar cantidad"), 10, 0); lv.addWidget(self.ed_sc_ven_minus, 10, 1)
+        lv.addWidget(QLabel("C = Editar cantidad"), 11, 0); lv.addWidget(self.ed_sc_ven_C, 11, 1)
+        lv.addWidget(QLabel("X = Descuento ítem"), 12, 0); lv.addWidget(self.ed_sc_ven_X, 12, 1)
+        lv.addWidget(QLabel("Z = Vaciar cesta"), 13, 0); lv.addWidget(self.ed_sc_ven_Z, 13, 1)
         lay_acc.addWidget(gb_ven)
         
         
@@ -660,7 +673,9 @@ class ConfiguracionMixin:
             self.ed_sc_prod_A, self.ed_sc_prod_E, self.ed_sc_prod_D, self.ed_sc_prod_I,
             # Sección: Ventas
             self.ed_sc_ven_V, self.ed_sc_ven_E, self.ed_sc_ven_T, self.ed_sc_ven_D, self.ed_sc_ven_W, self.ed_sc_ven_F,
-            self.ed_sc_ven_G, self.ed_sc_ven_B
+            self.ed_sc_ven_G, self.ed_sc_ven_B,
+            # Sección: Ventas - Cesta
+            self.ed_sc_ven_plus, self.ed_sc_ven_minus, self.ed_sc_ven_C, self.ed_sc_ven_X, self.ed_sc_ven_Z
         ):
             try:
                 w_.installEventFilter(self._sc_keycap)
@@ -699,6 +714,11 @@ class ConfiguracionMixin:
                 "imprimir": _normalize(self.ed_sc_ven_F.text(), "F"),
                 "guardar_borrador": _normalize(self.ed_sc_ven_G.text(), "G"),
                 "abrir_borradores": _normalize(self.ed_sc_ven_B.text(), "B"),
+                "sumar": _normalize(self.ed_sc_ven_plus.text(), "+"),
+                "restar": _normalize(self.ed_sc_ven_minus.text(), "-"),
+                "editar_cantidad": _normalize(self.ed_sc_ven_C.text(), "C"),
+                "descuento_item": _normalize(self.ed_sc_ven_X.text(), "X"),
+                "vaciar_cesta": _normalize(self.ed_sc_ven_Z.text(), "Z"),
             }
             # — Globales —
             global_map = {
@@ -745,6 +765,12 @@ class ConfiguracionMixin:
             self.ed_sc_ven_F.setText(DEFAULT_SECTION_MAP["ventas"]["imprimir"])
             self.ed_sc_ven_G.setText(DEFAULT_SECTION_MAP["ventas"]["guardar_borrador"])
             self.ed_sc_ven_B.setText(DEFAULT_SECTION_MAP["ventas"]["abrir_borradores"])
+            # Sección: Ventas - Cesta
+            self.ed_sc_ven_plus.setText(DEFAULT_SECTION_MAP["ventas"]["sumar"])
+            self.ed_sc_ven_minus.setText(DEFAULT_SECTION_MAP["ventas"]["restar"])
+            self.ed_sc_ven_C.setText(DEFAULT_SECTION_MAP["ventas"]["editar_cantidad"])
+            self.ed_sc_ven_X.setText(DEFAULT_SECTION_MAP["ventas"]["descuento_item"])
+            self.ed_sc_ven_Z.setText(DEFAULT_SECTION_MAP["ventas"]["vaciar_cesta"])
 
         btn_save_sc.clicked.connect(_save_shortcuts_from_ui)
         btn_reset_sc.clicked.connect(_reset_shortcuts_to_defaults)
