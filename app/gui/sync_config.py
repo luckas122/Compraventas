@@ -6,6 +6,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QFormLayout, QHBoxLayout, QGroupBox, QLabel,
     QCheckBox, QComboBox, QLineEdit, QPushButton, QMessageBox, QSpinBox,
+    QFrame, QProgressBar,
 )
 from app.config import load as load_config, save as save_config
 
@@ -18,6 +19,18 @@ class SyncConfigPanel(QWidget):
         self.cfg = load_config()
         self._build_ui()
         self._load_config()
+
+    # ------------------------------------------------------------------
+    #  Utilidad: encontrar MainWindow subiendo por la jerarquia de widgets
+    # ------------------------------------------------------------------
+    def _find_main_window(self):
+        """Recorre la jerarquia de parents hasta encontrar MainWindow."""
+        w = self.parent()
+        while w is not None:
+            if hasattr(w, 'session') and hasattr(w, 'sucursal'):
+                return w
+            w = w.parent()
+        return None
 
     def _build_ui(self):
         root = QVBoxLayout(self)
@@ -104,6 +117,103 @@ class SyncConfigPanel(QWidget):
         lay_que.addRow(self.chk_sync_proveedores)
         root.addWidget(gb_que)
 
+        # ===== SYNC INICIAL (diseño mejorado) =====
+        gb_inicial = QGroupBox("Sincronizacion inicial")
+        gb_inicial.setStyleSheet("""
+            QGroupBox {
+                font-weight: bold;
+                border: 2px solid #4A90E2;
+                border-radius: 8px;
+                margin-top: 12px;
+                padding-top: 18px;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 12px;
+                padding: 0 6px;
+                color: #4A90E2;
+            }
+        """)
+        lay_inicial = QVBoxLayout(gb_inicial)
+        lay_inicial.setContentsMargins(16, 8, 16, 16)
+        lay_inicial.setSpacing(10)
+
+        # Icono + descripcion
+        row_desc = QHBoxLayout()
+        lbl_icon = QLabel("☁️")
+        lbl_icon.setStyleSheet("font-size: 28px;")
+        lbl_icon.setFixedWidth(40)
+        row_desc.addWidget(lbl_icon)
+
+        lbl_inicial = QLabel(
+            "<b>¿Ya tenias datos antes de activar la sync?</b><br>"
+            "<span style='color:#666; font-size:11px;'>"
+            "Usa este boton para subir todos los productos y proveedores "
+            "existentes a Firebase. La otra sucursal los recibira "
+            "automaticamente en la proxima sincronizacion.</span>"
+        )
+        lbl_inicial.setWordWrap(True)
+        row_desc.addWidget(lbl_inicial, 1)
+        lay_inicial.addLayout(row_desc)
+
+        # Barra de progreso (oculta hasta que se usa)
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setVisible(False)
+        self.progress_bar.setTextVisible(True)
+        self.progress_bar.setStyleSheet("""
+            QProgressBar {
+                border: 1px solid #ccc;
+                border-radius: 4px;
+                text-align: center;
+                height: 22px;
+                background: #f0f0f0;
+            }
+            QProgressBar::chunk {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                    stop:0 #4A90E2, stop:1 #67B8F7);
+                border-radius: 3px;
+            }
+        """)
+        lay_inicial.addWidget(self.progress_bar)
+
+        # Label de estado (oculto hasta que se usa)
+        self.lbl_sync_progress = QLabel("")
+        self.lbl_sync_progress.setAlignment(Qt.AlignCenter)
+        self.lbl_sync_progress.setStyleSheet("color: #555; font-size: 11px;")
+        lay_inicial.addWidget(self.lbl_sync_progress)
+
+        # Boton principal
+        self.btn_inicial = QPushButton("  Subir todos los datos a Firebase  ")
+        self.btn_inicial.setCursor(Qt.PointingHandCursor)
+        self.btn_inicial.setMinimumHeight(42)
+        self.btn_inicial.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #5BA0F2, stop:1 #4A90E2);
+                color: white;
+                font-size: 13px;
+                font-weight: bold;
+                border: none;
+                border-radius: 6px;
+                padding: 10px 24px;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #6BB0FF, stop:1 #5BA0F2);
+            }
+            QPushButton:pressed {
+                background: #3A80D2;
+            }
+            QPushButton:disabled {
+                background: #aaa;
+                color: #ddd;
+            }
+        """)
+        self.btn_inicial.clicked.connect(self._push_all_existing)
+        lay_inicial.addWidget(self.btn_inicial)
+
+        root.addWidget(gb_inicial)
+
         # ===== BOTONES =====
         row_btns = QHBoxLayout()
         row_btns.addStretch(1)
@@ -171,11 +281,98 @@ class SyncConfigPanel(QWidget):
 
         # Reiniciar scheduler en ventana principal
         try:
-            mw = self.parent()
+            mw = self._find_main_window()
             if mw and hasattr(mw, "_reiniciar_sync_scheduler"):
                 mw._reiniciar_sync_scheduler()
         except Exception:
             pass
+
+    def _push_all_existing(self):
+        """Sube todos los productos y proveedores existentes a Firebase."""
+        cfg = load_config()
+        sync_cfg = cfg.get("sync", {})
+        if not sync_cfg.get("enabled", False):
+            QMessageBox.warning(self, "Error", "Primero activa y guarda la configuracion de sync.")
+            return
+
+        reply = QMessageBox.question(
+            self, "Sync inicial",
+            "Esto subira TODOS los productos y proveedores a Firebase.\n"
+            "Puede tardar varios minutos si hay muchos datos.\n\n"
+            "¿Continuar?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        # Obtener sesion y sucursal desde MainWindow (subiendo por la jerarquia)
+        mw = self._find_main_window()
+        session = getattr(mw, 'session', None) if mw else None
+        sucursal = getattr(mw, 'sucursal', 'Sarmiento') if mw else 'Sarmiento'
+
+        if not session:
+            QMessageBox.warning(
+                self, "Error",
+                "No se pudo acceder a la sesion de la app.\n"
+                "Intenta cerrar y volver a abrir la ventana de configuracion."
+            )
+            return
+
+        from app.firebase_sync import FirebaseSyncManager
+        from PyQt5.QtWidgets import QApplication
+
+        sync = FirebaseSyncManager(session, sucursal)
+
+        # Mostrar barra de progreso y deshabilitar boton
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setValue(0)
+        self.btn_inicial.setEnabled(False)
+        self.btn_inicial.setText("  Subiendo datos...  ")
+
+        def progress_callback(current, total, tipo):
+            pct = int((current / max(total, 1)) * 100)
+            self.progress_bar.setMaximum(total)
+            self.progress_bar.setValue(current)
+            self.progress_bar.setFormat(f"{tipo}: {current}/{total} ({pct}%)")
+            self.lbl_sync_progress.setText(f"Subiendo {tipo}...")
+            QApplication.processEvents()
+
+        self.lbl_sync_progress.setText("Iniciando sync inicial...")
+        QApplication.processEvents()
+
+        try:
+            result = sync.push_all_existing(callback=progress_callback)
+            total_ok = result['productos'] + result['proveedores']
+            errores = result['errores']
+
+            self.progress_bar.setValue(self.progress_bar.maximum())
+            self.progress_bar.setFormat("¡Completado!")
+
+            self.lbl_sync_progress.setText(
+                f"✓ {result['productos']} productos, "
+                f"{result['proveedores']} proveedores subidos"
+            )
+            self.lbl_sync_progress.setStyleSheet(
+                "color: #2E7D32; font-size: 12px; font-weight: bold;"
+            )
+
+            msg = (
+                f"Sync inicial completada:\n\n"
+                f"Productos subidos: {result['productos']}\n"
+                f"Proveedores subidos: {result['proveedores']}\n"
+                f"Errores: {errores}"
+            )
+            QMessageBox.information(self, "Sync inicial", msg)
+        except Exception as e:
+            self.lbl_sync_progress.setText(f"✗ Error: {e}")
+            self.lbl_sync_progress.setStyleSheet(
+                "color: #C62828; font-size: 11px; font-weight: bold;"
+            )
+            self.progress_bar.setFormat("Error")
+            QMessageBox.critical(self, "Error", f"Error en sync inicial:\n{e}")
+        finally:
+            self.btn_inicial.setEnabled(True)
+            self.btn_inicial.setText("  Subir todos los datos a Firebase  ")
 
     def _test_connection(self):
         """Prueba la conexion con Firebase via REST API."""

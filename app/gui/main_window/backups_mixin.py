@@ -1,8 +1,11 @@
 # app/gui/main_window/backups_mixin.py
 # -*- coding: utf-8 -*-
+import logging
 
 from datetime import datetime, timedelta
 import os
+
+logger = logging.getLogger(__name__)
 import zipfile
 import shutil
 import threading
@@ -38,7 +41,7 @@ class BackupsMixin:
             try:
                 QMessageBox.warning(self, "Backups", f"No se pudo inicializar backups:\n{e}")
             except Exception:
-                print("[backups] init error:", e)
+                logger.error("[backups] init error: %s", e)
 # =========================
     #   Backups programados
     # =========================
@@ -64,7 +67,7 @@ class BackupsMixin:
         cfg = load_config()
         bk = (cfg.get("backup") or {})
         if not bk.get("enabled", True):
-            print("[BACKUP] Programados desactivados.")
+            logger.info("[BACKUP] Programados desactivados.")
             self._backup_thread = None
             return
 
@@ -147,9 +150,9 @@ class BackupsMixin:
         nxt, kind = next_dt()
         if nxt:
             secs = int((nxt - datetime.now()).total_seconds())
-            print(f"[BACKUP] Próximo ({kind}) → {nxt:%Y-%m-%d %H:%M:%S} (en {max(0, secs)}s)")
+            logger.info("[BACKUP] Próximo (%s) → %s (en %ds)", kind, nxt.strftime('%Y-%m-%d %H:%M:%S'), max(0, secs))
         else:
-            print("[BACKUP] No hay horarios configurados.")
+            logger.info("[BACKUP] No hay horarios configurados.")
             return
 
         # Señal de parada + hilo
@@ -185,7 +188,7 @@ class BackupsMixin:
         while True:
             # Salida ordenada
             if stop_evt and stop_evt.is_set():
-                print("[BACKUP] Scheduler detenido.")
+                logger.info("[BACKUP] Scheduler detenido.")
                 return
 
             # Cargar configuración actual en cada ciclo (permite cambios en caliente)
@@ -193,7 +196,7 @@ class BackupsMixin:
             bk = (cfg.get("backup") or {})
 
             if not bk.get("enabled", True):
-                print("[BACKUP] Programados desactivados (loop).")
+                logger.info("[BACKUP] Programados desactivados (loop).")
                 return
 
             now = datetime.now()
@@ -263,40 +266,40 @@ class BackupsMixin:
                         pass
 
             if not candidates:
-                print("[BACKUP] Sin horarios configurados. Reviso en 60s…")
+                logger.info("[BACKUP] Sin horarios configurados. Reviso en 60s…")
                 if stop_evt and stop_evt.wait(60):
-                    print("[BACKUP] Scheduler detenido.")
+                    logger.info("[BACKUP] Scheduler detenido.")
                     return
                 continue
 
             candidates.sort(key=lambda x: x[0])
             nxt, kind = candidates[0]
             wait = max(1, int((nxt - datetime.now()).total_seconds()))
-            print(f"[BACKUP] Próximo ({kind}) → {nxt:%Y-%m-%d %H:%M:%S} (en {wait}s)")
+            logger.info("[BACKUP] Próximo (%s) → %s (en %ds)", kind, nxt.strftime('%Y-%m-%d %H:%M:%S'), wait)
 
             # Espera cancelable en tramos cortos
             slept = 0
             while slept < wait:
                 chunk = min(30, wait - slept)
                 if stop_evt and stop_evt.wait(chunk):
-                    print("[BACKUP] Scheduler detenido.")
+                    logger.info("[BACKUP] Scheduler detenido.")
                     return
                 slept += chunk
 
             # Ejecutar backup
             try:
-                print(f"[BACKUP] Ejecutando tipo={kind}…")
+                logger.info("[BACKUP] Ejecutando tipo=%s…", kind)
             except Exception:
                 pass
 
             try:
                 self._run_backup(kind or "daily")
             except Exception as e:
-                print(f"[BACKUP] Error al ejecutar: {e!r}")
+                logger.error("[BACKUP] Error al ejecutar: %r", e)
 
             # Pequeña espera para evitar doble disparo en el mismo minuto
             if stop_evt and stop_evt.wait(2):
-                print("[BACKUP] Scheduler detenido.")
+                logger.info("[BACKUP] Scheduler detenido.")
                 return
 
 
@@ -393,7 +396,7 @@ class BackupsMixin:
 
         Devuelve: ruta completa del ZIP creado, o None si falla.
         """
-        print(f"[BACKUP] Ejecutando tipo={tag} …")
+        logger.info("[BACKUP] Ejecutando tipo=%s …", tag)
         try:
             from app.config import load as load_config, CONFIG_PATH
         except Exception:
@@ -417,7 +420,7 @@ class BackupsMixin:
         try:
             os.makedirs(dest_dir, exist_ok=True)
         except Exception as e:
-            print(f"[BACKUP] No se pudo crear la carpeta destino '{dest_dir}': {e!r}")
+            logger.error("[BACKUP] No se pudo crear la carpeta destino '%s': %r", dest_dir, e)
             return None
         # --------- localizar DB (preferir self.session) ---------
         db_path = None
@@ -442,10 +445,10 @@ class BackupsMixin:
                 finally:
                     _s.close()
             except Exception as e:
-                print(f"[BACKUP] No se pudo obtener la ruta de la base: {e!r}")
+                logger.error("[BACKUP] No se pudo obtener la ruta de la base: %r", e)
 
         if not db_path or not os.path.exists(db_path):
-            print(f"[BACKUP] Ruta de DB inválida o inexistente: {db_path}")
+            logger.error("[BACKUP] Ruta de DB inválida o inexistente: %s", db_path)
             return None
 
         # --------- compresión ----------
@@ -472,7 +475,7 @@ class BackupsMixin:
                 try:
                     shutil.copy2(db_path, tmp_copy)
                 except Exception as e_cp:
-                    print(f"[BACKUP] Error copiando DB (api:{e_api!r} / copy:{e_cp!r})")
+                    logger.error("[BACKUP] Error copiando DB (api:%r / copy:%r)", e_api, e_cp)
                     return None
 
             # Empaquetar ZIP
@@ -488,7 +491,12 @@ class BackupsMixin:
                 if CONFIG_PATH and os.path.exists(CONFIG_PATH):
                     zf.write(CONFIG_PATH, arcname="app_config.json")
 
-            print(f"[BACKUP] OK → {zip_path}")
+            logger.info("[BACKUP] OK → %s", zip_path)
+            # --------- verificar integridad ----------
+            try:
+                self._verify_backup_integrity(zip_path, os.path.basename(db_path))
+            except Exception as e_verify:
+                logger.warning(f"[BACKUP] Verificacion de integridad fallo: {e_verify!r}")
         finally:
             # limpiar temporal
             try:
@@ -501,7 +509,7 @@ class BackupsMixin:
         try:
             self._cleanup_old_backups(dest_dir, tag)
         except Exception as e:
-            print(f"[BACKUP] Limpieza falló: {e!r}")
+            logger.warning("[BACKUP] Limpieza falló: %r", e)
 
         return zip_path
     
@@ -527,7 +535,7 @@ class BackupsMixin:
                 mtime = datetime.fromtimestamp(os.path.getmtime(full))
                 if (now - mtime).days > days:
                     os.remove(full)
-                    print(f"[BACKUP] Eliminado viejo: {name}")
+                    logger.info("[BACKUP] Eliminado viejo: %s", name)
             except Exception:
                 pass
             
@@ -804,3 +812,59 @@ class BackupsMixin:
     "retention_days": ret,
     "compress": (bk.get("compress") or {"format": "zip", "level": 9})
 }
+
+    def _verify_backup_integrity(self, zip_path: str, db_name: str):
+        """
+        Verifica la integridad del backup:
+        1. Abre el ZIP
+        2. Extrae la DB a un temporal
+        3. Ejecuta PRAGMA integrity_check en SQLite
+        4. Marca como corrupto si falla
+        """
+        import zipfile, tempfile, sqlite3
+
+        tmp_dir = tempfile.mkdtemp(prefix="backup_verify_")
+        try:
+            # 1. Verificar que el ZIP se puede abrir
+            with zipfile.ZipFile(zip_path, 'r') as zf:
+                # Verificar CRC
+                bad = zf.testzip()
+                if bad:
+                    logger.error(f"[BACKUP] ZIP corrupto, archivo dañado: {bad}")
+                    # Renombrar el archivo para marcarlo
+                    corrupted = zip_path + ".CORRUPTED"
+                    os.rename(zip_path, corrupted)
+                    raise RuntimeError(f"ZIP corrupto: {bad}")
+
+                # 2. Extraer la DB
+                db_member = None
+                for name in zf.namelist():
+                    if name.endswith('.db') or name.endswith('.sqlite') or name == db_name:
+                        db_member = name
+                        break
+
+                if not db_member:
+                    logger.warning("[BACKUP] No se encontro DB en el ZIP para verificar")
+                    return
+
+                tmp_db = os.path.join(tmp_dir, "verify.db")
+                with zf.open(db_member) as src, open(tmp_db, 'wb') as dst:
+                    dst.write(src.read())
+
+            # 3. PRAGMA integrity_check
+            conn = sqlite3.connect(tmp_db)
+            try:
+                result = conn.execute("PRAGMA integrity_check").fetchone()
+                if result and result[0] == "ok":
+                    logger.info(f"[BACKUP] Integridad OK: {zip_path}")
+                else:
+                    logger.error(f"[BACKUP] Integridad FALLIDA: {result}")
+                    corrupted = zip_path + ".CORRUPTED"
+                    os.rename(zip_path, corrupted)
+                    raise RuntimeError(f"integrity_check fallo: {result}")
+            finally:
+                conn.close()
+        finally:
+            # Limpiar temporal
+            import shutil
+            shutil.rmtree(tmp_dir, ignore_errors=True)

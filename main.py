@@ -1,3 +1,4 @@
+import logging
 import sys
 from PyQt5.QtWidgets import QApplication, QDialog
 from PyQt5.QtGui import QFont, QIcon, QFontDatabase
@@ -8,6 +9,8 @@ from app.repository import UsuarioRepo
 
 # Información de versión
 from version import __version__, __app_name__
+
+logger = logging.getLogger(__name__)
 
 
 if __name__ == "__main__":
@@ -81,7 +84,7 @@ if __name__ == "__main__":
                     "Se usará la configuración por defecto."
                 )
     except Exception as e:
-        print(f"[BACKUP] Error verificando backup de config: {e}")
+        logger.error("[BACKUP] Error verificando backup de config: %s", e)
 
     # Configuración general: minimizar a bandeja al cerrar
     try:
@@ -92,7 +95,7 @@ if __name__ == "__main__":
             # Si está activado, que NO se cierre el proceso cuando se cierra la última ventana
             app.setQuitOnLastWindowClosed(False)
     except Exception as e:
-        print(f"[CONFIG] No se pudo aplicar minimize_to_tray_on_close: {e}")
+        logger.error("[CONFIG] No se pudo aplicar minimize_to_tray_on_close: %s", e)
 
     # Icono global de la aplicación (para ventanas y barra de tareas)
     try:
@@ -118,7 +121,7 @@ if __name__ == "__main__":
                 app.setWindowIcon(QIcon(str(p)))
                 break
     except Exception as e:
-        print(f"[ICON] No se pudo asignar icono global: {e}")
+        logger.warning("[ICON] No se pudo asignar icono global: %s", e)
 
     # (mantengo tu estilo de checkbox)
     app.setStyleSheet("""
@@ -150,10 +153,10 @@ if __name__ == "__main__":
                     families = QFontDatabase.applicationFontFamilies(font_id)
                     if families:
                         roboto_loaded = True
-                        print(f"[FONT] Roboto cargada correctamente: {families[0]}")
+                        logger.info("[FONT] Roboto cargada correctamente: %s", families[0])
                 break
     except Exception as e:
-        print(f"[FONT] Error cargando Roboto: {e}")
+        logger.warning("[FONT] Error cargando Roboto: %s", e)
 
     # Fuente global: Roboto si está disponible, sino Arial como fallback
     if roboto_loaded:

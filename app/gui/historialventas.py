@@ -1,6 +1,7 @@
 # app/gui/historialventas.py
 # -*- coding: utf-8 -*-
 from __future__ import annotations
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta, time as dtime
 from typing import List, Optional
@@ -8,6 +9,8 @@ from typing import List, Optional
 
 import os
 import tempfile
+
+logger = logging.getLogger(__name__)
 
 import pandas as pd
 from PyQt5.QtCore import Qt, QTimer, QDate,QTime
@@ -123,7 +126,7 @@ def _send_mail_with_attachments(subject: str, body: str,
             msg.add_attachment(data, maintype="application",
                                subtype="octet-stream", filename=filename)
         except Exception as ex:
-            print("Adjunto falló:", ex)
+            logger.warning("Adjunto falló: %s", ex)
 
     if use_tls:
         server = smtplib.SMTP(host, port)
@@ -299,7 +302,7 @@ class HistorialVentasWidget(QWidget):
             try:
                 self._actualizar_estadisticas()
             except Exception as e:
-                print(f"Error al actualizar estadísticas automáticamente: {e}")
+                logger.error("Error al actualizar estadísticas automáticamente: %s", e)
 
     # Métodos para botones de rango rápido
     def _set_rango_hoy(self):
@@ -463,17 +466,8 @@ class HistorialVentasWidget(QWidget):
         return card
 
     def _obtener_ventas_rango(self, dt_min, dt_max, sucursal=None):
-        """Obtiene ventas en un rango de fechas usando listar_por_fecha"""
-        ventas = []
-        fecha_actual = dt_min.date()
-        fecha_fin = dt_max.date()
-
-        while fecha_actual < fecha_fin:
-            ventas_dia = self.repo.listar_por_fecha(fecha_actual, sucursal)
-            ventas.extend(ventas_dia)
-            fecha_actual += timedelta(days=1)
-
-        return ventas
+        """Obtiene ventas en un rango de fechas con una sola query SQL."""
+        return self.repo.listar_por_rango(dt_min, dt_max, sucursal)
 
     def _actualizar_estadisticas(self):
         """Actualiza las estadísticas basándose en los filtros actuales"""
@@ -494,19 +488,19 @@ class HistorialVentasWidget(QWidget):
 
         # Consultar ventas usando el método correcto
         ventas = self._obtener_ventas_rango(dt_min, dt_max, suc)
-        print(f"[DEBUG] Total ventas encontradas: {len(ventas)}")
+        logger.debug("Total ventas encontradas: %d", len(ventas))
 
         # Filtrar por forma de pago si es necesario
         if forma_txt in ("efectivo", "tarjeta"):
             ventas = [v for v in ventas if v.modo_pago.lower() == forma_txt]
-            print(f"[DEBUG] Ventas después de filtrar por {forma_txt}: {len(ventas)}")
+            logger.debug("Ventas después de filtrar por %s: %d", forma_txt, len(ventas))
 
         # Calcular KPIs
         total = sum(getattr(v, 'total', 0) or 0 for v in ventas)
         cantidad = len(ventas)
         promedio = total / cantidad if cantidad > 0 else 0
         total_interes = sum(getattr(v, 'interes_monto', 0) or 0 for v in ventas)
-        print(f"[DEBUG] KPIs - Total: ${total}, Cantidad: {cantidad}, Promedio: ${promedio}")
+        logger.debug("KPIs - Total: $%s, Cantidad: %d, Promedio: $%s", total, cantidad, promedio)
 
         # Actualizar KPI cards
         self.kpi_total.findChild(QLabel, "kpi_value").setText(f"${total:,.2f}")
@@ -537,7 +531,7 @@ class HistorialVentasWidget(QWidget):
             from matplotlib.figure import Figure
             from collections import defaultdict
 
-            print(f"[DEBUG] Generando gráfico de ventas con {len(ventas)} ventas")
+            logger.debug("Generando gráfico de ventas con %d ventas", len(ventas))
 
             # Limpiar contenedor anterior
             for i in reversed(range(self.stats_chart_layout.count())):
@@ -558,7 +552,7 @@ class HistorialVentasWidget(QWidget):
             dias = sorted(ventas_por_dia.keys())
             totales = [ventas_por_dia[d] for d in dias]
 
-            print(f"[DEBUG] Días con ventas: {len(dias)}")
+            logger.debug("Días con ventas: %d", len(dias))
 
             # Crear figura
             fig = Figure(figsize=(10, 4), dpi=100)
@@ -590,12 +584,10 @@ class HistorialVentasWidget(QWidget):
             canvas.setMinimumHeight(300)  # Asegurar altura mínima
             self.stats_chart_layout.addWidget(canvas)
             canvas.draw()  # Forzar renderizado
-            print("[DEBUG] Gráfico de barras agregado al layout")
+            logger.debug("Gráfico de barras agregado al layout")
 
         except Exception as e:
-            import traceback
-            print(f"Error generando gráfico: {e}")
-            traceback.print_exc()
+            logger.error("Error generando gráfico: %s", e, exc_info=True)
 
     def _generar_grafico_formas_pago(self, ventas):
         """Genera un gráfico de torta mostrando la distribución de formas de pago"""
@@ -604,7 +596,7 @@ class HistorialVentasWidget(QWidget):
             from matplotlib.figure import Figure
             from collections import defaultdict
 
-            print(f"[DEBUG] Generando gráfico de torta con {len(ventas)} ventas")
+            logger.debug("Generando gráfico de torta con %d ventas", len(ventas))
 
             # Limpiar contenedor anterior
             for i in reversed(range(self.stats_pie_layout.count())):
@@ -619,10 +611,10 @@ class HistorialVentasWidget(QWidget):
                 total = getattr(v, 'total', 0) or 0
                 formas_pago[modo] += total
 
-            print(f"[DEBUG] Formas de pago encontradas: {dict(formas_pago)}")
+            logger.debug("Formas de pago encontradas: %s", dict(formas_pago))
 
             if not formas_pago:
-                print("[DEBUG] No hay formas de pago para mostrar")
+                logger.debug("No hay formas de pago para mostrar")
                 return
 
             # Crear figura
@@ -665,12 +657,10 @@ class HistorialVentasWidget(QWidget):
             canvas.setMinimumHeight(350)  # Asegurar altura mínima
             self.stats_pie_layout.addWidget(canvas)
             canvas.draw()  # Forzar renderizado
-            print("[DEBUG] Gráfico de torta agregado al layout")
+            logger.debug("Gráfico de torta agregado al layout")
 
         except Exception as e:
-            import traceback
-            print(f"Error generando gráfico de torta: {e}")
-            traceback.print_exc()
+            logger.error("Error generando gráfico de torta: %s", e, exc_info=True)
 
     def _generar_comparativa_sucursales(self, dt_min, dt_max, forma_txt):
         """Genera gráficos comparativos entre sucursales"""
@@ -774,7 +764,7 @@ class HistorialVentasWidget(QWidget):
             self.stats_comparativa_layout.addStretch()  # Agregar stretch al final
 
         except Exception as e:
-            print(f"Error generando comparativa: {e}")
+            logger.error("Error generando comparativa: %s", e)
 
     def _calcular_top_productos(self, ventas):
         """Calcula y muestra los top 10 productos más vendidos"""
@@ -1319,8 +1309,69 @@ class HistorialVentasWidget(QWidget):
                     if ws_prod is not None:
                         _autofit_sheet(ws_prod, prod, _engine)
 
-                # (Opcional) Aquí podrías agregar otras hojas si luego definimos
-                # "ventas_diarias", "resumen_semanal", "ventas_semanales" con dataframes específicos.
+                # --- Hoja "Resumen Semanal" ---
+                try:
+                    if not df.empty and "fecha" in df.columns:
+                        df_copy = df.copy()
+                        df_copy["fecha_dt"] = pd.to_datetime(df_copy["fecha"], errors="coerce")
+                        df_copy["semana"] = df_copy["fecha_dt"].dt.isocalendar().week.astype(str)
+                        df_copy["año"] = df_copy["fecha_dt"].dt.year.astype(str)
+                        df_copy["semana_label"] = "Sem " + df_copy["semana"] + " (" + df_copy["año"] + ")"
+
+                        resumen_sem = (df_copy.groupby("semana_label", dropna=False)
+                                       .agg(
+                                           ventas=("ticket", "count"),
+                                           total=("total", "sum"),
+                                           efectivo=("total", lambda x: x[df_copy.loc[x.index, "forma"] == "Efectivo"].sum()),
+                                           tarjeta=("total", lambda x: x[df_copy.loc[x.index, "forma"] == "Tarjeta"].sum()),
+                                           promedio=("total", "mean"),
+                                       )
+                                       .reset_index()
+                                       .rename(columns={"semana_label": "Semana"}))
+
+                        # Redondear
+                        for col in ["total", "efectivo", "tarjeta", "promedio"]:
+                            if col in resumen_sem.columns:
+                                resumen_sem[col] = resumen_sem[col].round(2)
+
+                        resumen_sem.to_excel(xw, index=False, sheet_name="Resumen Semanal")
+                        try:
+                            ws_sem = xw.sheets.get("Resumen Semanal") if hasattr(xw, "sheets") else None
+                            if ws_sem is None:
+                                wb = getattr(xw, "book", None)
+                                if wb: ws_sem = wb["Resumen Semanal"]
+                            if ws_sem:
+                                _autofit_sheet(ws_sem, resumen_sem, _engine)
+                        except Exception:
+                            pass
+                except Exception as e_sem:
+                    logger.debug(f"No se pudo crear hoja Resumen Semanal: {e_sem}")
+
+                # --- Hoja "Top 10 Productos" ---
+                try:
+                    if dfi is not None and not dfi.empty:
+                        cols_top = [c for c in ("codigo", "nombre", "cantidad", "total_linea") if c in dfi.columns]
+                        if cols_top:
+                            top_df = (dfi[cols_top]
+                                      .groupby(["codigo", "nombre"], dropna=False)
+                                      .agg(cantidad=("cantidad", "sum"), monto=("total_linea", "sum"))
+                                      .reset_index()
+                                      .sort_values("cantidad", ascending=False)
+                                      .head(10))
+                            top_df["monto"] = top_df["monto"].round(2)
+                            top_df.columns = ["Código", "Nombre", "Cant. Vendida", "Total Facturado"]
+                            top_df.to_excel(xw, index=False, sheet_name="Top 10 Productos")
+                            try:
+                                ws_top = xw.sheets.get("Top 10 Productos") if hasattr(xw, "sheets") else None
+                                if ws_top is None:
+                                    wb = getattr(xw, "book", None)
+                                    if wb: ws_top = wb["Top 10 Productos"]
+                                if ws_top:
+                                    _autofit_sheet(ws_top, top_df, _engine)
+                            except Exception:
+                                pass
+                except Exception as e_top:
+                    logger.debug(f"No se pudo crear hoja Top 10: {e_top}")
 
             # Verificación final (archivo debe existir y tener >0 bytes)
             if not os.path.exists(path) or os.path.getsize(path) <= 0:

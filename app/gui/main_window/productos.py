@@ -1,4 +1,5 @@
-from PyQt5.QtCore import Qt,QRect
+import logging
+from PyQt5.QtCore import Qt, QRect, QTimer
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QFormLayout,
     QHBoxLayout, QLabel, QLineEdit, QPushButton, QComboBox,
@@ -18,6 +19,8 @@ import barcode
 import os
 import re
 from io import BytesIO
+
+logger = logging.getLogger(__name__)
 
 PRODUCTOS_POR_PAGINA = 25
 
@@ -39,7 +42,12 @@ class ProductosMixin:
         # Live search
         self.input_buscar = QLineEdit()
         self.input_buscar.setPlaceholderText('Buscar por código, nombre o categoría...')
-        self.input_buscar.textChanged.connect(self.buscar_productos)
+        # Debounce: espera 250ms tras dejar de escribir antes de buscar
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(250)
+        self._search_timer.timeout.connect(self._do_buscar_productos)
+        self.input_buscar.textChanged.connect(self._on_buscar_text_changed)
         layout.addWidget(self.input_buscar)
 
         # —— Estilos para el Live Search —— 
@@ -74,13 +82,14 @@ class ProductosMixin:
         btn_imp = QPushButton('Importar desde Excel'); btn_imp.setIcon(icon('import.svg'));btn_imp.setToolTip('Importar desde Excel'); btn_imp.clicked.connect(self.importar_productos)
         btn_exp = QPushButton('Exportar a Excel'); btn_exp.setIcon(icon('export.svg'));btn_exp.setToolTip('Exportar a Excel');      btn_exp.clicked.connect(self.exportar_productos)
         btn_list = QPushButton('Ver listado con filtros'); btn_list.setIcon(icon('list.svg'));btn_list.setToolTip('Ver listado con filtros');btn_list.setMinimumHeight(MIN_BTN_HEIGHT);btn_list.setIconSize(ICON_SIZE);btn_list.clicked.connect(self.abrir_listado_productos)
+        btn_sin_ventas = QPushButton('Sin movimiento'); btn_sin_ventas.setIcon(icon('list.svg'));btn_sin_ventas.setToolTip('Productos sin ventas en 90 días');btn_sin_ventas.setMinimumHeight(MIN_BTN_HEIGHT);btn_sin_ventas.setIconSize(ICON_SIZE);btn_sin_ventas.clicked.connect(self._ver_productos_sin_ventas)
         self.btn_anterior = QPushButton("← Anterior")
         self.btn_siguiente = QPushButton("Siguiente →")
         self.lbl_paginacion = QLabel("Página 1")
         self.btn_export_png = QPushButton("Exportar PNG")
 
         hb = QHBoxLayout()
-        for btn in (btn_a, btn_d, btn_u, btn_m, btn_imp, btn_exp, btn_p, btn_list):
+        for btn in (btn_a, btn_d, btn_u, btn_m, btn_imp, btn_exp, btn_p, btn_list, btn_sin_ventas):
             btn.setMinimumHeight(MIN_BTN_HEIGHT)
             btn.setIconSize(ICON_SIZE)
             hb.addWidget(btn)
@@ -151,7 +160,7 @@ class ProductosMixin:
             if vp is not None:
                 vp.installEventFilter(self)
         except Exception as e:
-            print("Error instalando filtro en Productos:", e)
+            logger.error("Error instalando filtro en Productos: %s", e)
 
         def _safe_remove_filter():
             try:
@@ -441,6 +450,14 @@ class ProductosMixin:
                 QMessageBox.warning(self, 'Exportar', f'No se pudo guardar:\n{e2}')
 
         
+    def _on_buscar_text_changed(self, txt):
+        """Reinicia el debounce timer cada vez que cambia el texto."""
+        self._search_timer.start()
+
+    def _do_buscar_productos(self):
+        """Ejecuta la busqueda tras el debounce."""
+        self.buscar_productos(self.input_buscar.text())
+
     def buscar_productos(self, txt):
             self.productos_pagina_actual = 0
             self.refrescar_productos()
@@ -450,7 +467,7 @@ class ProductosMixin:
             if tbl.rowCount() > 0:
                 tbl.selectRow(0)
                 # col 3 = Nombre; el slot no usa 'col' realmente para cargar
-                self.cargar_producto(0, 3)    
+                self.cargar_producto(0, 3)
 
     def cargar_producto(self,row,col):
         tbl = self.table_productos
@@ -547,20 +564,15 @@ class ProductosMixin:
     def refrescar_productos(self):
         from app.utils_timing import measure
         with measure("refrescar_productos"):
-            # 1) Filtro
+            # 1) Filtro — usar SQL LIKE para no cargar 13K objetos
             texto_busqueda = self.input_buscar.text().strip().lower()
             self.productos_filtro = texto_busqueda
 
-            todos = self.prod_repo.listar_todos()
             if texto_busqueda:
-                productos = [
-                    p for p in todos
-                    if texto_busqueda in (p.nombre or "").lower()
-                    or texto_busqueda in (p.codigo_barra or "").lower()
-                    or texto_busqueda in (p.categoria or "").lower()
-                ]
+                # Buscar con SQL LIKE (indice en la DB, mucho mas rapido)
+                productos = self.prod_repo.buscar(texto_busqueda)
             else:
-                productos = todos
+                productos = self.prod_repo.listar_todos()
 
             # 2) Página
             total = len(productos)
@@ -686,8 +698,99 @@ class ProductosMixin:
             
     def abrir_listado_productos(self):
         dlg = ProductosDialog(self.session, self)
-        dlg.data_changed.connect(self.refrescar_completer) 
+        dlg.data_changed.connect(self.refrescar_completer)
         if  dlg.exec_() == QDialog.Accepted:
         # si en el futuro querés recuperar lo marcado, iterás las filas y leés cada checkbox
             pass
+
+    def _ver_productos_sin_ventas(self):
+        """Muestra productos que no se vendieron en los últimos 90 días."""
+        from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QTableWidget, QTableWidgetItem,
+                                      QHeaderView, QDialogButtonBox, QLabel, QSpinBox, QHBoxLayout)
+        from app.models import VentaItem, Venta
+        from sqlalchemy import func
+        from datetime import datetime, timedelta
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Productos sin movimiento")
+        dlg.resize(800, 500)
+        layout = QVBoxLayout(dlg)
+
+        # Control de días
+        row = QHBoxLayout()
+        row.addWidget(QLabel("Sin ventas en los últimos"))
+        spin_dias = QSpinBox()
+        spin_dias.setRange(7, 365)
+        spin_dias.setValue(90)
+        spin_dias.setSuffix(" días")
+        row.addWidget(spin_dias)
+        btn_buscar = QPushButton("Buscar")
+        row.addWidget(btn_buscar)
+        row.addStretch()
+        layout.addLayout(row)
+
+        lbl_info = QLabel("")
+        layout.addWidget(lbl_info)
+
+        table = QTableWidget(0, 5)
+        table.setHorizontalHeaderLabels(["Código", "Nombre", "Precio", "Categoría", "Última venta"])
+        table.verticalHeader().setVisible(False)
+        hdr = table.horizontalHeader()
+        hdr.setSectionResizeMode(1, QHeaderView.Stretch)
+        for c in [0, 2, 3, 4]:
+            hdr.setSectionResizeMode(c, QHeaderView.ResizeToContents)
+        layout.addWidget(table)
+
+        def _buscar():
+            dias = spin_dias.value()
+            limite = datetime.now() - timedelta(days=dias)
+
+            # Subquery: productos que SÍ tuvieron ventas
+            vendidos = (
+                self.session.query(VentaItem.producto_id)
+                .join(Venta, Venta.id == VentaItem.venta_id)
+                .filter(Venta.fecha >= limite)
+                .filter(VentaItem.producto_id.isnot(None))
+                .distinct()
+                .subquery()
+            )
+
+            from app.models import Producto
+            sin_ventas = (
+                self.session.query(Producto)
+                .filter(~Producto.id.in_(self.session.query(vendidos.c.producto_id)))
+                .order_by(Producto.nombre)
+                .all()
+            )
+
+            table.setRowCount(0)
+            for i, p in enumerate(sin_ventas):
+                table.insertRow(i)
+                table.setItem(i, 0, QTableWidgetItem(p.codigo_barra))
+                table.setItem(i, 1, QTableWidgetItem(p.nombre))
+                table.setItem(i, 2, QTableWidgetItem(f"${p.precio:.2f}"))
+                table.setItem(i, 3, QTableWidgetItem(p.categoria or ""))
+
+                # Buscar última venta de este producto (si existe)
+                ultima = (
+                    self.session.query(func.max(Venta.fecha))
+                    .join(VentaItem, VentaItem.venta_id == Venta.id)
+                    .filter(VentaItem.producto_id == p.id)
+                    .scalar()
+                )
+                if ultima:
+                    table.setItem(i, 4, QTableWidgetItem(ultima.strftime("%d/%m/%Y")))
+                else:
+                    table.setItem(i, 4, QTableWidgetItem("Nunca"))
+
+            lbl_info.setText(f"Se encontraron {len(sin_ventas)} productos sin ventas en los últimos {dias} días.")
+
+        btn_buscar.clicked.connect(_buscar)
+        _buscar()  # Ejecutar búsqueda inicial
+
+        btns = QDialogButtonBox(QDialogButtonBox.Close, dlg)
+        btns.rejected.connect(dlg.close)
+        layout.addWidget(btns)
+
+        dlg.exec_()
 

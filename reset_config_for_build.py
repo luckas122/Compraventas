@@ -48,11 +48,13 @@ def clean_logs_and_backups():
     else:
         print("[reset_config_for_build] Carpeta 'logs/' no existe, nada que borrar.")
 
-    # 2) Borrar carpetas de backups si existen
+    # 2) Borrar carpetas de backups si existen (raiz Y app/)
     backup_dirs = [
         os.path.join(BASE_DIR, "backups"),
         os.path.join(BASE_DIR, "backup"),
         os.path.join(BASE_DIR, "db_backups"),
+        os.path.join(BASE_DIR, "app", "backups"),
+        os.path.join(BASE_DIR, "app", "backup"),
     ]
 
     removed_dirs = []
@@ -72,9 +74,37 @@ def clean_logs_and_backups():
         print("[reset_config_for_build] No se encontraron carpetas de backup para borrar.")
 
 
+def clean_db():
+    """Elimina la DB de desarrollo para que no se empaquete con datos de prueba."""
+    db_path = os.path.join(BASE_DIR, "appcomprasventas.db")
+    related = [
+        db_path,
+        db_path + "-shm",
+        db_path + "-wal",
+        db_path + ".backup_tmp.sqlite",
+        db_path + ".backup_tmp.sqlite-shm",
+        db_path + ".backup_tmp.sqlite-wal",
+    ]
+    removed = []
+    for f in related:
+        if os.path.exists(f):
+            try:
+                os.remove(f)
+                removed.append(f)
+            except Exception as e:
+                print(f"[reset_config_for_build] No se pudo borrar DB {f}: {e}")
+    if removed:
+        print("[reset_config_for_build] DB de desarrollo eliminada:")
+        for f in removed:
+            print(f"  - {f}")
+    else:
+        print("[reset_config_for_build] No habia DB de desarrollo para borrar.")
+
+
 def main():
     reset_config()
     clean_logs_and_backups()
+    clean_db()
 
 
 if __name__ == "__main__":

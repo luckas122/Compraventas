@@ -14,7 +14,7 @@ class SectionMap:
 
 DEFAULT_SECTION_MAP = {
     "productos": {"agregar": "A", "editar": "E", "eliminar": "Delete", "imprimir_codigo": "I"},
-    "ventas":    {"finalizar": "V", "efectivo": "E", "tarjeta": "T", "devolucion": "D", "whatsapp": "W", "imprimir": "F", "guardar_borrador": "G", "abrir_borradores": "B"},
+    "ventas":    {"finalizar": "V", "efectivo": "E", "tarjeta": "T", "devolucion": "D", "whatsapp": "W", "imprimir": "F", "guardar_borrador": "G", "abrir_borradores": "B", "sumar": "+", "restar": "-", "editar_cantidad": "C", "descuento_item": "X", "vaciar_cesta": "Z"},
 }
 
 DEFAULT_GLOBAL_MAP = {
@@ -189,6 +189,10 @@ class ShortcutManager(QObject):
             if kt.lower() == "delete" or action.lower() == "eliminar":
                 keyseq = "Delete"
 
+            # Teclas especiales que siempre van literales
+            elif kt in ("+", "-"):
+                keyseq = kt
+
             # Función: F1..F12 (siempre literal, ignora el toggle)
             elif _is_function_key(kt):
                 keyseq = kt.upper()
@@ -304,6 +308,11 @@ class ShortcutManager(QObject):
         ALWAYS_ALLOWED = [
             "ventas.guardar_borrador",
             "ventas.abrir_borradores",
+            "ventas.sumar",
+            "ventas.restar",
+            "ventas.editar_cantidad",
+            "ventas.descuento_item",
+            "ventas.vaciar_cesta",
         ]
 
         try:
@@ -340,6 +349,8 @@ class ShortcutManager(QObject):
         for sec, mmap in section_map.items():
             pretty = ", ".join([f"{act} = {mmap[act]}" for act in mmap])
             lines.append(f"• {sec.capitalize()}: {pretty}")
+        lines.append("")
+        lines.append("<b>Atajos de cesta (Ventas)</b>: +/- sumar/restar cantidad, C editar cantidad, X descuento ítem, Z vaciar cesta.")
         lines.append("")
         lines.append("Toggle: Ctrl+Shift+S (activa/desactiva atajos por sección)")
         return "<br>".join(lines)

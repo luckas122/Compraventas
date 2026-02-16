@@ -15,6 +15,8 @@ Arquitectura:
 import json
 import os
 import time
+import random
+import string
 import logging
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
@@ -30,7 +32,10 @@ logger = logging.getLogger("firebase_sync")
 
 QUEUE_FILENAME = "sync_queue.json"
 MAX_QUEUE_SIZE = 10000
-REQUEST_TIMEOUT = 15  # segundos
+REQUEST_TIMEOUT = 30   # segundos (para requests normales)
+BATCH_TIMEOUT = 120    # segundos (para batch PATCH con muchos datos)
+BATCH_SIZE = 500       # productos por batch en sync inicial
+PAGE_SIZE = 500  # entradas por pagina en pull (Firebase REST paginacion)
 
 
 class FirebaseSyncManager:
@@ -103,6 +108,19 @@ class FirebaseSyncManager:
             return True
         except Exception as e:
             self._log(f"PUT {path} error: {e}")
+            return False
+
+    def _firebase_patch(self, path: str, data: dict) -> bool:
+        """PATCH (multi-path update) para escribir multiples keys de una vez."""
+        try:
+            url = self._firebase_url(path)
+            resp = requests.patch(url, json=data, timeout=REQUEST_TIMEOUT)
+            if resp.status_code != 200:
+                self._log(f"PATCH {path} HTTP {resp.status_code}: {resp.text[:200]}")
+                return False
+            return True
+        except Exception as e:
+            self._log(f"PATCH {path} error: {e}")
             return False
 
     def _is_online(self) -> bool:
@@ -328,6 +346,129 @@ class FirebaseSyncManager:
         if not key:
             self._enqueue_change("proveedores", "delete", data["data"])
 
+    # ─── Sync inicial: subir todo lo existente ───────────────────────
+
+    @staticmethod
+    def _generate_push_key():
+        """Genera un key unico estilo Firebase push key (20 chars)."""
+        chars = "-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_abcdefghijklmnopqrstuvwxyz"
+        ts = int(time.time() * 1000)
+        key_parts = []
+        for _ in range(8):
+            key_parts.append(chars[ts % 64])
+            ts //= 64
+        key_parts.reverse()
+        # 12 chars aleatorios
+        for _ in range(12):
+            key_parts.append(random.choice(chars))
+        return "".join(key_parts)
+
+    def _batch_patch(self, path: str, batch: dict) -> bool:
+        """Envia un batch de datos via PATCH (multi-path update)."""
+        try:
+            url = self._firebase_url(path)
+            resp = requests.patch(url, json=batch, timeout=BATCH_TIMEOUT)
+            if resp.status_code != 200:
+                self._log(f"BATCH PATCH {path} HTTP {resp.status_code}: {resp.text[:200]}")
+                return False
+            return True
+        except Exception as e:
+            self._log(f"BATCH PATCH {path} error: {e}")
+            return False
+
+    def push_all_existing(self, callback=None) -> Dict[str, int]:
+        """
+        Sube TODOS los productos y proveedores existentes a Firebase
+        usando batch PATCH para maxima velocidad.
+
+        En vez de 1 HTTP request por producto (14K requests = horas),
+        agrupa de a BATCH_SIZE (500) en un solo PATCH (28 requests = minutos).
+
+        callback(progreso, total, tipo) se llama para informar progreso.
+        Retorna {"productos": N, "proveedores": N, "errores": N}
+        """
+        result = {"productos": 0, "proveedores": 0, "errores": 0}
+        ts_base = int(time.time() * 1000)
+
+        # ─── Productos ───
+        try:
+            productos = self.session.query(Producto).all()
+            total = len(productos)
+            self._log(f"Sync inicial: subiendo {total} productos en batches de {BATCH_SIZE}...")
+
+            batch = {}
+            for i, prod in enumerate(productos):
+                key = self._generate_push_key()
+                batch[key] = {
+                    "sucursal_origen": self.sucursal_local,
+                    "timestamp": ts_base + i,  # timestamp unico incremental
+                    "accion": "upsert",
+                    "data": {
+                        "codigo_barra": prod.codigo_barra,
+                        "nombre": prod.nombre,
+                        "precio": prod.precio,
+                        "categoria": prod.categoria,
+                        "telefono": getattr(prod, "telefono", None),
+                        "numero_cuenta": getattr(prod, "numero_cuenta", None),
+                        "cbu": getattr(prod, "cbu", None),
+                    }
+                }
+
+                # Enviar batch cuando esta lleno o es el ultimo
+                if len(batch) >= BATCH_SIZE or i == total - 1:
+                    ok = self._batch_patch("cambios/productos", batch)
+                    if ok:
+                        result["productos"] += len(batch)
+                    else:
+                        result["errores"] += len(batch)
+                        self._log(f"Batch productos fallo ({len(batch)} items)")
+                    batch = {}
+
+                    if callback:
+                        callback(i + 1, total, "productos")
+
+        except Exception as e:
+            self._log(f"Sync inicial productos error: {e}")
+
+        # ─── Proveedores ───
+        try:
+            proveedores = self.session.query(Proveedor).all()
+            total = len(proveedores)
+            self._log(f"Sync inicial: subiendo {total} proveedores en batches de {BATCH_SIZE}...")
+
+            batch = {}
+            for i, prov in enumerate(proveedores):
+                key = self._generate_push_key()
+                batch[key] = {
+                    "sucursal_origen": self.sucursal_local,
+                    "timestamp": ts_base + i,
+                    "accion": "upsert",
+                    "data": {
+                        "nombre": prov.nombre,
+                        "telefono": prov.telefono,
+                        "numero_cuenta": prov.numero_cuenta,
+                        "cbu": prov.cbu,
+                    }
+                }
+
+                if len(batch) >= BATCH_SIZE or i == total - 1:
+                    ok = self._batch_patch("cambios/proveedores", batch)
+                    if ok:
+                        result["proveedores"] += len(batch)
+                    else:
+                        result["errores"] += len(batch)
+                        self._log(f"Batch proveedores fallo ({len(batch)} items)")
+                    batch = {}
+
+                    if callback:
+                        callback(i + 1, total, "proveedores")
+
+        except Exception as e:
+            self._log(f"Sync inicial proveedores error: {e}")
+
+        self._log(f"Sync inicial completada: {result}")
+        return result
+
     # ─── Pull: Firebase -> local ──────────────────────────────────────
 
     def _get_last_processed_keys(self) -> Dict[str, Optional[str]]:
@@ -370,55 +511,74 @@ class FirebaseSyncManager:
 
     def _pull_entity(self, tipo: str, last_key: Optional[str]) -> Tuple[int, int, Optional[str]]:
         """
-        Descarga cambios de un tipo. Retorna (aplicados, errores, ultimo_key).
+        Descarga cambios de un tipo CON PAGINACION.
+        Firebase REST limita respuestas grandes; usamos limitToFirst para paginar.
+        Retorna (aplicados, errores, ultimo_key).
         """
-        params = {"orderBy": '"$key"'}
-        if last_key:
-            params["startAt"] = f'"{last_key}"'
+        total_applied = 0
+        total_errors = 0
+        cursor = last_key
+        page_num = 0
 
-        self._log(f"Pull {tipo}: last_key={last_key}")
-        data = self._firebase_get(f"cambios/{tipo}", params)
-        if data is None:
-            self._log(f"Pull {tipo}: sin respuesta de Firebase (error de red o auth)")
-            return 0, 0, None
-        if not isinstance(data, dict) or len(data) == 0:
-            self._log(f"Pull {tipo}: sin cambios nuevos")
-            return 0, 0, None
+        self._log(f"Pull {tipo}: inicio, last_key={last_key}")
 
-        self._log(f"Pull {tipo}: {len(data)} entradas recibidas")
+        while True:
+            page_num += 1
+            params = {
+                "orderBy": '"$key"',
+                "limitToFirst": PAGE_SIZE + 1,  # +1 porque startAt es inclusivo
+            }
+            if cursor:
+                params["startAt"] = f'"{cursor}"'
+            else:
+                params["limitToFirst"] = PAGE_SIZE
 
-        applied = 0
-        errors = 0
-        newest_key = None
+            data = self._firebase_get(f"cambios/{tipo}", params)
+            if data is None:
+                self._log(f"Pull {tipo} pag{page_num}: error de red o auth")
+                break
+            if not isinstance(data, dict) or len(data) == 0:
+                self._log(f"Pull {tipo} pag{page_num}: sin mas cambios")
+                break
 
-        for push_key in sorted(data.keys()):
-            # Saltar el key anterior (startAt es inclusivo)
-            if push_key == last_key:
-                continue
+            keys = sorted(data.keys())
+            self._log(f"Pull {tipo} pag{page_num}: {len(keys)} entradas recibidas")
 
-            change = data[push_key]
-            if not isinstance(change, dict):
-                continue
+            page_applied = 0
+            for push_key in keys:
+                # Saltar el key del cursor (startAt es inclusivo)
+                if push_key == cursor:
+                    continue
 
-            # Ignorar cambios propios
-            if change.get("sucursal_origen") == self.sucursal_local:
-                newest_key = push_key
-                continue
+                change = data[push_key]
+                if not isinstance(change, dict):
+                    cursor = push_key
+                    continue
 
-            try:
-                ok = self._apply_change(tipo, change)
-                if ok:
-                    applied += 1
-                    self._log(f"Pull {tipo}/{push_key}: aplicado OK")
-                else:
-                    self._log(f"Pull {tipo}/{push_key}: ya existia o no aplica")
-                newest_key = push_key
-            except Exception as e:
-                self._log(f"Error aplicando {tipo}/{push_key}: {e}")
-                errors += 1
-                newest_key = push_key
+                # Ignorar cambios propios
+                if change.get("sucursal_origen") == self.sucursal_local:
+                    cursor = push_key
+                    continue
 
-        return applied, errors, newest_key
+                try:
+                    ok = self._apply_change(tipo, change)
+                    if ok:
+                        page_applied += 1
+                except Exception as e:
+                    self._log(f"Error aplicando {tipo}/{push_key}: {e}")
+                    total_errors += 1
+
+                cursor = push_key
+
+            total_applied += page_applied
+
+            # Si recibimos menos de PAGE_SIZE+1, ya no hay mas paginas
+            expected = PAGE_SIZE + 1 if last_key or (page_num > 1) else PAGE_SIZE
+            if len(keys) < expected:
+                break
+
+        self._log(f"Pull {tipo}: total {total_applied} aplicados, {total_errors} errores en {page_num} paginas")
+        return total_applied, total_errors, cursor
 
     def _apply_change(self, tipo: str, change: dict) -> bool:
         accion = change.get("accion", "create")
@@ -557,8 +717,21 @@ class FirebaseSyncManager:
             if timestamp and local_ts > timestamp:
                 return False  # Local es mas nuevo, no sobrescribir
 
+            # Detectar diferencia de precio antes de actualizar
+            remote_precio = float(data.get("precio", prod.precio))
+            if abs(remote_precio - prod.precio) > 0.01:
+                if not hasattr(self, '_price_mismatches'):
+                    self._price_mismatches = []
+                self._price_mismatches.append({
+                    'codigo': prod.codigo_barra,
+                    'nombre': prod.nombre,
+                    'precio_local': prod.precio,
+                    'precio_remoto': remote_precio,
+                    'diferencia': round(remote_precio - prod.precio, 2)
+                })
+
             prod.nombre = data.get("nombre", prod.nombre)
-            prod.precio = float(data.get("precio", prod.precio))
+            prod.precio = remote_precio
             prod.categoria = data.get("categoria", prod.categoria)
             prod.telefono = data.get("telefono", prod.telefono)
             prod.numero_cuenta = data.get("numero_cuenta", prod.numero_cuenta)
@@ -716,6 +889,12 @@ class FirebaseSyncManager:
             return False, "Timeout: Firebase no respondio a tiempo."
         except Exception as e:
             return False, f"Error inesperado: {e}"
+
+    def get_price_mismatches(self) -> list:
+        """Retorna y limpia la lista de precios con diferencias detectadas."""
+        mismatches = getattr(self, '_price_mismatches', [])
+        self._price_mismatches = []
+        return mismatches
 
     # ─── Logging ──────────────────────────────────────────────────────
 

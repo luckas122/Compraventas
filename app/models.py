@@ -25,6 +25,7 @@ class Producto(Base):
     cbu           = Column(String)
     last_modified = Column(DateTime, default=datetime.datetime.now,
                            onupdate=datetime.datetime.now, nullable=True)
+    version       = Column(Integer, default=1, nullable=False)
 
 class Venta(Base):
     __tablename__ = 'ventas'

@@ -1,9 +1,12 @@
 # Auto-generado: separación de GUI sin cambios funcionales
+import logging
 import os, sys
 from PyQt5.QtCore import Qt, QSize, QEvent, QObject
 from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import QCheckBox
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 # Mantener ruta de iconos respecto a esta ubicación (app/gui/ -> ../../icons)
 _here = Path(__file__).resolve()
@@ -30,7 +33,7 @@ LIVE_SEARCH_INPUT_HEIGHT = 36     # alto del QLineEdit de ventas
 def icon(name):
     full = os.path.join(BASE_ICONS_PATH, name)
     if not os.path.exists(full):
-        print(f"⚠️ Icono no encontrado: {full}")
+        logger.warning("Icono no encontrado: %s", full)
     return QIcon(full)
 
 def _safe_viewport(table):
@@ -79,4 +82,77 @@ QPushButton[role="cell"] {{
 QPushButton[role="cell"]:hover {{
   background: #e9e6ff;   /* celeste-violeta suave */
 }}
+"""
+
+# --- Estilos centralizados para TODOS los botones ---
+BUTTON_STYLES = """
+/* Botón primario (azul) */
+QPushButton[role="primary"] {
+    background-color: #1976d2;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-weight: bold;
+}
+QPushButton[role="primary"]:hover {
+    background-color: #1565c0;
+}
+QPushButton[role="primary"]:pressed {
+    background-color: #0d47a1;
+}
+
+/* Botón secundario (gris) */
+QPushButton[role="secondary"] {
+    background-color: #f5f5f5;
+    color: #333;
+    border: 1px solid #ccc;
+    border-radius: 6px;
+    padding: 8px 16px;
+}
+QPushButton[role="secondary"]:hover {
+    background-color: #e0e0e0;
+}
+
+/* Botón peligro (rojo) */
+QPushButton[role="danger"] {
+    background-color: #d32f2f;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-weight: bold;
+}
+QPushButton[role="danger"]:hover {
+    background-color: #c62828;
+}
+
+/* Botón éxito (verde) */
+QPushButton[role="success"] {
+    background-color: #2e7d32;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-weight: bold;
+}
+QPushButton[role="success"]:hover {
+    background-color: #1b5e20;
+}
+
+/* Hover genérico para botones sin role */
+QPushButton:hover {
+    background-color: rgba(0, 0, 0, 0.05);
+}
+
+/* Botón inline (pequeño, para dentro de formularios) */
+QPushButton[role="inline"] {
+    border: 1px solid rgba(120,120,140,0.3);
+    border-radius: 4px;
+    padding: 2px 8px;
+    background: transparent;
+}
+QPushButton[role="inline"]:hover {
+    background: #e3f2fd;
+}
 """

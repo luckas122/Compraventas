@@ -1,8 +1,11 @@
 # app/email_helper.py
+import logging
 from typing import List, Optional
 import os, smtplib, socket
 from email.message import EmailMessage
 from app.config import load as load_config
+
+logger = logging.getLogger(__name__)
 
 def send_mail_with_attachments(subject: str, body: str,
                                recipients: List[str],
@@ -137,7 +140,7 @@ def send_historial_via_email(subject_prefix=None, body="", attachments=None, rec
         # Comportamiento tolerante: si devuelve True => ok.
         # Si devuelve None (comportamiento habitual en algunos helpers), lo consideramos OK si no saltó excepción.
         if res is True or res is None:
-            print(f"[email-helper] enviado OK a {recips} (subject='{subject}').")
+            logger.info("[email-helper] enviado OK a %s (subject='%s').", recips, subject)
             return True, None
         else:
             # Si devuelve False o cadena de error, lo reportamos
@@ -148,6 +151,6 @@ def send_historial_via_email(subject_prefix=None, body="", attachments=None, rec
         # Capturamos cualquier excepción y la devolvemos como mensaje de error
         import traceback
         tb = traceback.format_exc()
-        print(f"[email-helper] excepción enviando correo: {ex}\n{tb}")
+        logger.error("[email-helper] excepción enviando correo: %s\n%s", ex, tb)
         return False, str(ex)
 

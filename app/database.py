@@ -1,9 +1,12 @@
 # app/database.py
+import logging
 import os, sys
 from pathlib import Path
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from app.models import Base
+
+logger = logging.getLogger(__name__)
 
 APP_DIRNAME = "CompraventasV2"
 DB_FILENAME = "appcomprasventas.db"
@@ -32,9 +35,9 @@ def _user_data_dir() -> Path:
                     try:
                         import shutil
                         shutil.copy2(legacy_db_path, new_db_path)
-                        print(f"[DB MIGRATION] Migrada DB de {legacy_db_path} a {new_db_path}")
+                        logger.info("[DB MIGRATION] Migrada DB de %s a %s", legacy_db_path, new_db_path)
                     except Exception as e:
-                        print(f"[DB MIGRATION] Error al migrar DB: {e}")
+                        logger.error("[DB MIGRATION] Error al migrar DB: %s", e)
 
             # Usar la misma carpeta del ejecutable
             return exe_parent
@@ -109,6 +112,12 @@ def _run_migrations():
             cols = [c["name"] for c in inspector.get_columns("ventas")]
             if "afip_error" not in cols:
                 conn.execute(text("ALTER TABLE ventas ADD COLUMN afip_error VARCHAR"))
+
+        # Agregar version a productos si no existe (optimistic locking v3.4.0)
+        if "productos" in inspector.get_table_names():
+            cols = [c["name"] for c in inspector.get_columns("productos")]
+            if "version" not in cols:
+                conn.execute(text("ALTER TABLE productos ADD COLUMN version INTEGER DEFAULT 1 NOT NULL"))
 
         # Eliminar tabla sync_log si existe (reemplazada por Firebase)
         if "sync_log" in inspector.get_table_names():

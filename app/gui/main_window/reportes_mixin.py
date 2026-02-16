@@ -1,7 +1,10 @@
 # app/gui/main_window/reportes_mixin.py
 # -*- coding: utf-8 -*-
+import logging
 
 from PyQt5.QtCore import QTimer
+
+logger = logging.getLogger(__name__)
 
 class ReportesMixin:
     """
@@ -25,12 +28,12 @@ class ReportesMixin:
         try:
             if getattr(self, "_rep_sched", {}).get("enabled"):
                 self._reports_timer.start()
-                print("[auto-send] timer activo (cada 60s).")
+                logger.info("[auto-send] timer activo (cada 60s).")
             else:
                 self._reports_timer.stop()
-                print("[auto-send] timer detenido (disabled).")
+                logger.info("[auto-send] timer detenido (disabled).")
         except Exception as e:
-            print("[auto-send] no pude arrancar el timer:", e)
+            logger.error("[auto-send] no pude arrancar el timer: %s", e)
 
     # === CONTENIDO MOVIDO DESDE core.py ===
     def _armar_reports_scheduler_desde_config(self):
@@ -91,9 +94,8 @@ class ReportesMixin:
             "last_sent": auto.get("last_sent"),
         }
 
-        print("[auto-send] armado:",
-              f"enabled={enabled}, freq={freq}, time={hh:02d}:{mm:02d}, tz={tz_name},",
-              f"weekdays={wdays}, month_day={month_day}")
+        logger.info("[auto-send] armado: enabled=%s, freq=%s, time=%02d:%02d, tz=%s, weekdays=%s, month_day=%s",
+                    enabled, freq, hh, mm, tz_name, wdays, month_day)
 
     def _tick_reports_scheduler(self):
         """
@@ -130,7 +132,7 @@ class ReportesMixin:
             if not (now.hour == hh and now.minute == mm):
                 return
 
-            print(f"[auto-send] {now.isoformat()} -> coincide {hh:02d}:{mm:02d} (freq={freq_config})")
+            logger.info("[auto-send] %s -> coincide %02d:%02d (freq=%s)", now.isoformat(), hh, mm, freq_config)
 
             # ---- objetivo mensual ----
             def _monthly_target_day(_now, _rules):
@@ -168,7 +170,7 @@ class ReportesMixin:
                     freqs_to_send = ["MONTHLY"]
 
             if not freqs_to_send:
-                print("[auto-send] no corresponde enviar en este tick.")
+                logger.info("[auto-send] no corresponde enviar en este tick.")
                 return
 
             # ===== Generar y enviar =====
@@ -193,7 +195,7 @@ class ReportesMixin:
 
                     if ok:
                         any_ok = True
-                        print(f"[auto-send] enviado OK: {f}")
+                        logger.info("[auto-send] enviado OK: %s", f)
                         try:
                             from PyQt5.QtWidgets import QMessageBox
                             QMessageBox.information(self, "Reportes", f"Reporte {f.title()} enviado.")
@@ -201,7 +203,7 @@ class ReportesMixin:
                             pass
                     else:
                         last_err = err
-                        print(f"[auto-send] error enviando {f}: {err}")
+                        logger.error("[auto-send] error enviando %s: %s", f, err)
                         try:
                             from PyQt5.QtWidgets import QMessageBox
                             QMessageBox.warning(self, "Reportes", f"No se pudo enviar reporte {f.title()}:\n{err}")
@@ -230,5 +232,5 @@ class ReportesMixin:
                     pass
 
         except Exception as e:
-            print("[auto-send] error en scheduler:", e)
+            logger.error("[auto-send] error en scheduler: %s", e)
             return

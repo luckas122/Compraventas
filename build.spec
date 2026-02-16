@@ -94,23 +94,8 @@ if os.path.isdir("icons"):
             dest_dir = root
             app_datas.append((file_path, dest_dir))
 
-# BD semilla -> 'db'
-db_candidates = [
-    ("data",                 "db"),
-    ("db",                   "db"),
-    ("database",             "db"),
-    ("app/app.db",           "db"),
-    ("database.sqlite3",     "db"),
-    ("appcomprasventas.db",  "db"),
-]
-for src, dest in db_candidates:
-    if os.path.isdir(src):
-        for root, dirs, files in os.walk(src):
-            for file in files:
-                file_path = os.path.join(root, file)
-                app_datas.append((file_path, dest))
-    elif os.path.exists(src):
-        app_datas.append((src, dest))
+# BD: NO se empaqueta. La app crea la DB vacia al iniciar (init_db()).
+# Empaquetar la DB causaba que datos de desarrollo se filtraran a produccion.
 
 a = Analysis(
     [ENTRY],

@@ -11,15 +11,28 @@ from app.config import load as load_config
 # ---------------------------------------------------------------------
 def build_product_completer(session, parent=None):
     from app.repository import prod_repo
+    from app.gui.main_window.filters import LimitedFilterProxy
+
     repo = prod_repo(session)
     pares = repo.listar_codigos_nombres()
     items = [f"{c or ''} - {n or ''}" for (c, n) in pares]
 
     model = QStringListModel(items, parent)
-    comp = QCompleter(model, parent)
+
+    # Usar proxy con limite para evitar lag con 13K+ items
+    proxy = LimitedFilterProxy(limit=50, parent=parent)
+    proxy.setSourceModel(model)
+    proxy.setFilterCaseSensitivity(Qt.CaseInsensitive)
+
+    comp = QCompleter(proxy, parent)
     comp.setCaseSensitivity(Qt.CaseInsensitive)
-    comp.setFilterMode(Qt.MatchContains)          # permite buscar por cualquier parte
-    comp.setCompletionMode(QCompleter.PopupCompletion)
+    comp.setCompletionMode(QCompleter.UnfilteredPopupCompletion)
+    comp.setMaxVisibleItems(15)
+
+    # Guardar refs para actualizar el proxy/modelo despues
+    comp._src_model = model
+    comp._proxy = proxy
+
     return comp, model
 
 # ---------------------------------------------------------------------

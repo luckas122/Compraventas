@@ -1,5 +1,5 @@
 from datetime import datetime, date, time,timedelta
-from sqlalchemy import func, and_, delete
+from sqlalchemy import func, and_, or_, delete
 from sqlalchemy.orm import joinedload
 from werkzeug.security import generate_password_hash, check_password_hash
 import pandas as pd
@@ -10,6 +10,16 @@ from app.models import (
     Usuario, Producto, Proveedor,
     Venta, VentaItem, VentaLog
 )
+
+class OptimisticLockError(Exception):
+    """Raised when optimistic locking detects a version conflict."""
+    def __init__(self, nombre, prod_id):
+        self.nombre = nombre
+        self.prod_id = prod_id
+        super().__init__(
+            f'El producto "{nombre}" (ID {prod_id}) fue modificado por otro usuario. '
+            f'Recarga los datos e intenta de nuevo.'
+        )
 
 class UsuarioRepo:
     def __init__(self, session):
@@ -81,23 +91,52 @@ class prod_repo:
 
     def listar_todos(self):
         return self.session.query(Producto).all()
-    
-    def actualizar_nombre(self, prod_id, nuevo_nombre):
+
+    def buscar(self, texto: str, limit: int = 500):
+        """Busca productos por codigo, nombre o categoria usando SQL LIKE.
+        Mucho mas rapido que cargar 13K objetos y filtrar en Python."""
+        patron = f"%{texto}%"
+        return (
+            self.session.query(Producto)
+            .filter(
+                or_(
+                    Producto.nombre.ilike(patron),
+                    Producto.codigo_barra.ilike(patron),
+                    Producto.categoria.ilike(patron),
+                )
+            )
+            .limit(limit)
+            .all()
+        )
+
+    def actualizar_nombre(self, prod_id, nuevo_nombre, expected_version=None):
         prod = self.obtener(prod_id)
         if prod:
+            if expected_version is not None and getattr(prod, 'version', 1) != expected_version:
+                raise OptimisticLockError(prod.nombre, prod_id)
             prod.nombre = nuevo_nombre
+            if hasattr(prod, 'version'):
+                prod.version = (prod.version or 1) + 1
             self.session.commit()
 
-    def actualizar_precio(self, prod_id, nuevo_precio):
+    def actualizar_precio(self, prod_id, nuevo_precio, expected_version=None):
         prod = self.obtener(prod_id)
         if prod:
+            if expected_version is not None and getattr(prod, 'version', 1) != expected_version:
+                raise OptimisticLockError(prod.nombre, prod_id)
             prod.precio = nuevo_precio
+            if hasattr(prod, 'version'):
+                prod.version = (prod.version or 1) + 1
             self.session.commit()
 
-    def actualizar_categoria(self, prod_id, nueva_cat):
+    def actualizar_categoria(self, prod_id, nueva_cat, expected_version=None):
         prod = self.obtener(prod_id)
         if prod:
+            if expected_version is not None and getattr(prod, 'version', 1) != expected_version:
+                raise OptimisticLockError(prod.nombre, prod_id)
             prod.categoria = nueva_cat
+            if hasattr(prod, 'version'):
+                prod.version = (prod.version or 1) + 1
             self.session.commit()
             
     
@@ -313,3 +352,28 @@ class VentaRepo:
         limite = datetime.now() - timedelta(days=dias)
         self.session.query(Venta).filter(Venta.fecha < limite).delete(synchronize_session=False)
         self.session.commit()
+
+    def productos_sin_ventas(self, dias: int = 90):
+        """Productos que no se vendieron en los últimos N días.
+        LEFT JOIN Producto → VentaItem → Venta filtrado por fecha."""
+        from sqlalchemy import func
+        from datetime import datetime, timedelta
+        limite = datetime.now() - timedelta(days=dias)
+
+        # Subquery: productos que SÍ tuvieron ventas en el período
+        vendidos = (
+            self.session.query(VentaItem.producto_id)
+            .join(Venta, Venta.id == VentaItem.venta_id)
+            .filter(Venta.fecha >= limite)
+            .filter(VentaItem.producto_id.isnot(None))
+            .distinct()
+            .subquery()
+        )
+
+        # Productos que NO están en la subquery
+        return (
+            self.session.query(Producto)
+            .filter(~Producto.id.in_(self.session.query(vendidos.c.producto_id)))
+            .order_by(Producto.nombre)
+            .all()
+        )
