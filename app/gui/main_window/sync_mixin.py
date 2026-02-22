@@ -165,15 +165,7 @@ class SyncNotificationsMixin:
     def _reiniciar_sync_scheduler(self):
         """Reinicia el scheduler cuando se guarda la configuracion"""
         self._setup_sync_scheduler()
-
-        if hasattr(self, 'btn_sync_manual'):
-            cfg = load_config()
-            enabled = cfg.get("sync", {}).get("enabled", False)
-            self.btn_sync_manual.setVisible(True)
-            if not enabled:
-                self.btn_sync_manual.setToolTip("Sincronizacion desactivada. Activalo en Configuracion.")
-            else:
-                self.btn_sync_manual.setToolTip("Click para sincronizar manualmente")
+        self._actualizar_texto_boton_sync()
 
     def _ejecutar_sincronizacion(self, manual=False):
         """Ejecuta un ciclo de sincronizacion via Firebase (en hilo background)."""
@@ -331,6 +323,15 @@ class SyncNotificationsMixin:
                     self.refrescar_productos()
                     self.refrescar_completer()
                     self.cargar_lista_proveedores()
+                except Exception:
+                    pass
+                # Refrescar historial de ventas
+                try:
+                    historial = getattr(self, 'historial', None)
+                    if historial and hasattr(historial, 'recargar_historial'):
+                        historial.recargar_historial()
+                    elif hasattr(self, 'recargar_historial'):
+                        self.recargar_historial()
                 except Exception:
                     pass
 
@@ -518,29 +519,46 @@ class SyncNotificationsMixin:
 
     def _crear_boton_sync_manual(self):
         """Crea un botón en la status bar para sincronización manual."""
-        self.btn_sync_manual = QPushButton("Sincronizar")
+        self.btn_sync_manual = QPushButton("🔄 Sincronizar")
         self.btn_sync_manual.setFlat(True)
         self.btn_sync_manual.setToolTip("Click para sincronizar manualmente")
+        self.btn_sync_manual.setCursor(Qt.PointingHandCursor)
+        self.btn_sync_manual.setStyleSheet(
+            "QPushButton { font-size: 11px; padding: 2px 8px; }"
+            "QPushButton:hover { background: #e0e0e0; border-radius: 3px; }"
+        )
         self.btn_sync_manual.clicked.connect(lambda: self._ejecutar_sincronizacion(manual=True))
         self.statusBar().addPermanentWidget(self.btn_sync_manual)
 
+        self._actualizar_texto_boton_sync()
+
+    def _actualizar_texto_boton_sync(self):
+        """Lee la config y actualiza el texto del botón con la última sync."""
+        if not hasattr(self, 'btn_sync_manual'):
+            return
         cfg = load_config()
         sync_cfg = cfg.get("sync", {})
         enabled = sync_cfg.get("enabled", False)
-        self.btn_sync_manual.setVisible(True)
 
         if not enabled:
             self.btn_sync_manual.setText("Sync desactivada")
             self.btn_sync_manual.setToolTip("Sincronización desactivada. Activalo en Configuración.")
-        else:
-            # Mostrar última sync si existe
-            last = sync_cfg.get("last_sync")
-            if last:
-                try:
-                    dt = datetime.fromisoformat(last)
-                    self.btn_sync_manual.setText(f"Última sync: {dt.strftime('%d/%m %H:%M')}")
-                except Exception:
-                    pass
+            return
+
+        last = sync_cfg.get("last_sync")
+        if last:
+            try:
+                dt = datetime.fromisoformat(last)
+                self.btn_sync_manual.setText(f"🔄 Última sync: {dt.strftime('%d/%m %H:%M')}")
+                self.btn_sync_manual.setToolTip(
+                    f"Última sincronización: {dt.strftime('%d/%m/%Y %H:%M:%S')}\n"
+                    f"Click para sincronizar manualmente"
+                )
+                return
+            except Exception:
+                pass
+        self.btn_sync_manual.setText("🔄 Sincronizar")
+        self.btn_sync_manual.setToolTip("Click para sincronizar manualmente")
 
     def _update_sync_button_text(self, text: str):
         """Actualiza el texto del botón de sync en la barra de estado."""
@@ -572,8 +590,8 @@ class SyncNotificationsMixin:
         """
         Al iniciar la app, verifica si:
         1. Hay un backup de config pendiente del instalador -> ofrece restaurar
-        2. La version cambio y la config existe -> informa que se mantuvo
-        3. Config existente sin _last_version (actualizacion desde version vieja)
+        2. La version cambió -> ofrece mantener config o empezar de nuevo
+        3. Config existente sin _last_version (actualización desde version vieja)
         """
         from version import __version__
 
@@ -591,24 +609,16 @@ class SyncNotificationsMixin:
         config_exists = os.path.exists(CONFIG_PATH)
 
         if not config_exists:
-            # No hay config — primera instalacion limpia, nada que mostrar
+            # No hay config — primera instalación limpia, nada que mostrar
             return
 
-        # Caso 2: version nueva detectada (ya teniamos _last_version guardada)
+        # Caso 2: version nueva detectada
         if last_version and last_version != __version__:
-            QMessageBox.information(
-                self, "Actualizacion detectada",
-                f"Se actualizo de v{last_version} a v{__version__}.\n\n"
-                f"Tu configuracion se ha mantenido correctamente."
-            )
-            cfg["_last_version"] = __version__
-            save_config(cfg)
+            self._mostrar_dialogo_actualizacion(last_version, __version__, cfg)
             return
 
-        # Caso 3: config existe pero sin _last_version
-        # = actualizacion desde version anterior que no guardaba este campo
+        # Caso 3: config existe pero sin _last_version (primera vez que detectamos)
         if not last_version:
-            # Verificar si la config tiene datos reales (no es un config vacio)
             has_real_data = bool(
                 cfg.get("sync", {}).get("enabled")
                 or cfg.get("sucursal")
@@ -616,15 +626,90 @@ class SyncNotificationsMixin:
                 or cfg.get("general")
             )
             if has_real_data:
-                QMessageBox.information(
-                    self, "Actualizacion detectada",
-                    f"Bienvenido a v{__version__}.\n\n"
-                    f"Tu configuracion previa se ha mantenido correctamente."
-                )
-            # Guardar la version actual para futuras detecciones
-            cfg["_last_version"] = __version__
-            save_config(cfg)
+                self._mostrar_dialogo_actualizacion("anterior", __version__, cfg)
+            else:
+                cfg["_last_version"] = __version__
+                save_config(cfg)
             return
+
+    def _mostrar_dialogo_actualizacion(self, version_anterior, version_nueva, cfg):
+        """Ofrece al usuario mantener configuración o empezar de nuevo."""
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Actualización detectada")
+        msg.setIcon(QMessageBox.Question)
+        msg.setText(
+            f"Se actualizó de v{version_anterior} a v{version_nueva}.\n\n"
+            f"Tu configuración anterior se ha detectado.\n"
+            f"¿Qué querés hacer?"
+        )
+
+        btn_mantener = msg.addButton("Mantener configuración", QMessageBox.AcceptRole)
+        btn_restaurar = msg.addButton("Restaurar desde archivo...", QMessageBox.ActionRole)
+        btn_nuevo = msg.addButton("Empezar de nuevo", QMessageBox.DestructiveRole)
+        msg.setDefaultButton(btn_mantener)
+        msg.exec_()
+
+        clicked = msg.clickedButton()
+
+        if clicked == btn_mantener:
+            cfg["_last_version"] = version_nueva
+            save_config(cfg)
+            QMessageBox.information(
+                self, "Configuración mantenida",
+                f"Tu configuración se ha mantenido correctamente para v{version_nueva}."
+            )
+
+        elif clicked == btn_restaurar:
+            try:
+                default_dir = str(Path(get_backup_path()).parent)
+            except Exception:
+                default_dir = ""
+            path, _ = QFileDialog.getOpenFileName(
+                self, "Elegir app_config.json",
+                default_dir, "JSON (*.json);;Todos (*.*)"
+            )
+            if path:
+                ok = restore_from_path(path)
+                if ok:
+                    cfg_new = load_config()
+                    cfg_new["_last_version"] = version_nueva
+                    save_config(cfg_new)
+                    QMessageBox.information(
+                        self, "Restauración exitosa",
+                        "Configuración restaurada. Reiniciá la aplicación para aplicar todos los cambios."
+                    )
+                else:
+                    QMessageBox.warning(self, "Error", "No se pudo restaurar la configuración.")
+            else:
+                # Canceló el diálogo de archivo → mantener config actual
+                cfg["_last_version"] = version_nueva
+                save_config(cfg)
+
+        elif clicked == btn_nuevo:
+            resp = QMessageBox.warning(
+                self, "Confirmar",
+                "Esto borrará TODA tu configuración actual\n"
+                "(impresoras, sync, preferencias, etc.)\n\n"
+                "¿Estás seguro?",
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+            )
+            if resp == QMessageBox.Yes:
+                try:
+                    # Borrar config y recrear con defaults
+                    if os.path.exists(CONFIG_PATH):
+                        os.remove(CONFIG_PATH)
+                    cfg_new = load_config()  # Crea config con defaults
+                    cfg_new["_last_version"] = version_nueva
+                    save_config(cfg_new)
+                    QMessageBox.information(
+                        self, "Configuración reiniciada",
+                        "Se creó una configuración nueva. Reiniciá la aplicación para aplicar los cambios."
+                    )
+                except Exception as e:
+                    QMessageBox.warning(self, "Error", f"No se pudo reiniciar la configuración:\n{e}")
+            else:
+                cfg["_last_version"] = version_nueva
+                save_config(cfg)
 
     def _show_restore_dialog(self):
         """Muestra el dialogo de restauracion de config desde backup."""

@@ -214,6 +214,25 @@ class SyncConfigPanel(QWidget):
 
         root.addWidget(gb_inicial)
 
+        # ===== LOG =====
+        gb_log = QGroupBox("Registro de sincronización")
+        lay_log = QVBoxLayout(gb_log)
+
+        lbl_log_info = QLabel(
+            "Consulta el historial detallado de todas las sincronizaciones "
+            "realizadas (envíos, recepciones, errores)."
+        )
+        lbl_log_info.setWordWrap(True)
+        lbl_log_info.setStyleSheet("color: #888; font-size: 10px;")
+        lay_log.addWidget(lbl_log_info)
+
+        btn_log = QPushButton("  Ver log de sincronización  ")
+        btn_log.setCursor(Qt.PointingHandCursor)
+        btn_log.clicked.connect(self._mostrar_log_sync)
+        lay_log.addWidget(btn_log)
+
+        root.addWidget(gb_log)
+
         # ===== BOTONES =====
         row_btns = QHBoxLayout()
         row_btns.addStretch(1)
@@ -373,6 +392,62 @@ class SyncConfigPanel(QWidget):
         finally:
             self.btn_inicial.setEnabled(True)
             self.btn_inicial.setText("  Subir todos los datos a Firebase  ")
+
+    def _mostrar_log_sync(self):
+        """Muestra el log de sincronización desde el archivo."""
+        from PyQt5.QtWidgets import QDialog, QTextEdit, QVBoxLayout, QDialogButtonBox
+        import os
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Log de sincronización")
+        dlg.resize(700, 500)
+        layout = QVBoxLayout(dlg)
+
+        txt = QTextEdit(dlg)
+        txt.setReadOnly(True)
+        txt.setFontFamily("Consolas")
+        txt.setFontPointSize(9)
+
+        # Leer log del archivo
+        from app.config import _get_app_data_dir
+        log_path = os.path.join(_get_app_data_dir(), "logs", "sync.log")
+
+        file_lines = []
+        try:
+            if os.path.exists(log_path):
+                with open(log_path, "r", encoding="utf-8") as f:
+                    file_lines = f.readlines()[-500:]  # últimas 500 líneas
+        except Exception as e:
+            txt.append(f"Error leyendo log: {e}")
+
+        if file_lines:
+            for line in file_lines:
+                txt.append(line.rstrip())
+        else:
+            txt.append("No hay registros de sincronización todavía.")
+            txt.append(f"\nRuta del log: {log_path}")
+
+        # También incluir entradas de sesión actual si existen
+        mw = self._find_main_window()
+        if mw:
+            session_entries = getattr(mw, '_sync_log_entries', [])
+            if session_entries:
+                txt.append("\n=== Sesión actual ===\n")
+                for entry in session_entries:
+                    txt.append(entry)
+
+        layout.addWidget(txt)
+
+        btns = QDialogButtonBox(QDialogButtonBox.Close, dlg)
+        btns.rejected.connect(dlg.close)
+        layout.addWidget(btns)
+
+        # Scroll al final
+        cursor = txt.textCursor()
+        cursor.movePosition(cursor.End)
+        txt.setTextCursor(cursor)
+
+        dlg.exec_()
 
     def _test_connection(self):
         """Prueba la conexion con Firebase via REST API."""

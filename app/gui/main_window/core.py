@@ -651,28 +651,46 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
 
     def eventFilter(self, obj, event):
         try:
-            # --- Interceptar Enter/Return en buscador de ventas cuando el popup
-            #     del completer está visible.  El primer Enter sólo acepta la
-            #     selección del dropdown (pone el código en el campo).  Recién un
-            #     SEGUNDO Enter (con popup cerrado) dispara agregar_a_cesta. ---
             ventas_input = getattr(self, 'input_venta_buscar', None)
             if ventas_input is not None and obj is ventas_input:
                 if event.type() == QEvent.KeyPress:
                     key = event.key()
-                    if key in (Qt.Key_Return, Qt.Key_Enter):
-                        # Buscar cualquier completer activo (puede ser _completer o _comp)
-                        comp = getattr(self, '_completer', None) or getattr(self, '_comp', None)
-                        if comp is not None:
-                            popup = comp.popup()
-                            if popup is not None and popup.isVisible():
+                    comp = getattr(self, '_completer', None) or getattr(self, '_comp', None)
+                    if comp is not None:
+                        popup = comp.popup()
+                        if popup is not None and popup.isVisible():
+
+                            # --- Flechas ↑↓: mover selección del popup SIN
+                            #     que Qt ponga el texto en el QLineEdit ---
+                            if key in (Qt.Key_Down, Qt.Key_Up):
+                                model = popup.model()
+                                if model is None or model.rowCount() == 0:
+                                    return True
+                                idx = popup.currentIndex()
+                                row = idx.row() if idx.isValid() else -1
+                                if key == Qt.Key_Down:
+                                    row = min(row + 1, model.rowCount() - 1)
+                                else:
+                                    row = max(row - 1, 0)
+                                new_idx = model.index(row, 0)
+                                popup.setCurrentIndex(new_idx)
+                                return True  # Consumir: NO cambia texto
+
+                            # --- Enter: aceptar selección actual y poner
+                            #     código en el campo, sin agregar a cesta ---
+                            if key in (Qt.Key_Return, Qt.Key_Enter):
                                 idx = popup.currentIndex()
                                 if idx.isValid():
-                                    # Poner el código en el campo sin agregar a cesta
                                     text = idx.data()
                                     code = str(text).split(" - ")[0].strip()
                                     ventas_input.setText(code)
                                 popup.hide()
                                 return True  # Bloquear returnPressed
+
+                            # --- Escape: cerrar popup ---
+                            if key == Qt.Key_Escape:
+                                popup.hide()
+                                return True
 
             # --- Checkbox en tabla productos ---
             tbl = getattr(self, "table_productos", None)
@@ -689,7 +707,7 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
                             if item is not None:
                                 new_state = Qt.Unchecked if item.checkState() == Qt.Checked else Qt.Checked
                                 item.setCheckState(new_state)
-                            return True  # Consumir el evento
+                            return True
         except Exception:
             pass
         return super().eventFilter(obj, event)
