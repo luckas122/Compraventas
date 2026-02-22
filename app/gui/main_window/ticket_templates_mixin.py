@@ -276,3 +276,39 @@ class TicketTemplatesMixin:
             self._tpl_build_slot_combo()
             self._tpl_build_payment_combos()
             self.statusBar().showMessage(f"Plantilla renombrada a: {new_name.strip()}", 3000)
+
+    def _tpl_restore_defaults(self):
+        """Restaura el slot seleccionado a su plantilla predeterminada de DEFAULTS."""
+        from PyQt5.QtWidgets import QMessageBox
+        from app.config import load as load_config, save as save_config, DEFAULTS
+
+        key = self.cfg_tpl_slot.currentData()
+        if not key:
+            return
+
+        default_slots = (DEFAULTS.get("ticket") or {}).get("slots") or {}
+        default_text = default_slots.get(key, "")
+
+        if not default_text:
+            QMessageBox.information(
+                self, "Restaurar",
+                f"No hay plantilla predeterminada para {key}."
+            )
+            return
+
+        resp = QMessageBox.question(
+            self, "Restaurar Predeterminados",
+            f"Se reemplazara el contenido del editor con la plantilla "
+            f"predeterminada para '{key}'.\n\n"
+            f"El cambio se aplica solo al editor. Para guardarlo en el slot, "
+            f"usa 'Guardar en slot'.\n\n"
+            f"Continuar?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No
+        )
+
+        if resp == QMessageBox.Yes:
+            self.cfg_txt_tpl.setPlainText(default_text)
+            self.statusBar().showMessage(
+                f"Editor restaurado con la plantilla predeterminada de {key}.", 3000
+            )

@@ -192,6 +192,7 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
 
         # Sistema de sincronizacion via Firebase
         self._firebase_sync = None
+        self._sync_running = False
         self._sync_timer = QTimer(self)
         self._sync_timer.timeout.connect(lambda: self._ejecutar_sincronizacion(manual=False))
         self._last_sync_time = None

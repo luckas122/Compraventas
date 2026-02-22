@@ -194,7 +194,7 @@ class SyncNotificationsMixin:
             self._firebase_sync = FirebaseSyncManager(self.session, sucursal_actual)
 
         # Evitar multiples syncs simultaneas
-        if getattr(self, '_sync_running', False):
+        if self._sync_running:
             if manual:
                 QMessageBox.information(self, "Sincronizacion", "Ya hay una sincronizacion en curso.")
             return
@@ -209,25 +209,34 @@ class SyncNotificationsMixin:
 
         def _sync_worker():
             try:
-                # Crear sesion y sync manager propios para este hilo
-                # (las sesiones de SQLAlchemy no son thread-safe)
                 from app.database import SessionLocal
                 thread_session = SessionLocal()
                 try:
                     sucursal = getattr(self, 'sucursal', 'Sarmiento')
                     sync_manager = FirebaseSyncManager(thread_session, sucursal)
                     resultado = sync_manager.ejecutar_sincronizacion_completa()
-                    # Recuperar mismatches antes de cerrar la sesion
                     mismatches = sync_manager.get_price_mismatches()
                     resultado["_mismatches"] = mismatches
-                    QTimer.singleShot(0, lambda: self._on_sync_finished(resultado))
+                    # Capturar valor en lambda para evitar closure bug
+                    QTimer.singleShot(0, lambda r=resultado: self._on_sync_finished(r))
                 finally:
                     thread_session.close()
             except Exception as e:
-                QTimer.singleShot(0, lambda: self._on_sync_error(str(e)))
+                err_msg = str(e)
+                QTimer.singleShot(0, lambda err=err_msg: self._on_sync_error(err))
 
         t = threading.Thread(target=_sync_worker, daemon=True)
         t.start()
+
+        # Watchdog: resetear flag si la sync tarda mas de 120 segundos
+        QTimer.singleShot(120_000, self._sync_watchdog_reset)
+
+    def _sync_watchdog_reset(self):
+        """Safety: resetea _sync_running si quedo trabado."""
+        if self._sync_running:
+            logger.warning("[SYNC] Watchdog: sync corriendo >120s, reseteando flag")
+            self._sync_running = False
+            self._check_online_status()
 
     def _on_sync_finished(self, resultado):
         """Callback en el hilo principal cuando la sync termina exitosamente."""
@@ -247,7 +256,6 @@ class SyncNotificationsMixin:
             # Refrescar UI si se recibieron cambios
             if resultado["recibidos"] > 0:
                 try:
-                    # Refrescar la sesion principal para ver cambios del hilo de sync
                     self.session.expire_all()
                     self.refrescar_productos()
                     self.refrescar_completer()
@@ -264,8 +272,10 @@ class SyncNotificationsMixin:
             except Exception:
                 pass
 
-            # Sync exitosa = estamos online
+            # Sync exitosa = estamos online, actualizar indicador inmediatamente
             self._update_online_indicator(True, 0)
+            # Forzar refresh completo despues de 1 segundo
+            QTimer.singleShot(1000, self._check_online_status)
         except Exception as e:
             logger.error(f"[SYNC] Error procesando resultado: {e}")
 
@@ -684,10 +694,10 @@ class SyncNotificationsMixin:
         self.status_online.mousePressEvent = lambda ev: self._mostrar_cola_offline()
         status_bar.addWidget(self.status_online)
 
-        # Timer para verificar conectividad cada 60 segundos
+        # Timer para verificar conectividad cada 30 segundos
         self._online_check_timer = QTimer(self)
         self._online_check_timer.timeout.connect(self._check_online_status)
-        self._online_check_timer.start(60000)  # 60 segundos
+        self._online_check_timer.start(30000)  # 30 segundos
 
         # Check inicial después de 5 segundos
         QTimer.singleShot(5000, self._check_online_status)

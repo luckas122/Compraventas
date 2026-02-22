@@ -204,10 +204,13 @@ DEFAULTS: Dict[str, Any] = {
         },
         "show_interest_line": False,  # si mostrar "Interés: …" en el pie
         "slots": {
-            "slot1": """{{centerb: SUSI PERFUMERÍA}}
-{{center: ================================}}
-{{b: TICKET DE VENTA}}
-Nº: {{ticket.numero}}
+            "slot1": """{{center: =================================}}
+{{centerb: {{business}}}}
+{{center: {{business.direccion}}}}
+{{center: CUIT: {{business.cuit}}}}
+{{center: =================================}}
+
+Ticket Nº: {{ticket.numero}}
 Fecha: {{ticket.fecha_hora}}
 Sucursal: {{sucursal}}
 {{hr}}
@@ -215,30 +218,42 @@ Sucursal: {{sucursal}}
 {{hr}}
 Subtotal: {{totales.subtotal}}
 Descuento: {{totales.descuento}}
-{{b: TOTAL: {{totales.total}}}}
+{{b: Total (con impuestos): {{totales.total}}}}
+Descuento total: {{totales.descuento}}
 {{hr}}
-Forma de pago: {{pago.modo}}
-Abonado: {{abonado}}
-Vuelto: {{vuelto}}
+{{b: Impuestos | Base imp. | Cuota}}
+{{iva.porcentaje}} | {{iva.base}} | {{iva.cuota}}
+{{hr}}
+{{pago.modo}} | Total: {{totales.total}} | Entregado: {{abonado}} | Devuelto: {{vuelto}}
 {{cae}}
 {{hr}}
-{{center: ¡Gracias por su compra!}}""",
-            "slot2": """{{centerb: SUSI PERFUMERÍA}}
-{{hr}}
+{{center: 30 DIAS PARA DEVOLUCIONES}}
+{{center: {{business}}}}""",
+            "slot2": """{{center: =================================}}
+{{centerb: {{business}}}}
+{{center: {{business.direccion}}}}
+{{center: CUIT: {{business.cuit}}}}
+{{center: =================================}}
+
 Ticket: {{ticket.numero}} | {{ticket.fecha_hora}}
 {{sucursal}}
 {{hr}}
 {{items}}
 {{hr}}
-{{rightb: TOTAL: {{totales.total}}}}
+{{rightb: Total (con impuestos): {{totales.total}}}}
 {{hr}}
-{{pago.modo}} | Abonado: {{abonado}} | Vuelto: {{vuelto}}
+{{iva.porcentaje}} | {{iva.base}} | {{iva.cuota}}
+{{hr}}
+{{pago.modo}} | {{abonado}} | {{vuelto}}
 {{cae}}
-{{center: Gracias por su compra}}""",
-            "slot3": """{{centerb: SUSI PERFUMERÍA}}
-{{center: ================================}}
-{{b: TICKET DE VENTA}}
-Nº: {{ticket.numero}}
+{{center: {{business}}}}""",
+            "slot3": """{{center: =================================}}
+{{centerb: {{business}}}}
+{{center: {{business.direccion}}}}
+{{center: CUIT: {{business.cuit}}}}
+{{center: =================================}}
+
+Ticket Nº: {{ticket.numero}}
 Fecha: {{ticket.fecha_hora}}
 Sucursal: {{sucursal}}
 {{hr}}
@@ -247,26 +262,36 @@ Sucursal: {{sucursal}}
 Subtotal: {{totales.subtotal}}
 Descuento: {{totales.descuento}}
 Interés: {{totales.interes}}
-{{b: TOTAL: {{totales.total}}}}
+{{b: Total (con impuestos): {{totales.total}}}}
+Descuento total: {{totales.descuento}}
 {{hr}}
-Forma de pago: {{pago.modo}}
-Cuotas: {{pago.cuotas}} x {{pago.monto_cuota}}
+{{b: Impuestos | Base imp. | Cuota}}
+{{iva.porcentaje}} | {{iva.base}} | {{iva.cuota}}
+{{hr}}
+{{pago.modo}} | Cuotas: {{pago.cuotas}} x {{pago.monto_cuota}}
 {{cae}}
 {{hr}}
-{{center: ¡Gracias por su compra!}}""",
-            "slot4": """{{centerb: SUSI PERFUMERÍA}}
-{{hr}}
+{{center: 30 DIAS PARA DEVOLUCIONES}}
+{{center: {{business}}}}""",
+            "slot4": """{{center: =================================}}
+{{centerb: {{business}}}}
+{{center: {{business.direccion}}}}
+{{center: CUIT: {{business.cuit}}}}
+{{center: =================================}}
+
 Ticket: {{ticket.numero}} | {{ticket.fecha_hora}}
 {{sucursal}}
 {{hr}}
 {{items}}
 {{hr}}
 Interés: {{totales.interes}}
-{{rightb: TOTAL: {{totales.total}}}}
+{{rightb: Total (con impuestos): {{totales.total}}}}
+{{hr}}
+{{iva.porcentaje}} | {{iva.base}} | {{iva.cuota}}
 {{hr}}
 {{pago.modo}} - {{pago.cuotas}} cuotas de {{pago.monto_cuota}}
 {{cae}}
-{{center: Gracias por su compra}}"""
+{{center: {{business}}}}"""
         },
         "slot_names": {
             "slot1": "Efectivo - Clásica",
@@ -282,6 +307,9 @@ Interés: {{totales.interes}}
             "{{pago.modo}}", "{{pago.cuotas}}", "{{pago.monto_cuota}}",
             "{{totales.subtotal}}", "{{totales.descuento}}", "{{totales.interes}}", "{{totales.total}}",
             "{{abonado}}", "{{vuelto}}", "{{business}}", "{{title}}",
+            "{{business.cuit}}", "{{business.direccion}}",
+            "{{iva.base}}", "{{iva.cuota}}", "{{iva.porcentaje}}",
+            "{{vendedor}}",
             "{{hr}}", "{{items}}", "{{cae}}"
         ]
     },

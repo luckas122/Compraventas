@@ -284,6 +284,21 @@ def _draw_ticket(p, page_rect, prn, venta, sucursal, direcciones, width_mm=75.0,
         p.drawText(QRect(right_x, y, right_w, h), Qt.AlignRight | Qt.AlignVCenter, str(right))
         y += h
 
+    def draw_cols(cols, font, widths=None):
+        """Draw multiple columns in a single row."""
+        nonlocal y
+        p.setFont(font)
+        h = p.fontMetrics().height()
+        if not widths:
+            col_w = w // len(cols)
+            widths = [col_w] * len(cols)
+        cx = x
+        for i, (text, align) in enumerate(cols):
+            cw = widths[i] if i < len(widths) else widths[-1]
+            p.drawText(QRect(cx, y, cw, h), align, str(text))
+            cx += cw
+        y += h
+
     def money(x):
         try:
             if x is None: x = 0.0
@@ -305,30 +320,50 @@ def _draw_ticket(p, page_rect, prn, venta, sucursal, direcciones, width_mm=75.0,
         return
 
 
-    # ===== Encabezado =====
-    draw_text((_ticket_strings().get("business") or _ticket_strings().get("title", "TICKET")), f_title, Qt.AlignCenter)
+    # ===== Encabezado profesional =====
+    S = _ticket_strings()
+    draw_text("=" * 33, f_norm, Qt.AlignCenter)
+    draw_text((S.get("business") or S.get("title", "TICKET")), f_title, Qt.AlignCenter)
 
-    datos = []
+    dir_txt = (direcciones or {}).get(sucursal, "") or S.get("address", "")
+    if dir_txt:
+        draw_text(dir_txt, f_norm, Qt.AlignCenter)
+
+    cuit_txt = cfg.get("fiscal", {}).get("cuit", "")
+    if cuit_txt:
+        draw_text(f"CUIT: {cuit_txt}", f_norm, Qt.AlignCenter)
+
+    draw_text("=" * 33, f_norm, Qt.AlignCenter)
+    gap()
+
+    # Ticket number and date
+    num = getattr(venta, "numero_ticket", None) or getattr(venta, "id", None)
+    if num:
+        draw_text(f"Ticket Nº: {num}", f_norm, Qt.AlignLeft)
     try:
         if getattr(venta, "fecha", None):
-            datos.append(venta.fecha.strftime("%d/%m/%Y %H:%M"))
+            draw_text(f"Fecha: {venta.fecha.strftime('%d/%m/%Y %H:%M')}", f_norm, Qt.AlignLeft)
     except Exception:
         pass
-    num = getattr(venta, "numero_ticket", None) or getattr(venta, "id", None)
-    if num: datos.append(f"Nº {num}")
-    if datos:
-        draw_text("   ".join(datos), f_norm, Qt.AlignCenter)
-
-    dir_txt = (direcciones or {}).get(sucursal, "") or _ticket_strings().get("address", "")
-    if dir_txt: draw_text(dir_txt, f_norm, Qt.AlignCenter)
-    if _ticket_strings().get("branch_lbl") or sucursal:
-        draw_text(_ticket_strings().get("branch_lbl") or str(sucursal), f_norm, Qt.AlignCenter)
-
-    line()
+    if S.get("branch_lbl") or sucursal:
+        draw_text(f"Sucursal: {S.get('branch_lbl') or str(sucursal)}", f_norm, Qt.AlignLeft)
+    gap()
 
     # ===== Ítems =====
-    # Preferimos una lista de dicts en venta._ticket_items; si no está, intentamos
-    # derivarla de otros atributos comunes (venta.items, venta.productos, etc.).
+    line()
+    # Column widths: N.(10%) | Artículos(45%) | Prec.(22%) | Total(23%)
+    col_w = [int(w * 0.10), int(w * 0.45), int(w * 0.22), int(w * 0.23)]
+
+    # Header row
+    draw_cols([
+        ("N.", Qt.AlignLeft),
+        ("Artículos", Qt.AlignLeft),
+        ("Prec.", Qt.AlignRight),
+        ("Total", Qt.AlignRight),
+    ], f_head, col_w)
+    line()
+
+    # Build items list
     items = getattr(venta, "_ticket_items", None)
 
     if not items:
@@ -343,7 +378,6 @@ def _draw_ticket(p, page_rect, prn, venta, sucursal, direcciones, width_mm=75.0,
                     "cantidad": float(it.get("cantidad") or it.get("cant") or 1),
                 }
             else:
-                # Intentar obtener nombre desde producto.nombre o directamente
                 prod_obj = getattr(it, "producto", None)
                 if prod_obj:
                     nombre = getattr(prod_obj, "nombre", "") or ""
@@ -362,64 +396,121 @@ def _draw_ticket(p, page_rect, prn, venta, sucursal, direcciones, width_mm=75.0,
                 items.append(d)
 
     for it in items:
-        codigo = it.get("codigo") or ""
         nombre = it.get("nombre") or ""
-        # recorte de seguridad para nombres largos
-        if len(nombre) > 35:
-            nombre = nombre[:35] + "…"
         precio_u = float(it.get("precio_unitario") or 0.0)
-        cant    = float(it.get("cantidad") or 1)
+        cant = float(it.get("cantidad") or 1)
         importe = precio_u * cant
 
-        # NUEVO FORMATO DE 3 LÍNEAS:
-        # Línea 1: Nombre del producto
-        draw_text(nombre, f_norm, Qt.AlignLeft)
-        # Línea 2: Código de barras
-        if codigo:
-            draw_text(f"Código: {codigo}", f_norm, Qt.AlignLeft)
-        # Línea 3: Cantidad × precio … importe (alineado izq/der)
-        draw_lr(f"Cant: {int(cant)} × {money(precio_u)}", money(importe), f_norm)
-        gap(0.4)
+        # Truncate name for first line (max ~18 chars fits in column)
+        if len(nombre) > 18:
+            first_line = nombre[:18]
+            remaining = nombre[18:]
+        else:
+            first_line = nombre
+            remaining = ""
 
+        # Row: qty | name | unit price | total
+        draw_cols([
+            (str(int(cant)), Qt.AlignLeft),
+            (first_line, Qt.AlignLeft),
+            (money(precio_u), Qt.AlignRight),
+            (money(importe), Qt.AlignRight),
+        ], f_norm, col_w)
+
+        # Continuation line for long names
+        if remaining:
+            draw_cols([
+                ("", Qt.AlignLeft),
+                (remaining[:22], Qt.AlignLeft),
+                ("", Qt.AlignRight),
+                ("", Qt.AlignRight),
+            ], f_norm, col_w)
+
+    line()
+    gap()
 
     # ===== Totales =====
-    if getattr(venta, "subtotal_base", None) is not None:
-        draw_lr("Subtotal", money(getattr(venta, "subtotal_base", 0.0)), f_norm)
-    if getattr(venta, "descuento_monto", None):
-        draw_lr("Descuento", money(getattr(venta, "descuento_monto", 0.0)), f_norm)
-    if getattr(venta, "interes_monto", None):
-        draw_lr("Interés",  money(getattr(venta, "interes_monto", 0.0)), f_norm)
-    # TOTAL: preferir el total dado; si no, recomputar base - desc + interés
+    # Compute total
     if getattr(venta, "total", None) is None:
         try:
-            items = getattr(venta, "_ticket_items", None) or []
-            subtotal_auto = sum(float(i.get("cantidad",0))*float(i.get("precio_unitario",0)) for i in items)
+            items_for_sum = getattr(venta, "_ticket_items", None) or []
+            subtotal_auto = sum(float(i.get("cantidad", 0)) * float(i.get("precio_unitario", 0)) for i in items_for_sum)
         except Exception:
             subtotal_auto = 0.0
         subtotal_base = float(getattr(venta, "subtotal_base", subtotal_auto) or subtotal_auto)
-        interes   = float(getattr(venta, "interes_monto", 0.0) or 0.0)
+        interes = float(getattr(venta, "interes_monto", 0.0) or 0.0)
         descuento = float(getattr(venta, "descuento_monto", 0.0) or 0.0)
         tot = subtotal_base - descuento + interes
     else:
         tot = float(getattr(venta, "total", 0.0) or 0.0)
 
-    draw_lr("TOTAL", money(tot), f_head)
+    if getattr(venta, "subtotal_base", None) is not None:
+        draw_lr("Subtotal", money(getattr(venta, "subtotal_base", 0.0)), f_norm)
+    descuento_monto = float(getattr(venta, "descuento_monto", 0.0) or 0.0)
+    draw_lr("Descuento", money(descuento_monto), f_norm)
+    if getattr(venta, "interes_monto", None):
+        draw_lr("Interés", money(getattr(venta, "interes_monto", 0.0)), f_norm)
+    draw_lr("Total (con impuestos)", money(tot), f_head)
+    draw_lr("Descuento total", money(descuento_monto), f_norm)
+    gap()
+
+    # ===== IVA / Impuestos =====
     line()
+    iva_base = round(tot / 1.21, 2) if tot else 0.0
+    iva_cuota = round(tot - iva_base, 2) if tot else 0.0
+    draw_cols([
+        ("Impuestos", Qt.AlignLeft),
+        ("Base imp.", Qt.AlignRight),
+        ("Cuota", Qt.AlignRight),
+    ], f_head, [int(w * 0.34), int(w * 0.33), int(w * 0.33)])
+    line()
+    draw_cols([
+        ("21%", Qt.AlignLeft),
+        (money(iva_base), Qt.AlignRight),
+        (money(iva_cuota), Qt.AlignRight),
+    ], f_norm, [int(w * 0.34), int(w * 0.33), int(w * 0.33)])
+    gap()
 
     # ===== Forma de pago =====
     forma_raw = (getattr(venta, "forma_pago", "") or getattr(venta, "modo_pago", "") or getattr(venta, "modo", "")).lower()
-    is_card   = ("tarj" in forma_raw)
-    draw_lr("Forma de pago", "Tarjeta" if is_card else "Efectivo", f_norm)
+    is_card = ("tarj" in forma_raw)
+    pago_label = "tarjeta" if is_card else "efectivo"
 
     if is_card:
-        cuotas  = int(getattr(venta, "cuotas", 0) or 0)
+        cuotas = int(getattr(venta, "cuotas", 0) or 0)
         if cuotas > 0:
-            monto_cuota = (tot / cuotas)
-            draw_lr("Cuotas", f"{cuotas} × {money(monto_cuota)}", f_norm)
+            monto_cuota = tot / cuotas
+            draw_cols([
+                ("Pago", Qt.AlignLeft),
+                ("Total", Qt.AlignRight),
+                ("Cuotas", Qt.AlignRight),
+            ], f_head, [int(w * 0.25), int(w * 0.38), int(w * 0.37)])
+            draw_cols([
+                (pago_label, Qt.AlignLeft),
+                (money(tot), Qt.AlignRight),
+                (f"{cuotas} x {money(monto_cuota)}", Qt.AlignRight),
+            ], f_norm, [int(w * 0.25), int(w * 0.38), int(w * 0.37)])
+        else:
+            draw_lr("Forma de pago", "Tarjeta", f_norm)
+            draw_lr("Total", money(tot), f_norm)
     else:
-        if getattr(venta, "pagado", None) is not None:
-            draw_lr("Abonado", money(getattr(venta, "pagado", 0.0)), f_norm)
-            draw_lr("Vuelto",  money(getattr(venta, "vuelto", 0.0)),  f_norm)
+        pagado = float(getattr(venta, "pagado", 0.0) or 0.0)
+        vuelto_val = float(getattr(venta, "vuelto", 0.0) or 0.0)
+        pago_col_w = [int(w * 0.22), int(w * 0.26), int(w * 0.26), int(w * 0.26)]
+        draw_cols([
+            ("Pago", Qt.AlignLeft),
+            ("Total", Qt.AlignRight),
+            ("Entregado", Qt.AlignRight),
+            ("Devuelto", Qt.AlignRight),
+        ], f_head, pago_col_w)
+        draw_cols([
+            (pago_label, Qt.AlignLeft),
+            (money(tot), Qt.AlignRight),
+            (money(pagado), Qt.AlignRight),
+            (money(vuelto_val), Qt.AlignRight),
+        ], f_norm, pago_col_w)
+
+    gap()
 
     # ===== AFIP / CAE (si existe) =====
     afip_cae = getattr(venta, "afip_cae", None)
@@ -466,48 +557,65 @@ def _compute_ticket_height_mm(venta, prn, width_mm=75.0, template_override: str 
     MARGIN_MM, GAP_MM, SEP_MM = 3.0, 1.2, 0.8
     total = MARGIN_MM
 
-    # Encabezado (título + línea info + dirección/sucursal)
-    total += h_t + GAP_MM
-    info_lines = 0
+    # Encabezado profesional (separator + título + dirección + CUIT + separator + ticket/fecha/sucursal)
+    total += h_n  # separator "===="
+    total += h_t + GAP_MM  # business name
+    total += h_n  # dirección
+    total += h_n  # CUIT
+    total += h_n  # separator "===="
+    total += GAP_MM
+
+    # Ticket number, fecha, sucursal
+    if getattr(venta, "numero_ticket", None) or getattr(venta, "id", None):
+        total += h_n
     try:
-        if getattr(venta, "fecha", None): info_lines += 1
+        if getattr(venta, "fecha", None):
+            total += h_n
     except Exception:
         pass
-    if getattr(venta, "numero_ticket", None) or getattr(venta, "id", None): info_lines += 1
-    if info_lines: total += h_n
-    total += h_n       # dirección/sucursal
-    total += SEP_MM
+    total += h_n  # sucursal
+    total += GAP_MM
 
-    # Ítems (TRES líneas por ítem: nombre, código, cantidad×precio)
+    # Ítems (tabla con encabezado: N. | Artículos | Prec. | Total)
+    total += SEP_MM  # line separator
+    total += h_h  # header row
+    total += SEP_MM  # line separator
     items = getattr(venta, "_ticket_items", None) or []
     for it in items:
-        total += h_n  # línea 1: nombre
-        codigo = it.get("codigo") or "" if isinstance(it, dict) else ""
-        if codigo:
-            total += h_n  # línea 2: código (solo si existe)
-        total += h_n  # línea 3: cantidad × precio
-        total += SEP_MM
-    total += SEP_MM
+        total += h_n  # main row (qty + name + price + total)
+        nombre = it.get("nombre", "") if isinstance(it, dict) else ""
+        if len(nombre) > 18:
+            total += h_n  # continuation line for long names
+    total += SEP_MM  # line separator
+    total += GAP_MM
 
-    # Totales / interés / total
-    if getattr(venta, "subtotal_base", None) is not None: total += h_n
-    if getattr(venta, "descuento_monto", None):           total += h_n
-    if getattr(venta, "interes_monto", None):             total += h_n
-    total += h_h + SEP_MM
-    total += SEP_MM
+    # Totales (subtotal + descuento + interés + total con impuestos + descuento total)
+    if getattr(venta, "subtotal_base", None) is not None:
+        total += h_n  # subtotal
+    total += h_n  # descuento
+    if getattr(venta, "interes_monto", None):
+        total += h_n  # interés
+    total += h_h  # total (con impuestos) - bold
+    total += h_n  # descuento total
+    total += GAP_MM
 
-    # Forma/efectivo (abonado y vuelto si aplica)
-    total += h_n
+    # IVA section (separator + header + separator + values)
+    total += SEP_MM  # line separator
+    total += h_h  # IVA header row
+    total += SEP_MM  # line separator
+    total += h_n  # IVA values row (21% | base | cuota)
+    total += GAP_MM
+
+    # Forma de pago (tabla: header + values row)
+    total += h_h  # payment header row
+    total += h_n  # payment values row
     forma_raw = (getattr(venta, "forma_pago", "") or getattr(venta, "modo_pago", "") or getattr(venta, "modo", "")).lower()
     is_card = ("tarj" in forma_raw)
     if is_card:
         cuotas = int(getattr(venta, "cuotas", 0) or 0)
-        if cuotas > 0:
-            total += h_n  # línea de cuotas
-    else:
-        if getattr(venta, "pagado", None) is not None:
-            total += h_n
-            total += h_n
+        if cuotas <= 0:
+            total += h_n  # extra line for non-cuota card
+    total += GAP_MM
 
     # AFIP / CAE (si existe)
     afip_cae = getattr(venta, "afip_cae", None)
@@ -667,6 +775,16 @@ def _tpl_context(venta, sucursal, direcciones):
     # Sucursal/dirección
     dir_txt = (direcciones or {}).get(sucursal, "") or ""
 
+    # Obtener CUIT y dirección de config fiscal
+    from app.config import load as load_config
+    cfg = load_config()
+    cuit_txt = cfg.get("fiscal", {}).get("cuit", "")
+    business_dir = (direcciones or {}).get(sucursal, "") or S.get("address", "")
+
+    # IVA breakdown
+    iva_base = round(total / 1.21, 2) if total else 0.0
+    iva_cuota = round(total - total / 1.21, 2) if total else 0.0
+
     ctx = {
         "ticket.numero":     str(num or ""),
         "ticket.fecha_hora": dtxt,
@@ -680,9 +798,16 @@ def _tpl_context(venta, sucursal, direcciones):
         "totales.total":     _money(total),
         "abonado":           (_money(abonado) if abonado is not None else "-"),
         "vuelto":            (_money(vuelto)  if vuelto  is not None else "-"),
-        "business":          S.get("business", ""),   # ← NUEVO
+        "business":          S.get("business", ""),
         "title":             S.get("title", "TICKET"),
-        "totales.descuento": (_money(descuento) if descuento else "-")
+        "totales.descuento": (_money(descuento) if descuento else "-"),
+        # Nuevos placeholders profesionales
+        "business.cuit":     cuit_txt,
+        "business.direccion": business_dir,
+        "iva.base":          _money(iva_base),
+        "iva.cuota":         _money(iva_cuota),
+        "iva.porcentaje":    "21%",
+        "vendedor":          "",
     }
     return ctx, items
 

@@ -572,63 +572,110 @@ class StatsMixin:
     # --- Cargar/Guardar slots de plantilla en config ---
 
     def _build_tpl_placeholder_panel(self):
-        from PyQt5.QtWidgets import QWidget, QVBoxLayout, QGroupBox, QGridLayout, QPushButton
+        from PyQt5.QtWidgets import (
+            QWidget, QVBoxLayout, QLabel, QGridLayout, QPushButton, QFrame
+        )
 
-        def make_section(title, buttons):
-            box = QGroupBox(title)
-            grid = QGridLayout(box)
-            grid.setHorizontalSpacing(10)
-            grid.setVerticalSpacing(8)
-            grid.setContentsMargins(8, 8, 8, 8)
-            for i, (text, ins) in enumerate(buttons):
-                b = QPushButton(text)
-                b.setProperty("role", "inline")
-                b.setMinimumHeight(28)
-                b.setMinimumWidth(0)          # no se estiran
-                b.clicked.connect(lambda _=None, s=ins: self._tpl_insert(s))
-                grid.addWidget(b, i // 2, i % 2, alignment=Qt.AlignLeft)  # 2 columnas, pegado a la izquierda
-            return box
+        def _make_header(text):
+            """Crea un QLabel de encabezado en negrita para separar grupos."""
+            lbl = QLabel(f"<b>{text}</b>")
+            lbl.setContentsMargins(0, 6, 0, 2)
+            return lbl
+
+        def _make_btn(label, snippet, tooltip=""):
+            """Crea un boton de placeholder con tooltip."""
+            b = QPushButton(label)
+            b.setProperty("role", "inline")
+            b.setMinimumHeight(26)
+            b.setMinimumWidth(0)
+            if tooltip:
+                b.setToolTip(tooltip)
+            # Los tags de formato envuelven texto seleccionado
+            if snippet.endswith(": }}"):
+                tag = snippet.replace("{{", "").replace(": }}", "")
+                b.clicked.connect(lambda _=None, t=tag: self._tpl_insert_wrapped(t))
+            else:
+                b.clicked.connect(lambda _=None, s=snippet: self._tpl_insert(s))
+            return b
+
+        def _add_group(layout, header_text, buttons_info):
+            """Agrega un header + botones en grilla de 2 columnas al layout."""
+            layout.addWidget(_make_header(header_text))
+
+            grid = QGridLayout()
+            grid.setHorizontalSpacing(6)
+            grid.setVerticalSpacing(4)
+            grid.setContentsMargins(4, 0, 4, 0)
+            for i, (label, snippet, tip) in enumerate(buttons_info):
+                btn = _make_btn(label, snippet, tip)
+                grid.addWidget(btn, i // 2, i % 2, Qt.AlignLeft)
+            layout.addLayout(grid)
+
+            # Separador fino entre grupos
+            sep = QFrame()
+            sep.setFrameShape(QFrame.HLine)
+            sep.setFrameShadow(QFrame.Sunken)
+            sep.setFixedHeight(1)
+            layout.addWidget(sep)
 
         w = QWidget()
         v = QVBoxLayout(w)
-        v.setContentsMargins(0, 0, 0, 0)
-        v.setSpacing(10)
+        v.setContentsMargins(4, 0, 4, 0)
+        v.setSpacing(2)
 
-        v.addWidget(make_section("Encabezado / Sucursal", [
-            ("Nº ticket", "{{ticket.numero}}"),
-            ("Fecha/hora", "{{ticket.fecha_hora}}"),
-            ("Sucursal", "{{sucursal}}"),
-            ("Dirección", "{{direccion}}"),
-            ("Nombre comercio", "{{business}}"),
-        ]))
+        # --- Empresa ---
+        _add_group(v, "Empresa", [
+            ("{{business}}",           "{{business}}",           "Nombre del comercio (desde config)"),
+            ("{{business.cuit}}",      "{{business.cuit}}",      "CUIT del emisor (desde config fiscal)"),
+            ("{{business.direccion}}", "{{business.direccion}}", "Direccion de la sucursal actual"),
+        ])
 
-        v.addWidget(make_section("Pago", [
-            ("Modo pago", "{{pago.modo}}"),
-            ("Cuotas", "{{pago.cuotas}}"),
-            ("Monto cuota", "{{pago.monto_cuota}}"),
-            ("Abonado", "{{abonado}}"),
-            ("Vuelto", "{{vuelto}}"),
-        ]))
+        # --- Ticket ---
+        _add_group(v, "Ticket", [
+            ("{{ticket.numero}}",     "{{ticket.numero}}",     "Numero correlativo del ticket"),
+            ("{{ticket.fecha_hora}}", "{{ticket.fecha_hora}}", "Fecha y hora de la venta"),
+            ("{{sucursal}}",          "{{sucursal}}",          "Nombre de la sucursal activa"),
+            ("{{vendedor}}",          "{{vendedor}}",          "Nombre del vendedor / usuario logueado"),
+        ])
 
-        v.addWidget(make_section("Totales", [
-            ("Subtotal", "{{totales.subtotal}}"),
-            ("Interés", "{{totales.interes}}"),
-            ("Descuento", "{{totales.descuento}}"),   # <-- nuevo
-            ("TOTAL", "{{totales.total}}"),
-        ]))
+        # --- Pago ---
+        _add_group(v, "Pago", [
+            ("{{pago.modo}}",        "{{pago.modo}}",        "Forma de pago: Efectivo, Tarjeta, etc."),
+            ("{{pago.cuotas}}",      "{{pago.cuotas}}",      "Cantidad de cuotas (1 si es efectivo)"),
+            ("{{pago.monto_cuota}}", "{{pago.monto_cuota}}", "Monto de cada cuota"),
+            ("{{abonado}}",          "{{abonado}}",          "Monto que abono el cliente"),
+            ("{{vuelto}}",           "{{vuelto}}",           "Vuelto entregado al cliente"),
+        ])
 
-        v.addWidget(make_section("Ítems / Separadores", [
-            ("Ítems", "{{items}}"),
-            ("Línea ({{hr}})", "{{hr}}"),
-        ]))
+        # --- Totales ---
+        _add_group(v, "Totales", [
+            ("{{totales.subtotal}}",  "{{totales.subtotal}}",  "Suma de items sin descuento ni interes"),
+            ("{{totales.descuento}}", "{{totales.descuento}}", "Monto total de descuento aplicado"),
+            ("{{totales.interes}}",   "{{totales.interes}}",   "Recargo por financiacion con tarjeta"),
+            ("{{totales.total}}",     "{{totales.total}}",     "Total final a pagar"),
+        ])
 
-        v.addWidget(make_section("Formato por línea", [
-            ("Centrar", "{{center: TU TEXTO}}"),
-            ("Derecha", "{{right: TU TEXTO}}"),
-            ("Negrita", "{{b: TU TEXTO}}"),
-            ("Centrar+Negrita", "{{centerb: TU TEXTO}}"),
-            ("Derecha+Negrita", "{{rightb: TU TEXTO}}"),
-        ]))
+        # --- Impuestos ---
+        _add_group(v, "Impuestos", [
+            ("{{iva.base}}",       "{{iva.base}}",       "Base imponible (total / 1.21)"),
+            ("{{iva.cuota}}",      "{{iva.cuota}}",      "Monto de IVA discriminado"),
+            ("{{iva.porcentaje}}", "{{iva.porcentaje}}", "Alicuota de IVA aplicada (ej: 21%)"),
+        ])
+
+        # --- Contenido ---
+        _add_group(v, "Contenido", [
+            ("{{items}}", "{{items}}", "Lista de articulos de la venta"),
+            ("{{cae}}",   "{{cae}}",   "Codigo de Autorizacion Electronica (AFIP)"),
+            ("{{hr}}",    "{{hr}}",    "Linea separadora horizontal"),
+        ])
+
+        # --- Formato ---
+        _add_group(v, "Formato", [
+            ("{{center: }}",  "{{center: }}",  "Centra el texto de la linea"),
+            ("{{right: }}",   "{{right: }}",   "Alinea el texto a la derecha"),
+            ("{{b: }}",       "{{b: }}",       "Aplica negrita al texto"),
+            ("{{i: }}",       "{{i: }}",       "Aplica italica al texto"),
+        ])
 
         v.addStretch(1)
         return w

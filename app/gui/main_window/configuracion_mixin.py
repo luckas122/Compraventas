@@ -268,10 +268,10 @@ class ConfiguracionMixin:
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 
-        row.addWidget(self.cfg_txt_tpl, 1)
-        row.addWidget(scroll, 2)
-        row.setStretch(0, 1)
-        row.setStretch(1, 2)
+        row.addWidget(self.cfg_txt_tpl, 7)
+        row.addWidget(scroll, 3)
+        row.setStretch(0, 7)
+        row.setStretch(1, 3)
         lay_tpl.addRow("Contenido:", row_widget)
 
         self.cfg_tpl_slot = QComboBox()
@@ -279,10 +279,13 @@ class ConfiguracionMixin:
         btn_tpl_load = QPushButton("Cargar"); btn_tpl_save = QPushButton("Guardar en slot")
         btn_tpl_rename = QPushButton("Renombrar"); btn_tpl_rename.setProperty("role", "inline")
         btn_preview_live = QPushButton("Live"); btn_preview_live.setProperty("role", "inline")
+        btn_tpl_restore = QPushButton("Restaurar Predeterminados"); btn_tpl_restore.setProperty("role", "inline")
+        btn_tpl_restore.setToolTip("Restaura el slot seleccionado a su plantilla por defecto")
         btn_preview_live.clicked.connect(self._tpl_open_live_preview)
         btn_tpl_load.clicked.connect(self._tpl_load_from_slot)
         btn_tpl_save.clicked.connect(self._tpl_save_to_slot)
         btn_tpl_rename.clicked.connect(self._tpl_rename_slot)
+        btn_tpl_restore.clicked.connect(self._tpl_restore_defaults)
 
         hl_slots = QHBoxLayout()
         hl_slots.setSpacing(8)
@@ -290,6 +293,7 @@ class ConfiguracionMixin:
         hl_slots.addWidget(btn_tpl_load)
         hl_slots.addWidget(btn_tpl_save)
         hl_slots.addWidget(btn_tpl_rename)
+        hl_slots.addWidget(btn_tpl_restore)
         hl_slots.addSpacing(12)
         hl_slots.addWidget(btn_preview_live)
         hl_slots.addStretch(1)
@@ -308,11 +312,11 @@ class ConfiguracionMixin:
         lay_tpl.addRow("Plantilla para Tarjeta:", self.cfg_tpl_tarjeta)
 
         help_lbl = QLabel(
-            "Texto libre + placeholders. Separadores: {{hr}}. Ítems: {{items}}. "
-            "Alineado/estilo por línea: {{center: ...}}, {{right: ...}}, {{b: ...}}, {{i: ...}}, "
-            "{{centerb: ...}}, {{rightb: ...}}"
+            "Usa los botones del panel derecho para insertar placeholders. "
+            "Pasa el mouse sobre cada boton para ver su descripcion."
         )
         help_lbl.setWordWrap(True)
+        help_lbl.setStyleSheet("color: #888; font-size: 9pt;")
         lay_tpl.addRow("", help_lbl)
 
         lay_tk.addWidget(gb_tpl)
