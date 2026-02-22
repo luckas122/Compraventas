@@ -536,10 +536,12 @@ class VentasTicketMixin:
                 self._completer_debounce.timeout.connect(self._update_completer_filter)
                 ventas_input.textChanged.connect(lambda t: self._completer_debounce.start())
 
-                # --- Filtro para que Enter con popup visible solo seleccione,
-                #     sin agregar a la cesta hasta un segundo Enter ---
-                ventas_input.installEventFilter(self)
-                self._completer_popup_just_accepted = False
+            # --- CRÍTICO: Desconectar highlighted para que navegar con
+            # flechas NO escriba automáticamente en el QLineEdit ---
+            try:
+                self._completer.highlighted[str].disconnect()
+            except (TypeError, RuntimeError):
+                pass  # no hay conexiones previas
 
             from app.gui.common import LIVE_SEARCH_FONT_PT, LIVE_SEARCH_ROW_PAD, LIVE_SEARCH_MIN_WIDTH
             try:
@@ -554,6 +556,8 @@ class VentasTicketMixin:
                     f"QListView::item{{ padding:{LIVE_SEARCH_ROW_PAD}px {LIVE_SEARCH_ROW_PAD+2}px; }}"
                     f"QListView{{ min-width:{LIVE_SEARCH_MIN_WIDTH}px; }}"
                 )
+                # Instalar eventFilter en el popup para interceptar flechas
+                popup.installEventFilter(self)
             except Exception:
                 pass
             # Asegurarnos de NO poner completer en Productos
@@ -578,6 +582,13 @@ class VentasTicketMixin:
                 proxy.setFilterWildcard(f"*{text}*")
                 self._completer.setCompletionPrefix(text)
                 self._completer.complete()
+                # Reinstalar eventFilter en el popup (Qt puede recrearlo)
+                try:
+                    popup = self._completer.popup()
+                    if popup is not None:
+                        popup.installEventFilter(self)
+                except Exception:
+                    pass
         except Exception:
             pass
 

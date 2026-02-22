@@ -635,6 +635,13 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
             lambda s: self.input_venta_buscar.setText(str(s).split(" - ")[0].strip())
         )
 
+        # Desconectar highlighted para que navegar con flechas NO
+        # escriba automáticamente en el QLineEdit
+        try:
+            self._comp.highlighted[str].disconnect()
+        except (TypeError, RuntimeError):
+            pass
+
         self._comp_inicializado = True
 
     def _apply_completer_filter(self, text: str):
@@ -651,21 +658,22 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
 
     def eventFilter(self, obj, event):
         try:
+            # --- Interceptar teclas en el POPUP del completer de ventas ---
+            # Qt envía las flechas directamente al popup (QListView), no al
+            # QLineEdit, por eso hay que filtrar en el popup mismo.
             ventas_input = getattr(self, 'input_venta_buscar', None)
-            if ventas_input is not None and obj is ventas_input:
-                if event.type() == QEvent.KeyPress:
-                    key = event.key()
-                    comp = getattr(self, '_completer', None) or getattr(self, '_comp', None)
-                    if comp is not None:
-                        popup = comp.popup()
-                        if popup is not None and popup.isVisible():
+            comp = getattr(self, '_completer', None) or getattr(self, '_comp', None)
 
-                            # --- Flechas ↑↓: mover selección del popup SIN
-                            #     que Qt ponga el texto en el QLineEdit ---
-                            if key in (Qt.Key_Down, Qt.Key_Up):
-                                model = popup.model()
-                                if model is None or model.rowCount() == 0:
-                                    return True
+            if comp is not None and ventas_input is not None:
+                popup = comp.popup()
+                if popup is not None and obj is popup:
+                    if event.type() == QEvent.KeyPress:
+                        key = event.key()
+
+                        # Flechas ↑↓: mover selección SIN que Qt cambie el texto
+                        if key in (Qt.Key_Down, Qt.Key_Up):
+                            model = popup.model()
+                            if model and model.rowCount() > 0:
                                 idx = popup.currentIndex()
                                 row = idx.row() if idx.isValid() else -1
                                 if key == Qt.Key_Down:
@@ -674,23 +682,35 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
                                     row = max(row - 1, 0)
                                 new_idx = model.index(row, 0)
                                 popup.setCurrentIndex(new_idx)
-                                return True  # Consumir: NO cambia texto
+                                popup.scrollTo(new_idx)
+                            return True  # Consumir: NO toca el QLineEdit
 
-                            # --- Enter: aceptar selección actual y poner
-                            #     código en el campo, sin agregar a cesta ---
-                            if key in (Qt.Key_Return, Qt.Key_Enter):
-                                idx = popup.currentIndex()
-                                if idx.isValid():
-                                    text = idx.data()
-                                    code = str(text).split(" - ")[0].strip()
-                                    ventas_input.setText(code)
-                                popup.hide()
-                                return True  # Bloquear returnPressed
+                        # Enter: aceptar selección, poner código, cerrar popup
+                        if key in (Qt.Key_Return, Qt.Key_Enter):
+                            idx = popup.currentIndex()
+                            if idx.isValid():
+                                text = idx.data()
+                                code = str(text).split(" - ")[0].strip()
+                                # Bloquear temporalmente el textChanged para no
+                                # refiltrar el completer al setear el texto
+                                ventas_input.blockSignals(True)
+                                ventas_input.setText(code)
+                                ventas_input.blockSignals(False)
+                            popup.hide()
+                            return True
 
-                            # --- Escape: cerrar popup ---
-                            if key == Qt.Key_Escape:
-                                popup.hide()
-                                return True
+                        # Escape: cerrar popup
+                        if key == Qt.Key_Escape:
+                            popup.hide()
+                            return True
+
+                        # Cualquier otra tecla: redirigir al QLineEdit
+                        # (para que el usuario pueda seguir escribiendo)
+                        if key not in (Qt.Key_Shift, Qt.Key_Control, Qt.Key_Alt, Qt.Key_Meta):
+                            popup.hide()
+                            ventas_input.setFocus()
+                            QApplication.sendEvent(ventas_input, event)
+                            return True
 
             # --- Checkbox en tabla productos ---
             tbl = getattr(self, "table_productos", None)

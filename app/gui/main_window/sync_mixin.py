@@ -634,13 +634,21 @@ class SyncNotificationsMixin:
 
     def _mostrar_dialogo_actualizacion(self, version_anterior, version_nueva, cfg):
         """Ofrece al usuario mantener configuración o empezar de nuevo."""
+        # Mostrar ruta del backup para que el usuario sepa dónde buscar
+        try:
+            backup_path = get_backup_path()
+            backup_dir = str(Path(backup_path).parent)
+        except Exception:
+            backup_dir = "(no disponible)"
+
         msg = QMessageBox(self)
         msg.setWindowTitle("Actualización detectada")
         msg.setIcon(QMessageBox.Question)
         msg.setText(
             f"Se actualizó de v{version_anterior} a v{version_nueva}.\n\n"
             f"Tu configuración anterior se ha detectado.\n"
-            f"¿Qué querés hacer?"
+            f"¿Qué querés hacer?\n\n"
+            f"📁 Backup de config: {backup_dir}"
         )
 
         btn_mantener = msg.addButton("Mantener configuración", QMessageBox.AcceptRole)
@@ -686,27 +694,74 @@ class SyncNotificationsMixin:
                 save_config(cfg)
 
         elif clicked == btn_nuevo:
+            # Obtener ruta de la BD para mostrar al usuario qué se borrará
+            try:
+                from app.database import DB_PATH as _db_path_val
+                db_display = str(_db_path_val)
+            except Exception:
+                db_display = "(no se pudo determinar)"
+
             resp = QMessageBox.warning(
                 self, "Confirmar",
                 "Esto borrará TODA tu configuración actual\n"
-                "(impresoras, sync, preferencias, etc.)\n\n"
-                "¿Estás seguro?",
+                "(impresoras, sync, preferencias, etc.)\n"
+                "Y TAMBIÉN la base de datos local completa\n"
+                "(productos, ventas, historial, etc.)\n\n"
+                f"BD: {db_display}\n"
+                f"Config: {CONFIG_PATH}\n\n"
+                "¿Estás seguro? Esta acción NO se puede deshacer.",
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No
             )
             if resp == QMessageBox.Yes:
                 try:
-                    # Borrar config y recrear con defaults
+                    # 1. Cerrar la sesión de BD para poder borrar el archivo
+                    try:
+                        if hasattr(self, 'session') and self.session is not None:
+                            self.session.close()
+                            self.session = None
+                    except Exception:
+                        pass
+
+                    # 2. Borrar la base de datos
+                    try:
+                        from app.database import DB_PATH as _db_path_val
+                        db_path_str = str(_db_path_val)
+                        if os.path.exists(db_path_str):
+                            os.remove(db_path_str)
+                            logger.info(f"[RESET] BD borrada: {db_path_str}")
+                    except Exception as e:
+                        logger.warning(f"[RESET] No se pudo borrar BD: {e}")
+
+                    # 3. Borrar config y recrear con defaults
                     if os.path.exists(CONFIG_PATH):
                         os.remove(CONFIG_PATH)
                     cfg_new = load_config()  # Crea config con defaults
                     cfg_new["_last_version"] = version_nueva
                     save_config(cfg_new)
+
+                    # 4. Borrar cola de sync offline
+                    try:
+                        from app.config import _get_app_data_dir
+                        queue_path = os.path.join(_get_app_data_dir(), "sync_queue.json")
+                        if os.path.exists(queue_path):
+                            os.remove(queue_path)
+                    except Exception:
+                        pass
+
                     QMessageBox.information(
-                        self, "Configuración reiniciada",
-                        "Se creó una configuración nueva. Reiniciá la aplicación para aplicar los cambios."
+                        self, "Reset completo",
+                        "Se borró la configuración y la base de datos.\n\n"
+                        "La aplicación se cerrará ahora.\n"
+                        "Al abrirla de nuevo empezará completamente limpia."
                     )
+                    # Cerrar la app — no se puede seguir sin BD ni sesión
+                    try:
+                        QApplication.quit()
+                    except Exception:
+                        import sys
+                        sys.exit(0)
                 except Exception as e:
-                    QMessageBox.warning(self, "Error", f"No se pudo reiniciar la configuración:\n{e}")
+                    QMessageBox.warning(self, "Error", f"No se pudo reiniciar:\n{e}")
             else:
                 cfg["_last_version"] = version_nueva
                 save_config(cfg)

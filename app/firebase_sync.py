@@ -545,25 +545,41 @@ class FirebaseSyncManager:
             self._log(f"Pull {tipo} pag{page_num}: {len(keys)} entradas recibidas")
 
             page_applied = 0
+            skipped_own = 0
+            skipped_cursor = 0
+            skipped_invalid = 0
+            skipped_apply_fail = 0
             for push_key in keys:
                 # Saltar el key del cursor (startAt es inclusivo)
                 if push_key == cursor:
+                    skipped_cursor += 1
                     continue
 
                 change = data[push_key]
                 if not isinstance(change, dict):
+                    skipped_invalid += 1
                     cursor = push_key
                     continue
 
                 # Ignorar cambios propios
-                if change.get("sucursal_origen") == self.sucursal_local:
+                origen = change.get("sucursal_origen", "???")
+                if origen == self.sucursal_local:
+                    skipped_own += 1
                     cursor = push_key
                     continue
 
                 try:
+                    accion = change.get("accion", "create")
+                    inner_data = change.get("data", {})
+                    self._log(f"  {tipo}/{push_key}: origen={origen}, accion={accion}, "
+                              f"data_keys={list(inner_data.keys()) if isinstance(inner_data, dict) else 'N/A'}")
                     ok = self._apply_change(tipo, change)
                     if ok:
                         page_applied += 1
+                        self._log(f"  -> APLICADO OK")
+                    else:
+                        skipped_apply_fail += 1
+                        self._log(f"  -> NO APLICADO (ya existe o datos invalidos)")
                 except Exception as e:
                     self._log(f"Error aplicando {tipo}/{push_key}: {e}")
                     total_errors += 1
@@ -571,6 +587,10 @@ class FirebaseSyncManager:
                 cursor = push_key
 
             total_applied += page_applied
+            self._log(f"Pull {tipo} pag{page_num} resumen: "
+                      f"aplicados={page_applied}, skip_cursor={skipped_cursor}, "
+                      f"skip_propios={skipped_own}, skip_invalidos={skipped_invalid}, "
+                      f"no_aplicados={skipped_apply_fail}")
 
             # Si recibimos menos de PAGE_SIZE+1, ya no hay mas paginas
             expected = PAGE_SIZE + 1 if last_key or (page_num > 1) else PAGE_SIZE
@@ -606,13 +626,16 @@ class FirebaseSyncManager:
         numero_ticket = data.get("numero_ticket")
         sucursal = data.get("sucursal")
         if not numero_ticket or not sucursal:
+            self._log(f"  _apply_venta SKIP: faltan datos (ticket={numero_ticket}, suc={sucursal})")
             return False
 
-        # Verificar duplicado
+        # Verificar duplicado por numero_ticket + sucursal
         existing = self.session.query(Venta).filter_by(
-            numero_ticket=numero_ticket
+            numero_ticket=numero_ticket,
+            sucursal=sucursal,
         ).first()
         if existing:
+            self._log(f"  _apply_venta SKIP: ya existe ticket #{numero_ticket} suc={sucursal} (id={existing.id})")
             return False  # Ya existe
 
         try:
@@ -667,10 +690,12 @@ class FirebaseSyncManager:
         """Aplica una modificacion de venta (devolucion)."""
         numero_ticket = data.get("numero_ticket")
         if not numero_ticket:
+            self._log(f"  _apply_venta_update SKIP: sin numero_ticket")
             return False
 
         venta = self.session.query(Venta).filter_by(numero_ticket=numero_ticket).first()
         if not venta:
+            self._log(f"  _apply_venta_update SKIP: ticket #{numero_ticket} no existe localmente")
             return False
 
         if "total" in data:
