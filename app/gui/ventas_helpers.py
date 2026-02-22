@@ -447,28 +447,11 @@ def _draw_ticket(p, page_rect, prn, venta, sucursal, direcciones, width_mm=75.0,
     if getattr(venta, "subtotal_base", None) is not None:
         draw_lr("Subtotal", money(getattr(venta, "subtotal_base", 0.0)), f_norm)
     descuento_monto = float(getattr(venta, "descuento_monto", 0.0) or 0.0)
-    draw_lr("Descuento", money(descuento_monto), f_norm)
+    if descuento_monto:
+        draw_lr("Descuento", money(descuento_monto), f_norm)
     if getattr(venta, "interes_monto", None):
         draw_lr("Interés", money(getattr(venta, "interes_monto", 0.0)), f_norm)
-    draw_lr("Total (con impuestos)", money(tot), f_head)
-    draw_lr("Descuento total", money(descuento_monto), f_norm)
-    gap()
-
-    # ===== IVA / Impuestos =====
-    line()
-    iva_base = round(tot / 1.21, 2) if tot else 0.0
-    iva_cuota = round(tot - iva_base, 2) if tot else 0.0
-    draw_cols([
-        ("Impuestos", Qt.AlignLeft),
-        ("Base imp.", Qt.AlignRight),
-        ("Cuota", Qt.AlignRight),
-    ], f_head, [int(w * 0.34), int(w * 0.33), int(w * 0.33)])
-    line()
-    draw_cols([
-        ("21%", Qt.AlignLeft),
-        (money(iva_base), Qt.AlignRight),
-        (money(iva_cuota), Qt.AlignRight),
-    ], f_norm, [int(w * 0.34), int(w * 0.33), int(w * 0.33)])
+    draw_lr("TOTAL", money(tot), f_head)
     gap()
 
     # ===== Forma de pago =====
@@ -589,21 +572,15 @@ def _compute_ticket_height_mm(venta, prn, width_mm=75.0, template_override: str 
     total += SEP_MM  # line separator
     total += GAP_MM
 
-    # Totales (subtotal + descuento + interés + total con impuestos + descuento total)
+    # Totales (subtotal + descuento + interés + TOTAL)
     if getattr(venta, "subtotal_base", None) is not None:
         total += h_n  # subtotal
-    total += h_n  # descuento
+    descuento_m = float(getattr(venta, "descuento_monto", 0.0) or 0.0)
+    if descuento_m:
+        total += h_n  # descuento
     if getattr(venta, "interes_monto", None):
         total += h_n  # interés
-    total += h_h  # total (con impuestos) - bold
-    total += h_n  # descuento total
-    total += GAP_MM
-
-    # IVA section (separator + header + separator + values)
-    total += SEP_MM  # line separator
-    total += h_h  # IVA header row
-    total += SEP_MM  # line separator
-    total += h_n  # IVA values row (21% | base | cuota)
+    total += h_h  # TOTAL - bold
     total += GAP_MM
 
     # Forma de pago (tabla: header + values row)

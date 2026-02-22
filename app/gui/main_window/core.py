@@ -193,6 +193,8 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
         # Sistema de sincronizacion via Firebase
         self._firebase_sync = None
         self._sync_running = False
+        self._sync_thread = None          # referencia al hilo de sync activo
+        self._sync_start_time = None      # timestamp de inicio de la sync actual
         self._sync_timer = QTimer(self)
         self._sync_timer.timeout.connect(lambda: self._ejecutar_sincronizacion(manual=False))
         self._last_sync_time = None
@@ -649,12 +651,35 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
 
     def eventFilter(self, obj, event):
         try:
+            # --- Interceptar Enter en buscador de ventas cuando el popup está visible ---
+            # Esto evita que el primer Enter agregue a la cesta; solo acepta la selección
+            # del completer. El segundo Enter (popup ya cerrado) sí agrega.
+            ventas_input = getattr(self, 'input_venta_buscar', None)
+            if ventas_input is not None and obj is ventas_input:
+                from PyQt5.QtCore import QEvent as _QE
+                if event.type() == _QE.KeyPress:
+                    key = event.key()
+                    if key in (Qt.Key_Return, Qt.Key_Enter):
+                        completer = getattr(self, '_completer', None)
+                        if completer is not None:
+                            popup = completer.popup()
+                            if popup is not None and popup.isVisible():
+                                # El popup está visible: dejar que el completer
+                                # acepte la selección, pero bloquear returnPressed
+                                # para que no se agregue a la cesta aún.
+                                idx = popup.currentIndex()
+                                if idx.isValid():
+                                    # Aceptar la selección del completer manualmente
+                                    completer.activated.emit(idx.data())
+                                popup.hide()
+                                return True  # Consumir el evento (no llega a returnPressed)
+
+            # --- Checkbox en tabla productos ---
             tbl = getattr(self, "table_productos", None)
             if tbl is not None:
                 try:
                     vp = tbl.viewport()
                 except RuntimeError:
-                    # Si el objeto fue destruido, no hagas nada
                     return False
                 if obj is vp:
                     if event.type() == QEvent.MouseButtonRelease:

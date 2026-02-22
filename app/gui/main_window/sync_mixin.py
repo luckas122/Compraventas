@@ -196,9 +196,11 @@ class SyncNotificationsMixin:
         # Evitar multiples syncs simultaneas
         if self._sync_running:
             if manual:
-                QMessageBox.information(self, "Sincronizacion", "Ya hay una sincronizacion en curso.")
+                # Mostrar info detallada + opción de cancelar
+                self._mostrar_sync_en_curso()
             return
         self._sync_running = True
+        self._sync_start_time = datetime.now()
 
         # Indicar visualmente que se esta sincronizando
         if hasattr(self, 'status_online'):
@@ -226,17 +228,73 @@ class SyncNotificationsMixin:
                 QTimer.singleShot(0, lambda err=err_msg: self._on_sync_error(err))
 
         t = threading.Thread(target=_sync_worker, daemon=True)
+        self._sync_thread = t
         t.start()
 
         # Watchdog: resetear flag si la sync tarda mas de 120 segundos
         QTimer.singleShot(120_000, self._sync_watchdog_reset)
 
+    def _mostrar_sync_en_curso(self):
+        """Muestra diálogo con info de la sync en curso y opción de cancelar/forzar reset."""
+        elapsed = ""
+        if self._sync_start_time:
+            delta = datetime.now() - self._sync_start_time
+            secs = int(delta.total_seconds())
+            elapsed = f"\nTiempo transcurrido: {secs} segundos"
+
+        thread_alive = ""
+        if self._sync_thread is not None:
+            if self._sync_thread.is_alive():
+                thread_alive = "\nEstado del hilo: ACTIVO"
+            else:
+                thread_alive = "\nEstado del hilo: FINALIZADO (flag no se reseteó)"
+
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Sincronización en curso")
+        msg.setIcon(QMessageBox.Information)
+        msg.setText(
+            f"Hay una sincronización en curso.{elapsed}{thread_alive}\n\n"
+            f"Si el proceso quedó trabado, podés cancelarlo para\n"
+            f"poder sincronizar nuevamente."
+        )
+        btn_cancel = msg.addButton("Cancelar sincronización", QMessageBox.DestructiveRole)
+        btn_ok = msg.addButton("Aceptar", QMessageBox.AcceptRole)
+        msg.setDefaultButton(btn_ok)
+        msg.exec_()
+
+        if msg.clickedButton() == btn_cancel:
+            self._cancelar_sync()
+
+    def _cancelar_sync(self):
+        """Fuerza el reset del flag de sync y actualiza indicadores."""
+        logger.warning("[SYNC] Sync cancelada manualmente por el usuario")
+        self._sync_running = False
+        self._sync_start_time = None
+        self._sync_thread = None
+        if not hasattr(self, '_sync_log_entries'):
+            self._sync_log_entries = []
+        self._sync_log_entries.append(
+            f"[{datetime.now().strftime('%H:%M')}] CANCELADA: Sync cancelada manualmente"
+        )
+        self._check_online_status()
+        QMessageBox.information(self, "Sincronización", "Sincronización cancelada. Podés volver a sincronizar.")
+
     def _sync_watchdog_reset(self):
         """Safety: resetea _sync_running si quedo trabado."""
         if self._sync_running:
-            logger.warning("[SYNC] Watchdog: sync corriendo >120s, reseteando flag")
-            self._sync_running = False
-            self._check_online_status()
+            # Verificar si el hilo realmente sigue vivo
+            thread_alive = self._sync_thread is not None and self._sync_thread.is_alive()
+            if thread_alive:
+                # El hilo sigue corriendo, darle más tiempo pero loguear warning
+                logger.warning("[SYNC] Watchdog: sync corriendo >120s, hilo aún activo")
+                QTimer.singleShot(60_000, self._sync_watchdog_reset)
+            else:
+                # El hilo terminó pero el flag quedó en True = bug
+                logger.warning("[SYNC] Watchdog: hilo terminado pero _sync_running=True, reseteando")
+                self._sync_running = False
+                self._sync_start_time = None
+                self._sync_thread = None
+                self._check_online_status()
 
     def _on_sync_finished(self, resultado):
         """Callback en el hilo principal cuando la sync termina exitosamente."""

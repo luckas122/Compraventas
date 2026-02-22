@@ -655,13 +655,6 @@ class StatsMixin:
             ("{{totales.total}}",     "{{totales.total}}",     "Total final a pagar"),
         ])
 
-        # --- Impuestos ---
-        _add_group(v, "Impuestos", [
-            ("{{iva.base}}",       "{{iva.base}}",       "Base imponible (total / 1.21)"),
-            ("{{iva.cuota}}",      "{{iva.cuota}}",      "Monto de IVA discriminado"),
-            ("{{iva.porcentaje}}", "{{iva.porcentaje}}", "Alicuota de IVA aplicada (ej: 21%)"),
-        ])
-
         # --- Contenido ---
         _add_group(v, "Contenido", [
             ("{{items}}", "{{items}}", "Lista de articulos de la venta"),

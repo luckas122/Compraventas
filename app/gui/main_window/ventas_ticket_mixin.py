@@ -536,6 +536,11 @@ class VentasTicketMixin:
                 self._completer_debounce.timeout.connect(self._update_completer_filter)
                 ventas_input.textChanged.connect(lambda t: self._completer_debounce.start())
 
+                # --- Filtro para que Enter con popup visible solo seleccione,
+                #     sin agregar a la cesta hasta un segundo Enter ---
+                ventas_input.installEventFilter(self)
+                self._completer_popup_just_accepted = False
+
             from app.gui.common import LIVE_SEARCH_FONT_PT, LIVE_SEARCH_ROW_PAD, LIVE_SEARCH_MIN_WIDTH
             try:
                 popup = self._completer.popup()   # QListView del completer

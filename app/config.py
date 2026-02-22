@@ -218,11 +218,7 @@ Sucursal: {{sucursal}}
 {{hr}}
 Subtotal: {{totales.subtotal}}
 Descuento: {{totales.descuento}}
-{{b: Total (con impuestos): {{totales.total}}}}
-Descuento total: {{totales.descuento}}
-{{hr}}
-{{b: Impuestos | Base imp. | Cuota}}
-{{iva.porcentaje}} | {{iva.base}} | {{iva.cuota}}
+{{b: TOTAL: {{totales.total}}}}
 {{hr}}
 {{pago.modo}} | Total: {{totales.total}} | Entregado: {{abonado}} | Devuelto: {{vuelto}}
 {{cae}}
@@ -240,9 +236,7 @@ Ticket: {{ticket.numero}} | {{ticket.fecha_hora}}
 {{hr}}
 {{items}}
 {{hr}}
-{{rightb: Total (con impuestos): {{totales.total}}}}
-{{hr}}
-{{iva.porcentaje}} | {{iva.base}} | {{iva.cuota}}
+{{rightb: TOTAL: {{totales.total}}}}
 {{hr}}
 {{pago.modo}} | {{abonado}} | {{vuelto}}
 {{cae}}
@@ -262,11 +256,7 @@ Sucursal: {{sucursal}}
 Subtotal: {{totales.subtotal}}
 Descuento: {{totales.descuento}}
 Interés: {{totales.interes}}
-{{b: Total (con impuestos): {{totales.total}}}}
-Descuento total: {{totales.descuento}}
-{{hr}}
-{{b: Impuestos | Base imp. | Cuota}}
-{{iva.porcentaje}} | {{iva.base}} | {{iva.cuota}}
+{{b: TOTAL: {{totales.total}}}}
 {{hr}}
 {{pago.modo}} | Cuotas: {{pago.cuotas}} x {{pago.monto_cuota}}
 {{cae}}
@@ -285,9 +275,7 @@ Ticket: {{ticket.numero}} | {{ticket.fecha_hora}}
 {{items}}
 {{hr}}
 Interés: {{totales.interes}}
-{{rightb: Total (con impuestos): {{totales.total}}}}
-{{hr}}
-{{iva.porcentaje}} | {{iva.base}} | {{iva.cuota}}
+{{rightb: TOTAL: {{totales.total}}}}
 {{hr}}
 {{pago.modo}} - {{pago.cuotas}} cuotas de {{pago.monto_cuota}}
 {{cae}}
@@ -308,7 +296,6 @@ Interés: {{totales.interes}}
             "{{totales.subtotal}}", "{{totales.descuento}}", "{{totales.interes}}", "{{totales.total}}",
             "{{abonado}}", "{{vuelto}}", "{{business}}", "{{title}}",
             "{{business.cuit}}", "{{business.direccion}}",
-            "{{iva.base}}", "{{iva.cuota}}", "{{iva.porcentaje}}",
             "{{vendedor}}",
             "{{hr}}", "{{items}}", "{{cae}}"
         ]
