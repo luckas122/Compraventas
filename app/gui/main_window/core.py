@@ -651,28 +651,28 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
 
     def eventFilter(self, obj, event):
         try:
-            # --- Interceptar Enter en buscador de ventas cuando el popup está visible ---
-            # Esto evita que el primer Enter agregue a la cesta; solo acepta la selección
-            # del completer. El segundo Enter (popup ya cerrado) sí agrega.
+            # --- Interceptar Enter/Return en buscador de ventas cuando el popup
+            #     del completer está visible.  El primer Enter sólo acepta la
+            #     selección del dropdown (pone el código en el campo).  Recién un
+            #     SEGUNDO Enter (con popup cerrado) dispara agregar_a_cesta. ---
             ventas_input = getattr(self, 'input_venta_buscar', None)
             if ventas_input is not None and obj is ventas_input:
-                from PyQt5.QtCore import QEvent as _QE
-                if event.type() == _QE.KeyPress:
+                if event.type() == QEvent.KeyPress:
                     key = event.key()
                     if key in (Qt.Key_Return, Qt.Key_Enter):
-                        completer = getattr(self, '_completer', None)
-                        if completer is not None:
-                            popup = completer.popup()
+                        # Buscar cualquier completer activo (puede ser _completer o _comp)
+                        comp = getattr(self, '_completer', None) or getattr(self, '_comp', None)
+                        if comp is not None:
+                            popup = comp.popup()
                             if popup is not None and popup.isVisible():
-                                # El popup está visible: dejar que el completer
-                                # acepte la selección, pero bloquear returnPressed
-                                # para que no se agregue a la cesta aún.
                                 idx = popup.currentIndex()
                                 if idx.isValid():
-                                    # Aceptar la selección del completer manualmente
-                                    completer.activated.emit(idx.data())
+                                    # Poner el código en el campo sin agregar a cesta
+                                    text = idx.data()
+                                    code = str(text).split(" - ")[0].strip()
+                                    ventas_input.setText(code)
                                 popup.hide()
-                                return True  # Consumir el evento (no llega a returnPressed)
+                                return True  # Bloquear returnPressed
 
             # --- Checkbox en tabla productos ---
             tbl = getattr(self, "table_productos", None)

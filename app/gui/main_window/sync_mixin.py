@@ -145,8 +145,7 @@ class SyncNotificationsMixin:
         if not enabled:
             self._firebase_sync = None
             logger.info("[SYNC] Sincronizacion desactivada")
-            # Actualizar indicador inmediatamente para no quedar en "Verificando..."
-            QTimer.singleShot(0, lambda: self._update_online_indicator(False, 0))
+            self._update_sync_button_text("Sync desactivada")
             return
 
         # Crear FirebaseSyncManager usando la sesion principal de la app
@@ -163,9 +162,6 @@ class SyncNotificationsMixin:
         # Siempre ejecutar primera sync al iniciar (independiente del modo)
         QTimer.singleShot(3000, lambda: self._ejecutar_sincronizacion(manual=False))
 
-        # Forzar actualización del indicador online después de inicializar sync
-        QTimer.singleShot(4000, self._check_online_status)
-
     def _reiniciar_sync_scheduler(self):
         """Reinicia el scheduler cuando se guarda la configuracion"""
         self._setup_sync_scheduler()
@@ -180,36 +176,43 @@ class SyncNotificationsMixin:
                 self.btn_sync_manual.setToolTip("Click para sincronizar manualmente")
 
     def _ejecutar_sincronizacion(self, manual=False):
-        """Ejecuta un ciclo de sincronizacion via Firebase (en hilo background)"""
+        """Ejecuta un ciclo de sincronizacion via Firebase (en hilo background)."""
         cfg = load_config()
         sync_cfg = cfg.get("sync", {})
         enabled = sync_cfg.get("enabled", False)
         if not enabled:
             if manual:
-                QMessageBox.information(self, "Sincronizacion", "La sincronizacion esta desactivada en Configuracion.")
+                QMessageBox.information(self, "Sincronización",
+                    "La sincronización está desactivada en Configuración.")
             return
 
         if not self._firebase_sync:
             sucursal_actual = getattr(self, 'sucursal', 'Sarmiento')
             self._firebase_sync = FirebaseSyncManager(self.session, sucursal_actual)
 
-        # Evitar multiples syncs simultaneas
+        # Evitar multiples syncs simultaneas - pero verificar si realmente hay hilo vivo
         if self._sync_running:
-            if manual:
-                # Mostrar info detallada + opción de cancelar
-                self._mostrar_sync_en_curso()
-            return
+            thread_alive = self._sync_thread is not None and self._sync_thread.is_alive()
+            if not thread_alive:
+                # El hilo murió pero el flag quedó en True → resetear
+                logger.warning("[SYNC] _sync_running=True pero hilo muerto, reseteando")
+                self._sync_running = False
+            else:
+                if manual:
+                    self._mostrar_sync_en_curso()
+                return
+
         self._sync_running = True
         self._sync_start_time = datetime.now()
 
-        # Indicar visualmente que se esta sincronizando
-        if hasattr(self, 'status_online'):
-            self.status_online.setText("● Sincronizando...")
-            self.status_online.setStyleSheet("color: #F39C12; font-weight: bold;")
+        # Actualizar botón para indicar sync en curso
+        self._update_sync_button_text("⟳ Sincronizando...")
 
         import threading
 
         def _sync_worker():
+            resultado = None
+            err_msg = None
             try:
                 from app.database import SessionLocal
                 thread_session = SessionLocal()
@@ -219,13 +222,18 @@ class SyncNotificationsMixin:
                     resultado = sync_manager.ejecutar_sincronizacion_completa()
                     mismatches = sync_manager.get_price_mismatches()
                     resultado["_mismatches"] = mismatches
-                    # Capturar valor en lambda para evitar closure bug
-                    QTimer.singleShot(0, lambda r=resultado: self._on_sync_finished(r))
                 finally:
                     thread_session.close()
             except Exception as e:
                 err_msg = str(e)
-                QTimer.singleShot(0, lambda err=err_msg: self._on_sync_error(err))
+                logger.error(f"[SYNC] Worker exception: {err_msg}")
+            finally:
+                # SIEMPRE notificar al hilo principal, pase lo que pase
+                if resultado is not None:
+                    QTimer.singleShot(0, lambda r=resultado: self._on_sync_finished(r))
+                else:
+                    err = err_msg or "Error desconocido en sync"
+                    QTimer.singleShot(0, lambda e=err: self._on_sync_error(e))
 
         t = threading.Thread(target=_sync_worker, daemon=True)
         self._sync_thread = t
@@ -235,84 +243,89 @@ class SyncNotificationsMixin:
         QTimer.singleShot(120_000, self._sync_watchdog_reset)
 
     def _mostrar_sync_en_curso(self):
-        """Muestra diálogo con info de la sync en curso y opción de cancelar/forzar reset."""
+        """Muestra diálogo con info de la sync en curso y opción de cancelar."""
         elapsed = ""
         if self._sync_start_time:
-            delta = datetime.now() - self._sync_start_time
-            secs = int(delta.total_seconds())
+            secs = int((datetime.now() - self._sync_start_time).total_seconds())
             elapsed = f"\nTiempo transcurrido: {secs} segundos"
 
-        thread_alive = ""
+        thread_info = ""
         if self._sync_thread is not None:
             if self._sync_thread.is_alive():
-                thread_alive = "\nEstado del hilo: ACTIVO"
+                thread_info = "\nEstado: hilo ACTIVO"
             else:
-                thread_alive = "\nEstado del hilo: FINALIZADO (flag no se reseteó)"
+                thread_info = "\nEstado: hilo FINALIZADO (flag no se reseteó)"
 
         msg = QMessageBox(self)
         msg.setWindowTitle("Sincronización en curso")
         msg.setIcon(QMessageBox.Information)
         msg.setText(
-            f"Hay una sincronización en curso.{elapsed}{thread_alive}\n\n"
-            f"Si el proceso quedó trabado, podés cancelarlo para\n"
+            f"Hay una sincronización ejecutándose.{elapsed}{thread_info}\n\n"
+            f"Si el proceso quedó trabado, cancelalo para\n"
             f"poder sincronizar nuevamente."
         )
-        btn_cancel = msg.addButton("Cancelar sincronización", QMessageBox.DestructiveRole)
-        btn_ok = msg.addButton("Aceptar", QMessageBox.AcceptRole)
+        btn_cancel = msg.addButton("Cancelar y reintentar", QMessageBox.DestructiveRole)
+        btn_ok = msg.addButton("Esperar", QMessageBox.AcceptRole)
         msg.setDefaultButton(btn_ok)
         msg.exec_()
 
         if msg.clickedButton() == btn_cancel:
-            self._cancelar_sync()
+            self._force_reset_sync()
+            # Lanzar nueva sync automáticamente
+            QTimer.singleShot(500, lambda: self._ejecutar_sincronizacion(manual=True))
 
-    def _cancelar_sync(self):
-        """Fuerza el reset del flag de sync y actualiza indicadores."""
-        logger.warning("[SYNC] Sync cancelada manualmente por el usuario")
+    def _force_reset_sync(self):
+        """Fuerza el reset del flag de sync."""
+        logger.warning("[SYNC] Reset forzado por el usuario")
         self._sync_running = False
         self._sync_start_time = None
         self._sync_thread = None
-        if not hasattr(self, '_sync_log_entries'):
-            self._sync_log_entries = []
-        self._sync_log_entries.append(
-            f"[{datetime.now().strftime('%H:%M')}] CANCELADA: Sync cancelada manualmente"
-        )
-        self._check_online_status()
-        QMessageBox.information(self, "Sincronización", "Sincronización cancelada. Podés volver a sincronizar.")
 
     def _sync_watchdog_reset(self):
         """Safety: resetea _sync_running si quedo trabado."""
-        if self._sync_running:
-            # Verificar si el hilo realmente sigue vivo
-            thread_alive = self._sync_thread is not None and self._sync_thread.is_alive()
-            if thread_alive:
-                # El hilo sigue corriendo, darle más tiempo pero loguear warning
-                logger.warning("[SYNC] Watchdog: sync corriendo >120s, hilo aún activo")
-                QTimer.singleShot(60_000, self._sync_watchdog_reset)
-            else:
-                # El hilo terminó pero el flag quedó en True = bug
-                logger.warning("[SYNC] Watchdog: hilo terminado pero _sync_running=True, reseteando")
-                self._sync_running = False
-                self._sync_start_time = None
-                self._sync_thread = None
-                self._check_online_status()
+        if not self._sync_running:
+            return
+        thread_alive = self._sync_thread is not None and self._sync_thread.is_alive()
+        if thread_alive:
+            logger.warning("[SYNC] Watchdog: sync >120s, hilo aún activo, esperando 60s más")
+            QTimer.singleShot(60_000, self._sync_watchdog_reset)
+        else:
+            logger.warning("[SYNC] Watchdog: hilo muerto pero flag=True, reseteando")
+            self._sync_running = False
+            self._sync_start_time = None
+            self._sync_thread = None
+            self._update_sync_button_text("Sincronizar")
 
     def _on_sync_finished(self, resultado):
         """Callback en el hilo principal cuando la sync termina exitosamente."""
         self._sync_running = False
+        self._sync_thread = None
+        self._sync_start_time = None
         try:
             self._last_sync_time = datetime.now()
+            enviados = resultado.get("enviados", 0)
+            recibidos = resultado.get("recibidos", 0)
+            errores = resultado.get("errores", [])
+
             self._actualizar_indicador_sync(
-                enviados=resultado["enviados"],
-                recibidos=resultado["recibidos"],
-                errores=resultado["errores"]
+                enviados=enviados,
+                recibidos=recibidos,
+                errores=errores
             )
 
             cfg = load_config()
-            cfg["sync"]["last_sync"] = self._last_sync_time.isoformat()
+            cfg.setdefault("sync", {})["last_sync"] = self._last_sync_time.isoformat()
             save_config(cfg)
 
+            # Actualizar botón con hora de última sync
+            hora = self._last_sync_time.strftime("%H:%M")
+            info = f"Sync OK {hora}"
+            if enviados or recibidos:
+                info += f" ({enviados}↑ {recibidos}↓)"
+            self._update_sync_button_text(info)
+
             # Refrescar UI si se recibieron cambios
-            if resultado["recibidos"] > 0:
+            if recibidos > 0:
                 try:
                     self.session.expire_all()
                     self.refrescar_productos()
@@ -330,19 +343,17 @@ class SyncNotificationsMixin:
             except Exception:
                 pass
 
-            # Sync exitosa = estamos online, actualizar indicador inmediatamente
-            self._update_online_indicator(True, 0)
-            # Forzar refresh completo despues de 1 segundo
-            QTimer.singleShot(1000, self._check_online_status)
         except Exception as e:
             logger.error(f"[SYNC] Error procesando resultado: {e}")
 
     def _on_sync_error(self, error_msg):
         """Callback en el hilo principal cuando la sync falla."""
         self._sync_running = False
+        self._sync_thread = None
+        self._sync_start_time = None
         logger.error(f"[SYNC] Error: {error_msg}")
         self._actualizar_indicador_sync(error=error_msg)
-        self._check_online_status()
+        self._update_sync_button_text("⚠ Sync error - Reintentar")
 
     def _actualizar_indicador_sync(self, enviados=0, recibidos=0, errores=None, error=None):
         """Actualiza el indicador de sincronizacion en la barra de estado"""
@@ -506,7 +517,7 @@ class SyncNotificationsMixin:
         dlg.exec_()
 
     def _crear_boton_sync_manual(self):
-        """Crea un boton en la status bar para sincronizacion manual"""
+        """Crea un botón en la status bar para sincronización manual."""
         self.btn_sync_manual = QPushButton("Sincronizar")
         self.btn_sync_manual.setFlat(True)
         self.btn_sync_manual.setToolTip("Click para sincronizar manualmente")
@@ -514,10 +525,28 @@ class SyncNotificationsMixin:
         self.statusBar().addPermanentWidget(self.btn_sync_manual)
 
         cfg = load_config()
-        enabled = cfg.get("sync", {}).get("enabled", False)
+        sync_cfg = cfg.get("sync", {})
+        enabled = sync_cfg.get("enabled", False)
         self.btn_sync_manual.setVisible(True)
+
         if not enabled:
-            self.btn_sync_manual.setToolTip("Sincronizacion desactivada. Activalo en Configuracion.")
+            self.btn_sync_manual.setText("Sync desactivada")
+            self.btn_sync_manual.setToolTip("Sincronización desactivada. Activalo en Configuración.")
+        else:
+            # Mostrar última sync si existe
+            last = sync_cfg.get("last_sync")
+            if last:
+                try:
+                    dt = datetime.fromisoformat(last)
+                    self.btn_sync_manual.setText(f"Última sync: {dt.strftime('%d/%m %H:%M')}")
+                except Exception:
+                    pass
+
+    def _update_sync_button_text(self, text: str):
+        """Actualiza el texto del botón de sync en la barra de estado."""
+        if hasattr(self, 'btn_sync_manual'):
+            self.btn_sync_manual.setText(text)
+            self.btn_sync_manual.setToolTip(f"{text}\nClick para sincronizar manualmente")
 
     def _sync_push(self, tipo, entity, accion="upsert"):
         """Helper para publicar un cambio en Firebase desde cualquier mixin."""
@@ -721,7 +750,6 @@ class SyncNotificationsMixin:
         usuario = "Usuario"  # Por defecto
         try:
             from app.login import LoginDialog
-            # Aquí podrías obtener el usuario actual si lo tienes almacenado
             usuario = "Admin" if self.es_admin else "Usuario"
         except:
             pass
@@ -740,25 +768,6 @@ class SyncNotificationsMixin:
         self.status_timer = QTimer(self)
         self.status_timer.timeout.connect(self._update_status_time)
         self.status_timer.start(1000)  # 1 segundo
-
-        # --- Indicador Online/Offline ---
-        sep3 = QLabel(" | ")
-        status_bar.addWidget(sep3)
-
-        self.status_online = QLabel("● Verificando...")
-        self.status_online.setStyleSheet("color: #95A5A6; font-weight: bold;")
-        self.status_online.setCursor(Qt.PointingHandCursor)
-        self.status_online.setToolTip("Estado de conexión con Firebase")
-        self.status_online.mousePressEvent = lambda ev: self._mostrar_cola_offline()
-        status_bar.addWidget(self.status_online)
-
-        # Timer para verificar conectividad cada 30 segundos
-        self._online_check_timer = QTimer(self)
-        self._online_check_timer.timeout.connect(self._check_online_status)
-        self._online_check_timer.start(30000)  # 30 segundos
-
-        # Check inicial después de 5 segundos
-        QTimer.singleShot(5000, self._check_online_status)
 
         # Actualizar inmediatamente
         self._update_status_time()
@@ -781,113 +790,9 @@ class SyncNotificationsMixin:
         self.status_hora.setText(f"🕐 {now.strftime('%H:%M:%S')}")
 
     def _check_online_status(self):
-        """Verifica conectividad con Firebase y actualiza indicador."""
-        import threading
-
-        def _check():
-            try:
-                online = False
-                if self._firebase_sync:
-                    online = self._firebase_sync._is_online()
-
-                # Contar cola offline
-                pending = 0
-                if self._firebase_sync:
-                    try:
-                        queue = self._firebase_sync._load_offline_queue()
-                        pending = len(queue)
-                    except Exception:
-                        pass
-
-                # Actualizar UI en el hilo principal
-                QTimer.singleShot(0, lambda: self._update_online_indicator(online, pending))
-            except Exception:
-                QTimer.singleShot(0, lambda: self._update_online_indicator(False, 0))
-
-        # Ejecutar en hilo para no bloquear UI
-        t = threading.Thread(target=_check, daemon=True)
-        t.start()
+        """Stub para compatibilidad — ya no hay indicador online separado."""
+        pass
 
     def _update_online_indicator(self, online: bool, pending: int):
-        """Actualiza el indicador visual de online/offline."""
-        if not hasattr(self, 'status_online'):
-            return
-
-        if online:
-            if pending > 0:
-                self.status_online.setText(f"● {pending} pendientes")
-                self.status_online.setStyleSheet("color: #F39C12; font-weight: bold;")
-                self.status_online.setToolTip(f"Online - {pending} cambios pendientes en cola")
-            else:
-                self.status_online.setText("● Online")
-                self.status_online.setStyleSheet("color: #27AE60; font-weight: bold;")
-                self.status_online.setToolTip("Conectado a Firebase")
-        else:
-            cfg = load_config()
-            sync_enabled = cfg.get("sync", {}).get("enabled", False)
-            if not sync_enabled:
-                self.status_online.setText("● Sync off")
-                self.status_online.setStyleSheet("color: #95A5A6; font-weight: bold;")
-                self.status_online.setToolTip("Sincronización desactivada")
-            else:
-                txt = "● Offline"
-                if pending > 0:
-                    txt += f" ({pending})"
-                self.status_online.setText(txt)
-                self.status_online.setStyleSheet("color: #E74C3C; font-weight: bold;")
-                self.status_online.setToolTip(f"Sin conexión a Firebase. {pending} cambios pendientes.")
-
-    def _mostrar_cola_offline(self):
-        """Muestra ventana con detalle de la cola offline."""
-        from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QTableWidget,
-                                      QTableWidgetItem, QHeaderView, QDialogButtonBox, QLabel)
-
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Cola de sincronización offline")
-        dlg.resize(600, 400)
-        layout = QVBoxLayout(dlg)
-
-        # Info
-        online = False
-        queue = []
-        if self._firebase_sync:
-            try:
-                online = self._firebase_sync._is_online()
-                queue = self._firebase_sync._load_offline_queue()
-            except Exception:
-                pass
-
-        status_text = "● Online" if online else "● Offline"
-        layout.addWidget(QLabel(f"Estado: {status_text}  |  Cambios en cola: {len(queue)}"))
-
-        if queue:
-            table = QTableWidget(len(queue), 4)
-            table.setHorizontalHeaderLabels(["Tipo", "Acción", "Sucursal", "Timestamp"])
-            table.verticalHeader().setVisible(False)
-
-            for i, item in enumerate(queue):
-                table.setItem(i, 0, QTableWidgetItem(item.get("tipo", "")))
-                table.setItem(i, 1, QTableWidgetItem(item.get("accion", "")))
-                table.setItem(i, 2, QTableWidgetItem(item.get("sucursal_origen", "")))
-                ts = item.get("timestamp", 0)
-                if ts:
-                    from datetime import datetime
-                    dt = datetime.fromtimestamp(ts / 1000)
-                    table.setItem(i, 3, QTableWidgetItem(dt.strftime("%d/%m %H:%M:%S")))
-                else:
-                    table.setItem(i, 3, QTableWidgetItem("--"))
-
-            hdr = table.horizontalHeader()
-            hdr.setSectionResizeMode(QHeaderView.Stretch)
-            layout.addWidget(table)
-        else:
-            layout.addWidget(QLabel("No hay cambios pendientes en la cola."))
-
-        btns = QDialogButtonBox(QDialogButtonBox.Close, dlg)
-        btns.rejected.connect(dlg.close)
-        layout.addWidget(btns)
-
-        dlg.exec_()
-
-        # Actualizar indicador después de cerrar el diálogo
-        self._update_online_indicator(online, len(queue))
+        """Stub para compatibilidad — ya no hay indicador online separado."""
+        pass
