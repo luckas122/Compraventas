@@ -154,16 +154,19 @@ class SyncNotificationsMixin:
         logger.info(f"[SYNC] Sync activada, modo={mode}, intervalo={interval_min}min")
 
         if mode == "interval":
-            ms = interval_min * 60 * 1000
+            ms = max(interval_min * 60 * 1000, 120_000)  # mínimo 2 minutos
             self._sync_timer.setInterval(ms)
             self._sync_timer.start()
-            logger.info(f"[SYNC] Timer iniciado: cada {ms}ms ({interval_min} min)")
+            logger.info(f"[SYNC] Timer iniciado: cada {ms}ms ({max(interval_min, 2)} min)")
 
-        # Siempre ejecutar primera sync al iniciar (independiente del modo)
-        QTimer.singleShot(3000, lambda: self._ejecutar_sincronizacion(manual=False))
+        # Solo disparar singleShot la PRIMERA vez (no al reconfigurar)
+        # Esto evita syncs duplicadas cuando se guarda la configuración
+        if not getattr(self, '_sync_initial_fired', False):
+            self._sync_initial_fired = True
+            QTimer.singleShot(3000, lambda: self._ejecutar_sincronizacion(manual=False))
 
     def _reiniciar_sync_scheduler(self):
-        """Reinicia el scheduler cuando se guarda la configuracion"""
+        """Reinicia el scheduler cuando se guarda la configuracion (sin sync inmediata)."""
         self._setup_sync_scheduler()
         self._actualizar_texto_boton_sync()
 
@@ -197,8 +200,24 @@ class SyncNotificationsMixin:
         self._sync_running = True
         self._sync_start_time = datetime.now()
 
+        # Liberar cualquier lock pendiente de la sesión principal ANTES de lanzar
+        # el thread de sync. Esto evita "database is locked" por contención.
+        try:
+            self.session.commit()
+        except Exception:
+            try:
+                self.session.rollback()
+            except Exception:
+                pass
+
         # Actualizar botón para indicar sync en curso
-        self._update_sync_button_text("⟳ Sincronizando...")
+        self._update_sync_button_text("⟳ Sincronizando... 0s")
+
+        # Iniciar timer de progreso (muestra elapsed time cada segundo)
+        if not hasattr(self, '_sync_progress_timer') or self._sync_progress_timer is None:
+            self._sync_progress_timer = QTimer(self)
+            self._sync_progress_timer.timeout.connect(self._update_sync_progress)
+        self._sync_progress_timer.start(1000)
 
         import threading
 
@@ -207,7 +226,14 @@ class SyncNotificationsMixin:
             err_msg = None
             try:
                 from app.database import SessionLocal
+                from sqlalchemy import text as _sa_text
                 thread_session = SessionLocal()
+                # Timeout largo para el thread de sync (30s) — da tiempo a que
+                # la sesión principal libere cualquier lock de escritura
+                try:
+                    thread_session.execute(_sa_text("PRAGMA busy_timeout=30000"))
+                except Exception:
+                    pass
                 try:
                     sucursal = getattr(self, 'sucursal', 'Sarmiento')
                     sync_manager = FirebaseSyncManager(thread_session, sucursal)
@@ -231,8 +257,9 @@ class SyncNotificationsMixin:
         self._sync_thread = t
         t.start()
 
-        # Watchdog: resetear flag si la sync tarda mas de 120 segundos
-        QTimer.singleShot(120_000, self._sync_watchdog_reset)
+        # Watchdog: resetear flag si la sync tarda mas de 5 minutos
+        # (los reintentos con back-off exponencial pueden tardar hasta ~93s)
+        QTimer.singleShot(300_000, self._sync_watchdog_reset)
 
     def _mostrar_sync_en_curso(self):
         """Muestra diálogo con info de la sync en curso y opción de cancelar."""
@@ -293,6 +320,9 @@ class SyncNotificationsMixin:
         self._sync_running = False
         self._sync_thread = None
         self._sync_start_time = None
+        # Parar timer de progreso
+        if hasattr(self, '_sync_progress_timer') and self._sync_progress_timer:
+            self._sync_progress_timer.stop()
         try:
             self._last_sync_time = datetime.now()
             enviados = resultado.get("enviados", 0)
@@ -316,33 +346,49 @@ class SyncNotificationsMixin:
                 info += f" ({enviados}↑ {recibidos}↓)"
             self._update_sync_button_text(info)
 
-            # Refrescar UI si se recibieron cambios
-            if recibidos > 0:
-                try:
-                    self.session.expire_all()
-                    self.refrescar_productos()
-                    self.refrescar_completer()
-                    self.cargar_lista_proveedores()
-                except Exception:
-                    pass
-                # Refrescar historial de ventas
-                try:
-                    historial = getattr(self, 'historial', None)
-                    if historial and hasattr(historial, 'recargar_historial'):
-                        historial.recargar_historial()
-                    elif hasattr(self, 'recargar_historial'):
-                        self.recargar_historial()
-                except Exception:
-                    pass
-
-            # Verificar precios inconsistentes
+            # SIEMPRE cerrar transacción implícita de lectura y refrescar
+            # cache ORM. En WAL mode, la sesión principal solo ve el snapshot
+            # del momento en que abrió su transacción. El thread de sync
+            # escribe en una sesión separada, así que la sesión principal
+            # necesita cerrar su transacción (rollback) para ver los datos
+            # nuevos en la siguiente query.
             try:
-                mismatches = resultado.get("_mismatches", [])
-                if mismatches:
-                    self._price_mismatches = mismatches
-                    self._mostrar_alerta_precios(mismatches)
+                self.session.rollback()    # cerrar transacción implícita
+                self.session.expire_all()  # invalidar cache ORM
             except Exception:
                 pass
+
+            # SIEMPRE refrescar UI (no solo cuando recibidos > 0)
+            # para que ventas remotas que ya estaban en la DB se muestren
+            try:
+                self.refrescar_productos()
+                self.refrescar_completer()
+                self.cargar_lista_proveedores()
+            except Exception:
+                pass
+            try:
+                if hasattr(self, 'recargar_ventas_dia'):
+                    self.recargar_ventas_dia()
+            except Exception:
+                pass
+            try:
+                historial = getattr(self, 'historial', None)
+                if historial and hasattr(historial, 'recargar_historial'):
+                    historial.recargar_historial()
+                elif hasattr(self, 'recargar_historial'):
+                    self.recargar_historial()
+            except Exception:
+                pass
+
+            # Verificar precios inconsistentes (solo si recibidos > 0)
+            if recibidos > 0:
+                try:
+                    mismatches = resultado.get("_mismatches", [])
+                    if mismatches:
+                        self._price_mismatches = mismatches
+                        self._mostrar_alerta_precios(mismatches)
+                except Exception:
+                    pass
 
         except Exception as e:
             logger.error(f"[SYNC] Error procesando resultado: {e}")
@@ -352,6 +398,9 @@ class SyncNotificationsMixin:
         self._sync_running = False
         self._sync_thread = None
         self._sync_start_time = None
+        # Parar timer de progreso
+        if hasattr(self, '_sync_progress_timer') and self._sync_progress_timer:
+            self._sync_progress_timer.stop()
         logger.error(f"[SYNC] Error: {error_msg}")
         self._actualizar_indicador_sync(error=error_msg)
         self._update_sync_button_text("⚠ Sync error - Reintentar")
@@ -566,6 +615,21 @@ class SyncNotificationsMixin:
             self.btn_sync_manual.setText(text)
             self.btn_sync_manual.setToolTip(f"{text}\nClick para sincronizar manualmente")
 
+    def _update_sync_progress(self):
+        """Actualiza el botón con elapsed time durante sync."""
+        if not self._sync_running:
+            if hasattr(self, '_sync_progress_timer') and self._sync_progress_timer:
+                self._sync_progress_timer.stop()
+            return
+        if self._sync_start_time:
+            elapsed = int((datetime.now() - self._sync_start_time).total_seconds())
+            mins, secs = divmod(elapsed, 60)
+            if mins > 0:
+                time_str = f"{mins}:{secs:02d}"
+            else:
+                time_str = f"{secs}s"
+            self._update_sync_button_text(f"⟳ Sincronizando... {time_str}")
+
     def _sync_push(self, tipo, entity, accion="upsert"):
         """Helper para publicar un cambio en Firebase desde cualquier mixin."""
         if not self._firebase_sync:
@@ -587,21 +651,8 @@ class SyncNotificationsMixin:
             self._firebase_sync._log(f"Push {tipo} error: {e}")
 
     def _check_pending_config_restore(self):
-        """
-        Al iniciar la app, verifica si:
-        1. Hay un backup de config pendiente del instalador -> ofrece restaurar
-        2. La version cambió -> ofrece mantener config o empezar de nuevo
-        3. Config existente sin _last_version (actualización desde version vieja)
-        """
-        from version import __version__
-
-        # Caso 1: backup pendiente del instalador (legacy)
-        try:
-            if has_pending_backup():
-                self._show_restore_dialog()
-                return
-        except Exception:
-            pass
+        """Movido a main.py (pre-login). Este método ya no se usa."""
+        return
 
         # Leer config actual
         cfg = load_config()
@@ -886,14 +937,9 @@ class SyncNotificationsMixin:
         sep1 = QLabel(" | ")
         status_bar.addWidget(sep1)
 
-        # Etiqueta de usuario (obtener del login si está disponible)
-        usuario = "Usuario"  # Por defecto
-        try:
-            from app.login import LoginDialog
-            usuario = "Admin" if self.es_admin else "Usuario"
-        except:
-            pass
-        self.status_usuario = QLabel(f"👤 {usuario}")
+        # Etiqueta de usuario
+        self.status_usuario = QLabel()
+        self._refresh_user_status()
         status_bar.addWidget(self.status_usuario)
 
         # Separador
@@ -911,6 +957,19 @@ class SyncNotificationsMixin:
 
         # Actualizar inmediatamente
         self._update_status_time()
+
+    def _refresh_user_status(self):
+        """Actualiza la etiqueta de usuario en la barra de estado."""
+        try:
+            name = getattr(self, "current_username", "") or ""
+            is_admin = getattr(self, "es_admin", False)
+            if name:
+                txt = f"👤 {name} (Admin)" if is_admin else f"👤 {name}"
+            else:
+                txt = "👤 Admin" if is_admin else "👤 Usuario"
+            self.status_usuario.setText(txt)
+        except Exception:
+            pass
 
     def _update_status_time(self):
         """Actualiza la hora en la barra de estado según el timezone configurado"""

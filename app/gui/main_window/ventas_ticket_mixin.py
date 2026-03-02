@@ -93,6 +93,11 @@ class VentasTicketMixin:
 
     def imprimir_ticket(self, venta_id):
         v = self.venta_repo.obtener(venta_id)
+        # Forzar re-lectura desde BD para tener datos AFIP actualizados
+        try:
+            self.session.refresh(v)
+        except Exception:
+            pass
         try:
             # 1) Items: usar helper si existe; si no, cesta visible -> BD
             items = []
@@ -291,25 +296,24 @@ class VentasTicketMixin:
             hoy = datetime.now().date()
             ventas = []
 
-            # 1) Metodo del repositorio si existe
+            # 1) Metodo del repositorio si existe — sin filtro de sucursal
+            #    para mostrar ventas de TODAS las sucursales
             if hasattr(self.venta_repo, 'listar_por_fecha'):
                 try:
-                    ventas = self.venta_repo.listar_por_fecha(hoy, getattr(self, 'sucursal', None))
+                    ventas = self.venta_repo.listar_por_fecha(hoy, sucursal=None)
                 except Exception:
                     try:
                         ventas = self.venta_repo.listar_por_fecha(hoy)
                     except Exception:
                         ventas = []
 
-            # 2) Fallback directo con session
+            # 2) Fallback directo con session (sin filtro de sucursal)
             if not ventas and hasattr(self, 'session'):
                 try:
                     from app.models import Venta
                     inicio = datetime.combine(hoy, datetime.min.time())
                     fin = datetime.combine(hoy + timedelta(days=1), datetime.min.time())
                     q = self.session.query(Venta).filter(Venta.fecha >= inicio, Venta.fecha < fin)
-                    if getattr(self, 'sucursal', None):
-                        q = q.filter(Venta.sucursal == self.sucursal)
                     ventas = q.order_by(Venta.fecha.desc()).all()
                 except Exception:
                     ventas = []
@@ -359,14 +363,16 @@ class VentasTicketMixin:
                             pagado = f"${float(pv):.2f}"
                             vuelto = f"${float(vv):.2f}"
 
+                    suc = getattr(v, 'sucursal', '') or ''
                     data = [
                         nro,
                         hora,
+                        suc,
                         f"${tot:.2f}",
                         forma,
                         (str(cuotas) if cuotas else '-'),
-                        f"${interes_m:.2f}",            # <- NUEVA COLUMNA
-                        f"${descto_m:.2f}",             # <- NUEVA COLUMNA
+                        f"${interes_m:.2f}",
+                        f"${descto_m:.2f}",
                         (f"${monto_cuota:.2f}" if monto_cuota else '-'),
                         pagado,
                         vuelto
@@ -374,6 +380,9 @@ class VentasTicketMixin:
                     for c, val in enumerate(data):
                         it = QTableWidgetItem(val)
                         it.setTextAlignment(Qt.AlignCenter)
+                        # Resaltar ventas de otra sucursal
+                        if suc and suc != getattr(self, 'sucursal', ''):
+                            it.setForeground(Qt.darkCyan)
                         tbl.setItem(row, c, it)
 
                     # --- Acciones (DENTRO del for) ---
@@ -412,8 +421,8 @@ class VentasTicketMixin:
                                         lambda _, _vid=vid: self._eliminar_venta_by_id(_vid))
                         ah.addWidget(btn_del, alignment=Qt.AlignCenter)
 
-                    tbl.setItem(row, 10, QTableWidgetItem(""))
-                    tbl.setCellWidget(row, 10, actions)
+                    tbl.setItem(row, 11, QTableWidgetItem(""))
+                    tbl.setCellWidget(row, 11, actions)
             finally:
                 tbl.setUpdatesEnabled(True)              # <- SIEMPRE reactivar
         except Exception as e:
@@ -474,6 +483,10 @@ class VentasTicketMixin:
 
 
     def _eliminar_venta_by_id(self, venta_id):
+        # Doble verificación de admin (el botón ya está oculto para no-admin,
+        # pero esto protege contra llamadas directas o manipulación en runtime)
+        if not self._ensure_admin("eliminar una venta"):
+            return
         if not venta_id:
             QMessageBox.warning(self, "Eliminar", "No se encontro el ID de la venta.")
             return

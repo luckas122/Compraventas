@@ -1135,10 +1135,14 @@ class PagoTarjetaDialog(QDialog):
         form.addRow("Tipo de comprobante:", self.cmb_tipo_cbte)
 
         # CUIT del cliente (solo visible si es Factura A)
-        self.lbl_cuit = QLabel("CUIT del cliente:")
+        self.lbl_cuit = QLabel("CUIT/CUIL de cliente:")
         self.edt_cuit = QLineEdit()
         self.edt_cuit.setPlaceholderText("Ej: 20123456789 (solo números)")
         self.edt_cuit.setMaxLength(11)
+        # Cargar CUIT predefinido desde config
+        from app.config import load as _load_cfg
+        _cuit_default = (_load_cfg().get("fiscal", {}).get("cuit_predefinido", "20000000001") or "").strip()
+        self.edt_cuit.setText(_cuit_default)
 
         # Validar que solo se ingresen números (usar QRegExpValidator para números grandes)
         from PyQt5.QtGui import QRegExpValidator
@@ -1191,6 +1195,7 @@ class PagoTarjetaDialog(QDialog):
 
         if es_factura_a:
             self.edt_cuit.setFocus()
+            self.edt_cuit.selectAll()
 
     def _actualizar_resumen(self):
         """Actualiza el resumen de totales."""
@@ -1333,10 +1338,14 @@ class PagoEfectivoDialog(QDialog):
         afip_layout.addRow("Tipo de comprobante:", self.cmb_tipo_cbte)
 
         # CUIT del cliente (solo visible si es Factura A)
-        self.lbl_cuit = QLabel("CUIT del cliente:")
+        self.lbl_cuit = QLabel("CUIT/CUIL de cliente:")
         self.edt_cuit = QLineEdit()
         self.edt_cuit.setPlaceholderText("Ej: 20123456789 (solo números)")
         self.edt_cuit.setMaxLength(11)
+        # Cargar CUIT predefinido desde config
+        from app.config import load as _load_cfg2
+        _cuit_default2 = (_load_cfg2().get("fiscal", {}).get("cuit_predefinido", "20000000001") or "").strip()
+        self.edt_cuit.setText(_cuit_default2)
 
         # Validar solo números
         from PyQt5.QtGui import QRegExpValidator
@@ -1399,6 +1408,7 @@ class PagoEfectivoDialog(QDialog):
 
         if es_factura_a and self.afip_widget.isVisible():
             self.edt_cuit.setFocus()
+            self.edt_cuit.selectAll()
 
     def _aceptar(self):
         """Valida y acepta el diálogo."""

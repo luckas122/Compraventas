@@ -78,7 +78,7 @@ from app.firebase_sync import FirebaseSyncManager
 
 class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizacionMixin, ProveedoresMixin, UsuariosMixin, ConfiguracionMixin, TicketTemplatesMixin, ReportesMixin, BackupsMixin, SyncNotificationsMixin, StatsMixin, QMainWindow):
 
-    def __init__(self, es_admin=True):
+    def __init__(self, es_admin=True, username=""):
         from app.gui.ventas_helpers import build_product_completer
         from PyQt5.QtMultimedia import QSoundEffect
         from PyQt5.QtCore import QUrl
@@ -145,6 +145,7 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
         self.user_repo  = UsuarioRepo(self.session)
         # Admin?
         self.es_admin = es_admin
+        self.current_username = username
         # --- COMPLETER: atributos base (evita AttributeError) ---
         self._completer = None
         self._completer_model = None
@@ -185,6 +186,19 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
         tabs.tabBar().setExpanding(False)
         tabs.setUsesScrollButtons(True)
 
+        # Botón cambio de usuario en esquina superior derecha
+        from PyQt5.QtWidgets import QToolButton
+        self._btn_switch_user = QToolButton()
+        self._btn_switch_user.setIcon(icon('useradmin.svg'))
+        self._btn_switch_user.setIconSize(QSize(24, 24))
+        self._btn_switch_user.setToolTip("Cambiar de usuario")
+        self._btn_switch_user.setStyleSheet(
+            "QToolButton { border: none; padding: 4px; }"
+            "QToolButton:hover { background-color: rgba(0,0,0,30); border-radius: 4px; }"
+        )
+        self._btn_switch_user.clicked.connect(self._switch_user)
+        tabs.setCornerWidget(self._btn_switch_user, Qt.TopRightCorner)
+
         self.setCentralWidget(tabs)
 
         # Barra de estado
@@ -203,7 +217,15 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
         QTimer.singleShot(2000, self._setup_sync_scheduler)
         self._crear_boton_sync_manual()
 
-        from PyQt5.QtCore import QSize
+        # Auto-refresh de Productos e Historial (intervalo configurable en segundos)
+        self._auto_refresh_timer = QTimer(self)
+        self._auto_refresh_timer.timeout.connect(self._auto_refresh_tabs)
+        cfg_refresh = load_config()
+        _refresh_sec = cfg_refresh.get("refresh_seconds", 300)
+        self._auto_refresh_timer.start(_refresh_sec * 1000)
+        self._crear_boton_refresh()
+        self._historial_loaded = False
+
         self.setMinimumSize(980, 640)  # un mínimo razonable que siempre cabe
         
         from PyQt5.QtWidgets import QApplication
@@ -229,7 +251,7 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
         self._apply_theme_stylesheet()
 ## Backups programados       
         self._setup_backups()
-        QTimer.singleShot(500, self._check_pending_config_restore)
+        # Dialogo de actualizacion movido a main.py (pre-login)
     
  # Icono en bandeja (si está activado en config)
         self._init_tray_icon()
@@ -681,8 +703,10 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
                                 else:
                                     row = max(row - 1, 0)
                                 new_idx = model.index(row, 0)
+                                ventas_input.blockSignals(True)
                                 popup.setCurrentIndex(new_idx)
                                 popup.scrollTo(new_idx)
+                                ventas_input.blockSignals(False)
                             return True  # Consumir: NO toca el QLineEdit
 
                         # Enter: aceptar selección, poner código, cerrar popup
@@ -1196,6 +1220,94 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
         )
 
 #GUARDAR PESTAÑA
+    def _auto_refresh_tabs(self):
+        """Refresca Productos e Historial automáticamente. NO toca Ventas."""
+        try:
+            self.refrescar_productos()
+        except Exception:
+            pass
+        try:
+            if hasattr(self, 'historial') and hasattr(self.historial, 'recargar_historial'):
+                self.historial.recargar_historial()
+                self._historial_loaded = True
+        except Exception:
+            pass
+
+    def _crear_boton_refresh(self):
+        """Crea un botón de refresh manual en la status bar."""
+        btn = QPushButton("🔃 Refrescar")
+        btn.setFlat(True)
+        btn.setToolTip("Refrescar Productos e Historial manualmente")
+        btn.setCursor(Qt.PointingHandCursor)
+        btn.setStyleSheet(
+            "QPushButton { font-size: 11px; padding: 2px 8px; }"
+            "QPushButton:hover { background: #e0e0e0; border-radius: 3px; }"
+        )
+        btn.clicked.connect(self._auto_refresh_tabs)
+        self.statusBar().addPermanentWidget(btn)
+
+    def _switch_user(self):
+        """Cambio de usuario en caliente sin reiniciar la aplicación."""
+        try:
+            # Parar timers mientras se muestra el login
+            try:
+                self._sync_timer.stop()
+            except Exception:
+                pass
+            try:
+                self._auto_refresh_timer.stop()
+            except Exception:
+                pass
+
+            from app.login import LoginDialog
+            dlg = LoginDialog(self.session, self)
+            if dlg.exec_() == QDialog.Accepted and getattr(dlg, "user", None):
+                # Actualizar datos del usuario
+                self.es_admin = getattr(dlg.user, "es_admin", False)
+                self.current_username = getattr(dlg.user, "username", "")
+
+                # Resetear cache de admin
+                if self.es_admin:
+                    self._admin_ok_until = datetime.max
+                else:
+                    self._admin_ok_until = None
+
+                # Actualizar status bar
+                self._refresh_user_status()
+
+                # Si el tab actual requiere admin y ya no es admin, volver a Ventas
+                admin_tabs = {getattr(self, "idx_historial", -1),
+                              getattr(self, "idx_config", -1),
+                              getattr(self, "idx_usuarios", -1)}
+                if not self.es_admin and self.tabs.currentIndex() in admin_tabs:
+                    self.tabs.setCurrentIndex(2)  # Tab Ventas
+
+                logger.info("Cambio de usuario: %s (%s)",
+                            self.current_username,
+                            "admin" if self.es_admin else "vendedor")
+
+            # Reiniciar timers siempre
+            try:
+                self._setup_sync_scheduler()
+            except Exception:
+                pass
+            try:
+                self._auto_refresh_timer.start()
+            except Exception:
+                pass
+
+        except Exception as e:
+            logger.error("Error en cambio de usuario: %s", e)
+            # Intentar reiniciar timers de todas formas
+            try:
+                self._sync_timer.start()
+            except Exception:
+                pass
+            try:
+                self._auto_refresh_timer.start()
+            except Exception:
+                pass
+
     def _gate_tabs_admin(self, idx: int):
         """Bloquea el acceso a pestañas admin si no estás validado; vuelve a la pestaña previa."""
         if getattr(self, "es_admin", False):
@@ -1206,12 +1318,58 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
                         getattr(self, "idx_config", -1),
                         getattr(self, "idx_usuarios", -1)}
             if idx in admin_tabs:
-                if not self._ensure_admin("abrir esta pestaña"):
+                # Blur + overlay para ocultar datos mientras se pide login
+                # (Qt renderiza el tab ANTES de que podamos verificar permisos)
+                blur_effect = None
+                overlay = None
+                try:
+                    target_widget = self.tabs.widget(idx)
+                    if target_widget:
+                        # 1) Blur fuerte para que no se lea nada
+                        from PyQt5.QtWidgets import QGraphicsBlurEffect
+                        blur_effect = QGraphicsBlurEffect()
+                        blur_effect.setBlurRadius(30)
+                        target_widget.setGraphicsEffect(blur_effect)
+
+                        # 2) Overlay oscuro encima como capa extra
+                        overlay = QWidget(target_widget)
+                        overlay.setStyleSheet(
+                            "background-color: rgba(30, 30, 30, 200);"
+                        )
+                        overlay.setGeometry(target_widget.rect())
+                        overlay.raise_()
+                        overlay.show()
+                        QApplication.processEvents()
+                except Exception:
+                    pass
+
+                passed = self._ensure_admin("abrir esta pestaña")
+
+                # Quitar blur y overlay siempre
+                try:
+                    if blur_effect and target_widget:
+                        target_widget.setGraphicsEffect(None)
+                except Exception:
+                    pass
+                if overlay:
+                    try:
+                        overlay.deleteLater()
+                    except Exception:
+                        pass
+
+                if not passed:
                     # revertir selección
                     self.tabs.blockSignals(True)
                     self.tabs.setCurrentIndex(self._last_tab_index)
                     self.tabs.blockSignals(False)
                     return
+            # Lazy loading: cargar historial solo al acceder por primera vez
+            if idx == getattr(self, 'idx_historial', -1) and not getattr(self, '_historial_loaded', True):
+                self._historial_loaded = True
+                try:
+                    self.historial.recargar_historial()
+                except Exception:
+                    pass
             # si pasó el guard o es pestaña libre, actualiza el último índice
             self._last_tab_index = idx
         except Exception:
@@ -1227,13 +1385,19 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
         - Ajusta el modo de pago (y cuotas/interés si es tarjeta).
         - Luego llama a finalizar_venta() como siempre.
 
-        NUEVO: Si ya se usó el diálogo unificado de tarjeta (_datos_tarjeta existe),
+        Si ya se usó el diálogo unificado de tarjeta (_datos_tarjeta existe),
         salta directamente a finalizar_venta() sin preguntar nada más.
         """
+        # Deshabilitar shortcuts de sección para evitar interferencia
+        _sm = getattr(self, 'shortcut_manager', None)
+        if _sm:
+            try:
+                _sm._clear_section_shortcuts()
+            except Exception:
+                pass
         try:
-            # NUEVO: Si ya se configuró con el diálogo unificado, finalizar directamente
+            # Si ya se configuró con el diálogo unificado, finalizar directamente
             if hasattr(self, '_datos_tarjeta') and self._datos_tarjeta:
-                # Ya está todo configurado, solo llamar finalizar_venta
                 self.finalizar_venta()
                 return
 
@@ -1273,6 +1437,10 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
             fila_botones = QHBoxLayout()
             btn_ef = QPushButton(f"({key_ef}) Efectivo")
             btn_tj = QPushButton(f"({key_tj}) Tarjeta")
+            # Efectivo como botón default (Enter lo activa)
+            btn_ef.setDefault(True)
+            btn_ef.setAutoDefault(True)
+            btn_tj.setAutoDefault(False)
             for b in (btn_ef, btn_tj):
                 b.setMinimumWidth(140)
                 fila_botones.addWidget(b)
@@ -1291,17 +1459,19 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
             btn_ef.clicked.connect(elegir_ef)
             btn_tj.clicked.connect(elegir_tj)
 
-            # 4) Tecla rápida dentro del popup: usa las letras configuradas (p.ej. X / Y)
+            # 4) Tecla rápida dentro del popup
             def _on_key(ev):
                 ch = ev.text().upper()
                 if ch == key_ef:
                     elegir_ef()
                 elif ch == key_tj:
                     elegir_tj()
+                elif ev.key() in (Qt.Key_Return, Qt.Key_Enter):
+                    # Enter sin selección previa → default a Efectivo
+                    elegir_ef()
                 elif ev.key() == Qt.Key_Escape:
                     dlg.reject()
-                else:
-                    QDialog.keyPressEvent(dlg, ev)
+                # No hacer fallthrough a QDialog.keyPressEvent
 
             dlg.keyPressEvent = _on_key
 
@@ -1312,14 +1482,13 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
             if elegido["modo"] == "efectivo":
                 self._shortcut_set_efectivo()
             else:
-                # NUEVO: Verificar si ya se configuró con el diálogo unificado
+                # Verificar si ya se configuró con el diálogo unificado
                 if hasattr(self, '_datos_tarjeta') and self._datos_tarjeta:
                     # Ya está configurado, solo marcar el radio button
                     if hasattr(self, 'rb_tarjeta'):
                         self.rb_tarjeta.setChecked(True)
                 else:
-                    # No está configurado, abrir el diálogo unificado
-                    # IMPORTANTE: Abrir el diálogo ANTES de marcar el radio button
+                    # Abrir el diálogo ANTES de marcar el radio button
                     # para evitar que el evento toggled abra el diálogo otra vez
                     if hasattr(self, '_abrir_dialogo_tarjeta'):
                         self._abrir_dialogo_tarjeta()
@@ -1340,10 +1509,17 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
             # 6) Ahora sí, flujo normal de cierre
             self.finalizar_venta()
 
-        except Exception:
-            # Si algo raro pasa, no bloqueamos la venta: usamos el flujo viejo
+        except Exception as e:
+            logger.error("[VENTAS] Error en _shortcut_finalizar_venta_dialog: %s", e, exc_info=True)
             try:
                 self.finalizar_venta()
-            except Exception:
-                pass
+            except Exception as e2:
+                logger.error("[VENTAS] Error en fallback finalizar_venta: %s", e2, exc_info=True)
+        finally:
+            # Siempre re-habilitar shortcuts de sección
+            if _sm:
+                try:
+                    _sm.set_section_by_tabindex(self.tabs.currentIndex())
+                except Exception:
+                    pass
 

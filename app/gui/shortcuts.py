@@ -313,6 +313,12 @@ class ShortcutManager(QObject):
                 return False
 
             key_text = event.text()
+            # Fallback por key code para +/- (event.text() puede variar con Shift/teclado)
+            from PyQt5.QtCore import Qt as _Qt
+            if event.key() == _Qt.Key_Plus:
+                key_text = "+"
+            elif event.key() == _Qt.Key_Minus:
+                key_text = "-"
             mapping = self._section_map.get("ventas", {})
 
             # Build reverse map of key -> action for special keys

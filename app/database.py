@@ -81,6 +81,7 @@ def _set_pragmas(dbapi_connection, connection_record):
     cur = dbapi_connection.cursor()
     try:
         cur.execute('PRAGMA journal_mode=WAL;')
+        cur.execute('PRAGMA busy_timeout=15000;')  # esperar hasta 15s si DB está bloqueada
         cur.execute('PRAGMA synchronous=NORMAL;')
         cur.execute('PRAGMA temp_store=MEMORY;')
         cur.execute('PRAGMA cache_size=-64000;')

@@ -184,6 +184,9 @@ DEFAULTS: Dict[str, Any] = {
         "barcode_printer": None   # impresora para códigos/etiquetas
     },
 
+    # REFRESH (intervalo de auto-refresco de Productos e Historial)
+    "refresh_seconds": 300,   # 5 minutos por defecto
+
     # TICKET
     # Parámetros para el render del ticket
     "ticket": {
@@ -192,7 +195,9 @@ DEFAULTS: Dict[str, Any] = {
             "height_mm": 200,       # alto por defecto (si no es dinámico)
             "dynamic_height": True  # si True, el alto se ajusta al contenido
         },
-        "margins_mm": 12,           # margen en mm aplicado en el dibujado
+        "margins_mm": 12,           # margen en mm (legacy, no usado)
+        "margin_left_mm": 2.0,      # margen izquierdo en mm
+        "margin_right_mm": 2.0,     # margen derecho en mm
         "fonts": {
             "title_px": 18,         # tamaño título en píxeles
             "head_px": 12,          # cabecera

@@ -64,6 +64,7 @@
     "ticket_printer": null,
     "barcode_printer": null
   },
+  "refresh_seconds": 300,
   "ticket": {
     "paper": {
       "width_mm": 80,
@@ -71,6 +72,8 @@
       "dynamic_height": true
     },
     "margins_mm": 12,
+    "margin_left_mm": 2.0,
+    "margin_right_mm": 2.0,
     "fonts": {
       "title_px": 18,
       "head_px": 12,
@@ -82,10 +85,10 @@
     },
     "show_interest_line": false,
     "slots": {
-      "slot1": "{{centerb: SUSI PERFUMERÍA}}\n{{center: ================================}}\n{{b: TICKET DE VENTA}}\nNº: {{ticket.numero}}\nFecha: {{ticket.fecha_hora}}\nSucursal: {{sucursal}}\n{{hr}}\n{{items}}\n{{hr}}\nSubtotal: {{totales.subtotal}}\nDescuento: {{totales.descuento}}\n{{b: TOTAL: {{totales.total}}}}\n{{hr}}\nForma de pago: {{pago.modo}}\nAbonado: {{abonado}}\nVuelto: {{vuelto}}\n{{cae}}\n{{hr}}\n{{center: ¡Gracias por su compra!}}",
-      "slot2": "{{centerb: SUSI PERFUMERÍA}}\n{{hr}}\nTicket: {{ticket.numero}} | {{ticket.fecha_hora}}\n{{sucursal}}\n{{hr}}\n{{items}}\n{{hr}}\n{{rightb: TOTAL: {{totales.total}}}}\n{{hr}}\n{{pago.modo}} | Abonado: {{abonado}} | Vuelto: {{vuelto}}\n{{cae}}\n{{center: Gracias por su compra}}",
-      "slot3": "{{centerb: SUSI PERFUMERÍA}}\n{{center: ================================}}\n{{b: TICKET DE VENTA}}\nNº: {{ticket.numero}}\nFecha: {{ticket.fecha_hora}}\nSucursal: {{sucursal}}\n{{hr}}\n{{items}}\n{{hr}}\nSubtotal: {{totales.subtotal}}\nDescuento: {{totales.descuento}}\nInterés: {{totales.interes}}\n{{b: TOTAL: {{totales.total}}}}\n{{hr}}\nForma de pago: {{pago.modo}}\nCuotas: {{pago.cuotas}} x {{pago.monto_cuota}}\n{{cae}}\n{{hr}}\n{{center: ¡Gracias por su compra!}}",
-      "slot4": "{{centerb: SUSI PERFUMERÍA}}\n{{hr}}\nTicket: {{ticket.numero}} | {{ticket.fecha_hora}}\n{{sucursal}}\n{{hr}}\n{{items}}\n{{hr}}\nInterés: {{totales.interes}}\n{{rightb: TOTAL: {{totales.total}}}}\n{{hr}}\n{{pago.modo}} - {{pago.cuotas}} cuotas de {{pago.monto_cuota}}\n{{cae}}\n{{center: Gracias por su compra}}"
+      "slot1": "{{center: =================================}}\n{{centerb: {{business}}}}\n{{center: {{business.direccion}}}}\n{{center: CUIT: {{business.cuit}}}}\n{{center: =================================}}\n\nTicket Nº: {{ticket.numero}}\nFecha: {{ticket.fecha_hora}}\nSucursal: {{sucursal}}\n{{hr}}\n{{items}}\n{{hr}}\nSubtotal: {{totales.subtotal}}\nDescuento: {{totales.descuento}}\n{{b: TOTAL: {{totales.total}}}}\n{{hr}}\n{{pago.modo}} | Total: {{totales.total}} | Entregado: {{abonado}} | Devuelto: {{vuelto}}\n{{cae}}\n{{hr}}\n{{center: 30 DIAS PARA DEVOLUCIONES}}\n{{center: {{business}}}}",
+      "slot2": "{{center: =================================}}\n{{centerb: {{business}}}}\n{{center: {{business.direccion}}}}\n{{center: CUIT: {{business.cuit}}}}\n{{center: =================================}}\n\nTicket: {{ticket.numero}} | {{ticket.fecha_hora}}\n{{sucursal}}\n{{hr}}\n{{items}}\n{{hr}}\n{{rightb: TOTAL: {{totales.total}}}}\n{{hr}}\n{{pago.modo}} | {{abonado}} | {{vuelto}}\n{{cae}}\n{{center: {{business}}}}",
+      "slot3": "{{center: =================================}}\n{{centerb: {{business}}}}\n{{center: {{business.direccion}}}}\n{{center: CUIT: {{business.cuit}}}}\n{{center: =================================}}\n\nTicket Nº: {{ticket.numero}}\nFecha: {{ticket.fecha_hora}}\nSucursal: {{sucursal}}\n{{hr}}\n{{items}}\n{{hr}}\nSubtotal: {{totales.subtotal}}\nDescuento: {{totales.descuento}}\nInterés: {{totales.interes}}\n{{b: TOTAL: {{totales.total}}}}\n{{hr}}\n{{pago.modo}} | Cuotas: {{pago.cuotas}} x {{pago.monto_cuota}}\n{{cae}}\n{{hr}}\n{{center: 30 DIAS PARA DEVOLUCIONES}}\n{{center: {{business}}}}",
+      "slot4": "{{center: =================================}}\n{{centerb: {{business}}}}\n{{center: {{business.direccion}}}}\n{{center: CUIT: {{business.cuit}}}}\n{{center: =================================}}\n\nTicket: {{ticket.numero}} | {{ticket.fecha_hora}}\n{{sucursal}}\n{{hr}}\n{{items}}\n{{hr}}\nInterés: {{totales.interes}}\n{{rightb: TOTAL: {{totales.total}}}}\n{{hr}}\n{{pago.modo}} - {{pago.cuotas}} cuotas de {{pago.monto_cuota}}\n{{cae}}\n{{center: {{business}}}}"
     },
     "slot_names": {
       "slot1": "Efectivo - Clásica",
@@ -112,6 +115,9 @@
       "{{vuelto}}",
       "{{business}}",
       "{{title}}",
+      "{{business.cuit}}",
+      "{{business.direccion}}",
+      "{{vendedor}}",
       "{{hr}}",
       "{{items}}",
       "{{cae}}"

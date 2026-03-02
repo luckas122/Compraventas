@@ -32,7 +32,7 @@ class LoginDialog(QDialog):
         # --- Botón Reset (root/root) ---
         self.btn_reset = QToolButton(self)
         self.btn_reset.setIcon(self.style().standardIcon(QStyle.SP_BrowserReload))
-        self.btn_reset.setToolTip("Reset de usuarios (root/root)")
+        self.btn_reset.setToolTip("Restablecer contraseña")
         self.btn_reset.clicked.connect(self._on_reset_users)
 
         # --- Botón Crear primer usuario (admin) ---
@@ -95,14 +95,14 @@ class LoginDialog(QDialog):
         """
         # 1) Desbloqueo por root/root
         user_root, ok = QInputDialog.getText(
-            self, "Reset de usuarios",
-            "Usuario root (escriba: root):"
+            self, "Verificación de seguridad",
+            "Ingrese usuario de seguridad:"
         )
         if not ok:
             return
         pass_root, ok = QInputDialog.getText(
-            self, "Reset de usuarios",
-            "Contraseña root (escriba: root):",
+            self, "Verificación de seguridad",
+            "Ingrese contraseña de seguridad:",
             QLineEdit.Password
         )
         if not ok:

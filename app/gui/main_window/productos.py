@@ -67,9 +67,17 @@ class ProductosMixin:
         form.addRow('Precio:',              self.input_precio)
         form.addRow('Categoría (opcional):',self.input_categoria)
 
-        for fld in (self.input_codigo, self.input_nombre,
-                    self.input_precio, self.input_categoria):
-            fld.returnPressed.connect(self.agregar_producto)
+        # Encadenar foco: Código→Nombre→Precio→Categoría→Agregar
+        self.input_codigo.returnPressed.connect(lambda: self.input_nombre.setFocus())
+        self.input_nombre.returnPressed.connect(lambda: self.input_precio.setFocus())
+        self.input_precio.returnPressed.connect(lambda: self.input_categoria.setFocus())
+        self.input_categoria.returnPressed.connect(self.agregar_producto)
+
+        # Forzar MAYÚSCULAS en nombre y categoría
+        self.input_nombre.textChanged.connect(
+            lambda t: self.input_nombre.setText(t.upper()) if t != t.upper() else None)
+        self.input_categoria.textChanged.connect(
+            lambda t: self.input_categoria.setText(t.upper()) if t != t.upper() else None)
 
         # —— Botones —— 
         btn_a   = QPushButton('Agregar/Actualizar'); btn_a.setIcon(icon('add.svg'));    btn_a.setToolTip('Agregar/Actualizar');    btn_a.clicked.connect(self.agregar_producto)
@@ -194,10 +202,10 @@ class ProductosMixin:
     def agregar_producto(self):
         with measure("actualizar_total"):
             c  = self.input_codigo.text().strip()
-            n  = self.input_nombre.text().strip()
+            n  = self.input_nombre.text().strip().upper()
             try: pr = float(self.input_precio.text())
             except: return QMessageBox.warning(self,'Error','Precio inválido')
-            ca = self.input_categoria.text().strip() or None
+            ca = self.input_categoria.text().strip().upper() or None
 
             existe = self.session.query(Producto).filter_by(codigo_barra=c).first()
             if existe:
@@ -505,6 +513,7 @@ class ProductosMixin:
         for fld in (self.input_codigo,self.input_nombre,
                     self.input_precio,self.input_categoria):
             fld.clear()
+        self.input_codigo.setFocus()
             
     def _find_row_by_codigo(self, codigo: str):
         for r in range(self.table_cesta.rowCount()):

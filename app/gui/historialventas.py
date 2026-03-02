@@ -1066,6 +1066,7 @@ class HistorialVentasWidget(QWidget):
                 "comentarios": self._obtener_comentario(v),
                 "interes":   float(_get_any(v, ["interes_monto", "interes", "monto_interes"], 0.0) or 0.0),
                 "descuento": float(_get_any(v, ["descuento_monto", "descuento", "monto_descuento"], 0.0) or 0.0),
+                "cae": getattr(v, "afip_cae", "") or "",
                 "monto_cuota": (
                     (float(getattr(v, "total", 0.0) or 0.0) / int(getattr(v, "cuotas", 0) or 0))
                     if (str((getattr(v, "forma_pago", "") or getattr(v, "modo_pago", "") or getattr(v, "modo", "")).lower()).startswith("tarj")
@@ -1278,6 +1279,67 @@ class HistorialVentasWidget(QWidget):
                         _autofit_sheet(ws, resumen, _engine)
                     except Exception:
                         pass
+
+                # --- Hojas discriminadas por CAE y sucursal ---
+                try:
+                    if "cae" in df.columns:
+                        # Ventas con CAE
+                        df_cae = df[df["cae"].astype(str).str.strip() != ""]
+                        if not df_cae.empty:
+                            df_cae.to_excel(xw, index=False, sheet_name="Ventas con CAE")
+                            try:
+                                ws_cae = (xw.sheets.get("Ventas con CAE") if hasattr(xw, "sheets") else None) or (getattr(xw, "book", {}) or {}).get("Ventas con CAE")
+                                if ws_cae:
+                                    _autofit_sheet(ws_cae, df_cae, _engine)
+                            except Exception:
+                                pass
+
+                        # Ventas sin CAE
+                        df_sin_cae = df[df["cae"].astype(str).str.strip() == ""]
+                        if not df_sin_cae.empty:
+                            df_sin_cae.to_excel(xw, index=False, sheet_name="Ventas sin CAE")
+                            try:
+                                ws_sin = (xw.sheets.get("Ventas sin CAE") if hasattr(xw, "sheets") else None) or (getattr(xw, "book", {}) or {}).get("Ventas sin CAE")
+                                if ws_sin:
+                                    _autofit_sheet(ws_sin, df_sin_cae, _engine)
+                            except Exception:
+                                pass
+
+                    # Resumen por sucursal
+                    if not df.empty and "sucursal" in df.columns:
+                        suc_rows = []
+                        for suc_name, suc_df in df.groupby("sucursal", dropna=False):
+                            suc_total = float(suc_df["total"].sum())
+                            suc_eff = float(suc_df.loc[suc_df["forma"] == "Efectivo", "total"].sum()) if "forma" in suc_df.columns else 0.0
+                            suc_tar = float(suc_df.loc[suc_df["forma"] == "Tarjeta", "total"].sum()) if "forma" in suc_df.columns else 0.0
+                            suc_cae_count = len(suc_df[suc_df.get("cae", pd.Series(dtype=str)).astype(str).str.strip() != ""]) if "cae" in suc_df.columns else 0
+                            suc_rows.append({
+                                "Sucursal": suc_name or "(sin sucursal)",
+                                "Cantidad": len(suc_df),
+                                "Efectivo": f"${suc_eff:.2f}",
+                                "Tarjeta": f"${suc_tar:.2f}",
+                                "Con CAE": suc_cae_count,
+                                "Total": f"${suc_total:.2f}",
+                            })
+                        # Fila total
+                        suc_rows.append({
+                            "Sucursal": "TOTAL",
+                            "Cantidad": len(df),
+                            "Efectivo": f"${tot_eff:.2f}",
+                            "Tarjeta": f"${tot_tar:.2f}",
+                            "Con CAE": len(df[df["cae"].astype(str).str.strip() != ""]) if "cae" in df.columns else 0,
+                            "Total": f"${tot_all:.2f}",
+                        })
+                        df_suc = pd.DataFrame(suc_rows)
+                        df_suc.to_excel(xw, index=False, sheet_name="Por Sucursal")
+                        try:
+                            ws_suc = (xw.sheets.get("Por Sucursal") if hasattr(xw, "sheets") else None) or (getattr(xw, "book", {}) or {}).get("Por Sucursal")
+                            if ws_suc:
+                                _autofit_sheet(ws_suc, df_suc, _engine)
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
 
                 # --- Hojas adicionales según contenido configurado ---
                 # Mapear "Diario/Semanal/Mensual" a llaves (aceptamos también español).

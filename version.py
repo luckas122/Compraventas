@@ -3,7 +3,7 @@
 Control de versiones para App Compras y Ventas
 """
 
-__version__ = "3.6.4"
+__version__ = "3.7.8"
 __app_name__ = "Tu local 2025"
 
 def get_version_tuple():

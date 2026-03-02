@@ -56,6 +56,13 @@ class VentasMixin:
         self.input_venta_buscar.setMinimumHeight(LIVE_SEARCH_INPUT_HEIGHT)
         self.input_venta_buscar.setStyleSheet("font-size: 16px;")
 
+        # Scanner auto-add: timer que detecta cuando el scanner terminó de escribir
+        self._scanner_timer = QTimer()
+        self._scanner_timer.setSingleShot(True)
+        self._scanner_timer.setInterval(300)
+        self._scanner_timer.timeout.connect(self._check_scanner_auto_add)
+        self.input_venta_buscar.textChanged.connect(lambda: self._scanner_timer.start())
+
         btn_add = QPushButton()
         btn_add.setIcon(icon('add.svg'))
         btn_add.setIconSize(ICON_SIZE)
@@ -278,12 +285,13 @@ class VentasMixin:
 
         # ----------------- Ventas del día -----------------
         layout.addWidget(QLabel('Ventas Realizadas Hoy'))
-        self.table_ventas_dia = QTableWidget(0, 11)
+        self.table_ventas_dia = QTableWidget(0, 12)
         self.table_ventas_dia.setHorizontalHeaderLabels([
-            'Nº Ticket', 'Hora', 'Total', 'Forma Pago',
+            'Nº Ticket', 'Hora', 'Sucursal', 'Total', 'Forma Pago',
             'Cuotas','interes','Descuento', 'Monto x cuota', 'Pagado', 'Vuelto', 'Acciones'
         ])
         self.table_ventas_dia.verticalHeader().setVisible(False)
+        self.table_ventas_dia.setEditTriggers(QTableWidget.NoEditTriggers)
 
         fvd = self.table_ventas_dia.font()
         fvd.setPointSize(fvd.pointSize() + 2)
@@ -292,8 +300,8 @@ class VentasMixin:
         hdr2 = self.table_ventas_dia.horizontalHeader()
         hdr2.setSectionResizeMode(QHeaderView.Stretch)
         hdr2.setStretchLastSection(False)
-        hdr2.setSectionResizeMode(10, QHeaderView.ResizeToContents)  # Acciones
-        self.table_ventas_dia.setColumnWidth(10, 180)
+        hdr2.setSectionResizeMode(11, QHeaderView.ResizeToContents)  # Acciones
+        self.table_ventas_dia.setColumnWidth(11, 180)
         self.table_ventas_dia.setIconSize(QSize(20, 20))
         self.table_ventas_dia.verticalHeader().setDefaultSectionSize(28)
 
@@ -313,7 +321,22 @@ class VentasMixin:
     
 #----Cesta (agregar/editar/quitar y totales)---
 
+    def _check_scanner_auto_add(self):
+        """Auto-agrega producto si el texto coincide con un código exacto (scanner)."""
+        try:
+            text = self.input_venta_buscar.text().strip()
+            if not text or len(text) < 3:
+                return
+            prod = self.prod_repo.buscar_por_codigo(text)
+            if prod:
+                self.agregar_a_cesta()
+        except Exception:
+            pass
+
     def agregar_a_cesta(self):
+            # Detener timer del scanner para evitar re-triggers
+            if hasattr(self, '_scanner_timer'):
+                self._scanner_timer.stop()
             # Si la cesta está vacía, asegurá iniciar con ajustes globales en cero
 
             if self.table_cesta.rowCount() == 0:
@@ -620,11 +643,22 @@ class VentasMixin:
 
         tbl.item(row, 2).setText(str(int(nueva)))
 
-        # Recalcular total de fila
+        # Recalcular total de fila (leer desde UserRole para evitar fallo con "→")
+        pu_item = tbl.item(row, 3)
         try:
-            pu = float(str(tbl.item(row, 3).text()).replace("$", "").strip())
+            pu = float(pu_item.data(Qt.UserRole))
         except Exception:
-            pu = 0.0
+            try:
+                pu = float(str(pu_item.text()).replace("$", "").strip())
+            except Exception:
+                pu = 0.0
+        # Aplicar descuento por item si existe
+        try:
+            pct_item = float(pu_item.data(Qt.UserRole + 1) or 0.0)
+            if pct_item > 0:
+                pu = round(pu * (1.0 - pct_item / 100.0), 2)
+        except Exception:
+            pass
         total_fila = int(nueva) * pu
 
         it_total = tbl.item(row, 4)
@@ -668,11 +702,22 @@ class VentasMixin:
         # Actualizar cantidad
         tbl.item(row, 2).setText(f"{float(nueva):.2f}")
 
-        # Recalcular total de la fila
+        # Recalcular total de la fila (leer desde UserRole para evitar fallo con "→")
+        pu_item = tbl.item(row, 3)
         try:
-            pu = float(str(tbl.item(row, 3).text()).replace("$","").strip())
+            pu = float(pu_item.data(Qt.UserRole))
         except Exception:
-            pu = 0.0
+            try:
+                pu = float(str(pu_item.text()).replace("$","").strip())
+            except Exception:
+                pu = 0.0
+        # Aplicar descuento por item si existe
+        try:
+            pct_item = float(pu_item.data(Qt.UserRole + 1) or 0.0)
+            if pct_item > 0:
+                pu = round(pu * (1.0 - pct_item / 100.0), 2)
+        except Exception:
+            pass
         total = float(nueva) * pu
 
         it_total = tbl.item(row, 4)

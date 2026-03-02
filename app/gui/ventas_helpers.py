@@ -241,16 +241,19 @@ def _draw_ticket(p, page_rect, prn, venta, sucursal, direcciones, width_mm=75.0,
     dpi_x = (getattr(prn, "logicalDpiX", lambda: 300)() or 300) if prn else 300
     def px(mm): return int(round(mm * dpi_x / 25.4))
 
-    # Márgenes simétricos (centrado real del contenido dentro de la “hoja”)
-    MARGIN_MM = 4.0
+    # Márgenes configurables desde app_config.json
+    from app.config import load as _load_cfg
+    _tk_cfg = _load_cfg().get("ticket", {})
+    MARGIN_LEFT_MM  = float(_tk_cfg.get("margin_left_mm", 2.0))
+    MARGIN_RIGHT_MM = float(_tk_cfg.get("margin_right_mm", 2.0))
     GAP_MM    = 1.4
     SEP_MM    = 0.9
     RIGHT_PAD_PX = px(0.6)
 
-    # Área útil centrada
-    x = page_rect.left() + px(MARGIN_MM)
-    y = page_rect.top()  + px(MARGIN_MM)
-    w = page_rect.width() - px(MARGIN_MM*2)
+    # Área útil con márgenes independientes
+    x = page_rect.left() + px(MARGIN_LEFT_MM)
+    y = page_rect.top()  + px(MARGIN_LEFT_MM)
+    w = page_rect.width() - px(MARGIN_LEFT_MM) - px(MARGIN_RIGHT_MM)
 
     # Fuentes
     f_title = QFont("Arial"); f_title.setPointSize(12); f_title.setBold(True)
@@ -537,7 +540,11 @@ def _compute_ticket_height_mm(venta, prn, width_mm=75.0, template_override: str 
     h_h = fm_h.height() * mm_per_px
     h_n = fm_n.height() * mm_per_px
 
-    MARGIN_MM, GAP_MM, SEP_MM = 3.0, 1.2, 0.8
+    from app.config import load as _load_cfg_h
+    _tk_cfg_h = _load_cfg_h().get("ticket", {})
+    MARGIN_MM = float(_tk_cfg_h.get("margin_left_mm", 2.0))
+    MARGIN_RIGHT_MM = float(_tk_cfg_h.get("margin_right_mm", 2.0))
+    GAP_MM, SEP_MM = 1.2, 0.8
     total = MARGIN_MM
 
     # Encabezado profesional (separator + título + dirección + CUIT + separator + ticket/fecha/sucursal)
@@ -613,7 +620,7 @@ def _compute_ticket_height_mm(venta, prn, width_mm=75.0, template_override: str 
     if com:
         total += GAP_MM + h_h
         avg_char_px = max(1, fm_n.averageCharWidth())
-        avail_px = int(round((width_mm - 2*MARGIN_MM) / mm_per_px))
+        avail_px = int(round((width_mm - MARGIN_MM - MARGIN_RIGHT_MM) / mm_per_px))
         chars_per_line = max(8, int(avail_px / avg_char_px))
         import textwrap
         wrapped = []
@@ -664,7 +671,7 @@ def _compute_ticket_height_mm(venta, prn, width_mm=75.0, template_override: str 
     footer_texts = [S.get(k, "") for k in ("footer_1", "footer_2", "footer_3")]
 
     avg_char_px = max(1, fm_n.averageCharWidth())
-    avail_px = int(round((width_mm - 2*MARGIN_MM) / mm_per_px))
+    avail_px = int(round((width_mm - MARGIN_MM - MARGIN_RIGHT_MM) / mm_per_px))
     chars_per_line = max(8, int(avail_px / avg_char_px))
 
     import textwrap
@@ -785,6 +792,10 @@ def _tpl_context(venta, sucursal, direcciones):
         "iva.cuota":         _money(iva_cuota),
         "iva.porcentaje":    "21%",
         "vendedor":          "",
+        # Datos AFIP individuales
+        "afip.cae":          str(getattr(venta, "afip_cae", "") or ""),
+        "afip.vencimiento":  str(getattr(venta, "afip_cae_vencimiento", "") or ""),
+        "afip.comprobante":  str(getattr(venta, "afip_numero_comprobante", "") or ""),
     }
     return ctx, items
 
@@ -959,8 +970,12 @@ def _tpl_draw_block(p, px, draw_text, line, gap, f_norm, f_head, venta, sucursal
             h = p.fontMetrics().height()
             # Obtener coordenadas y ancho de página
             page_rect = p.viewport()
-            x_start = page_rect.left() + px(4.0)  # margen izquierdo
-            width = page_rect.width() - px(8.0)   # ancho total menos márgenes
+            from app.config import load as _lcfg_cae
+            _tcae = _lcfg_cae().get("ticket", {})
+            _ml = float(_tcae.get("margin_left_mm", 2.0))
+            _mr = float(_tcae.get("margin_right_mm", 2.0))
+            x_start = page_rect.left() + px(_ml)  # margen izquierdo
+            width = page_rect.width() - px(_ml) - px(_mr)   # ancho total menos márgenes
             left_w = int(width * 0.55)
             right_x = x_start + left_w
             right_w = width - left_w - px(0.6)
@@ -968,7 +983,7 @@ def _tpl_draw_block(p, px, draw_text, line, gap, f_norm, f_head, venta, sucursal
             # Obtener posición Y actual del painter
             import sys
             # Como no tenemos acceso directo a 'y', usamos el viewport actual
-            current_y = getattr(draw_lr_local, '_y', page_rect.top() + px(4.0))
+            current_y = getattr(draw_lr_local, '_y', page_rect.top() + px(_ml))
 
             p.drawText(QRect(x_start, current_y, left_w, h), Qt.AlignLeft | Qt.AlignVCenter, str(left))
             p.drawText(QRect(right_x, current_y, right_w, h), Qt.AlignRight | Qt.AlignVCenter, str(right))

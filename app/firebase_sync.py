@@ -49,6 +49,7 @@ class FirebaseSyncManager:
         self.sucursal_local = sucursal_local
         self._queue_path = os.path.join(_get_app_data_dir(), QUEUE_FILENAME)
         self._log_path = os.path.join(_get_app_data_dir(), "logs", "sync.log")
+        self._price_mismatches = []
         os.makedirs(os.path.dirname(self._log_path), exist_ok=True)
 
     # ─── Configuracion ───────────────────────────────────────────────
@@ -114,9 +115,9 @@ class FirebaseSyncManager:
         """PATCH (multi-path update) para escribir multiples keys de una vez."""
         try:
             url = self._firebase_url(path)
-            resp = requests.patch(url, json=data, timeout=REQUEST_TIMEOUT)
+            resp = requests.patch(url, json=data, timeout=BATCH_TIMEOUT)
             if resp.status_code != 200:
-                self._log(f"PATCH {path} HTTP {resp.status_code}: {resp.text[:200]}")
+                self._log(f"PATCH {path} HTTP {resp.status_code}: {resp.text[:500]}")
                 return False
             return True
         except Exception as e:
@@ -227,6 +228,7 @@ class FirebaseSyncManager:
         key = self._firebase_post("cambios/ventas", data)
         if not key:
             self._enqueue_change("ventas", "create", data["data"])
+            self._log(f"Venta #{venta.numero_ticket} encolada offline")
         else:
             self._log(f"Venta #{venta.numero_ticket} publicada: {key}")
 
@@ -316,7 +318,7 @@ class FirebaseSyncManager:
             "timestamp": int(time.time() * 1000),
             "accion": accion,
             "data": {
-                "nombre": proveedor.nombre,
+                "nombre": (proveedor.nombre or "").strip(),
                 "telefono": proveedor.telefono,
                 "numero_cuenta": proveedor.numero_cuenta,
                 "cbu": proveedor.cbu,
@@ -573,24 +575,49 @@ class FirebaseSyncManager:
                     inner_data = change.get("data", {})
                     self._log(f"  {tipo}/{push_key}: origen={origen}, accion={accion}, "
                               f"data_keys={list(inner_data.keys()) if isinstance(inner_data, dict) else 'N/A'}")
-                    ok = self._apply_change(tipo, change)
+
+                    # Reintentar hasta 5 veces con back-off exponencial si da "database is locked"
+                    ok = False
+                    for _attempt in range(5):
+                        try:
+                            ok = self._apply_change(tipo, change)
+                            break
+                        except Exception as _retry_err:
+                            if "database is locked" in str(_retry_err) and _attempt < 4:
+                                import time as _t
+                                wait = 3 * (2 ** _attempt)  # 3, 6, 12, 24, 48 seg
+                                self._log(f"  DB locked, esperando {wait}s ({_attempt+1}/5)...")
+                                try:
+                                    self.session.rollback()
+                                except Exception:
+                                    pass
+                                _t.sleep(wait)
+                                continue
+                            raise
+
                     if ok:
                         page_applied += 1
                         self._log(f"  -> APLICADO OK")
                     else:
                         skipped_apply_fail += 1
                         self._log(f"  -> NO APLICADO (ya existe o datos invalidos)")
+                    cursor = push_key
                 except Exception as e:
                     self._log(f"Error aplicando {tipo}/{push_key}: {e}")
                     total_errors += 1
-
-                cursor = push_key
+                    # NO avanzar cursor: se reintentara en el proximo ciclo
+                    self._log(f"  -> CURSOR NO AVANZADO, se reintentara")
 
             total_applied += page_applied
             self._log(f"Pull {tipo} pag{page_num} resumen: "
                       f"aplicados={page_applied}, skip_cursor={skipped_cursor}, "
                       f"skip_propios={skipped_own}, skip_invalidos={skipped_invalid}, "
                       f"no_aplicados={skipped_apply_fail}")
+
+            # Si hubo errores irrecuperables, parar paginacion y reintentar proximo ciclo
+            if total_errors > 0:
+                self._log(f"Pull {tipo}: detenido por errores, reintentara en proximo ciclo")
+                break
 
             # Si recibimos menos de PAGE_SIZE+1, ya no hay mas paginas
             expected = PAGE_SIZE + 1 if last_key or (page_num > 1) else PAGE_SIZE
@@ -668,11 +695,16 @@ class FirebaseSyncManager:
         except IntegrityError:
             self.session.rollback()
             return False
+        except Exception:
+            self.session.rollback()
+            raise
 
         # Agregar items
         for item_data in (data.get("items") or []):
             codigo = item_data.get("codigo_barra", "")
             prod = self.session.query(Producto).filter_by(codigo_barra=codigo).first() if codigo else None
+            if not prod and codigo:
+                self._log(f"  WARN: producto '{codigo}' no encontrado, item creado sin vinculo")
 
             vi = VentaItem(
                 venta_id=venta.id,
@@ -683,7 +715,8 @@ class FirebaseSyncManager:
             self.session.add(vi)
 
         self.session.commit()
-        self._log(f"Venta #{numero_ticket} recibida de {sucursal}")
+        _items_count = len(data.get("items") or [])
+        self._log(f"Venta #{numero_ticket} recibida de {sucursal} ({_items_count} items, total={data.get('total', 0)})")
         return True
 
     def _apply_venta_update(self, data: dict) -> bool:
@@ -703,27 +736,37 @@ class FirebaseSyncManager:
         if "vuelto" in data:
             venta.vuelto = data["vuelto"]
 
-        # Actualizar items si vienen
+        # Actualizar items si vienen (con rollback seguro)
         items_data = data.get("items")
         if items_data is not None:
-            # Eliminar items actuales
-            for item in list(venta.items):
-                self.session.delete(item)
-            self.session.flush()
+            try:
+                # Eliminar items actuales
+                for item in list(venta.items):
+                    self.session.delete(item)
+                self.session.flush()
 
-            # Recrear items
-            for item_data in items_data:
-                codigo = item_data.get("codigo_barra", "")
-                prod = self.session.query(Producto).filter_by(codigo_barra=codigo).first() if codigo else None
-                vi = VentaItem(
-                    venta_id=venta.id,
-                    producto_id=prod.id if prod else None,
-                    cantidad=int(item_data.get("cantidad", 1)),
-                    precio_unit=float(item_data.get("precio_unit", 0))
-                )
-                self.session.add(vi)
+                # Recrear items
+                for item_data in items_data:
+                    codigo = item_data.get("codigo_barra", "")
+                    prod = self.session.query(Producto).filter_by(codigo_barra=codigo).first() if codigo else None
+                    if not prod and codigo:
+                        self._log(f"  WARN: producto '{codigo}' no encontrado en update, item sin vinculo")
+                    vi = VentaItem(
+                        venta_id=venta.id,
+                        producto_id=prod.id if prod else None,
+                        cantidad=int(item_data.get("cantidad", 1)),
+                        precio_unit=float(item_data.get("precio_unit", 0))
+                    )
+                    self.session.add(vi)
 
-        self.session.commit()
+                self.session.commit()
+            except Exception as e:
+                self.session.rollback()
+                self._log(f"Error actualizando items de venta #{numero_ticket}: {e}")
+                return False
+        else:
+            self.session.commit()
+
         self._log(f"Venta #{numero_ticket} actualizada (devolucion)")
         return True
 
@@ -779,7 +822,7 @@ class FirebaseSyncManager:
 
         try:
             self.session.commit()
-            self._log(f"Producto '{codigo}' sincronizado")
+            self._log(f"Producto '{codigo}' sincronizado (precio={data.get('precio', 0)})")
             return True
         except IntegrityError:
             self.session.rollback()

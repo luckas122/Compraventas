@@ -321,6 +321,40 @@ class ConfiguracionMixin:
 
         lay_tk.addWidget(gb_tpl)
 
+        # ===== SECCIÓN: MÁRGENES DEL TICKET =====
+        from PyQt5.QtWidgets import QDoubleSpinBox as _QDblSpin
+        gb_margins = QGroupBox("Márgenes del ticket (mm)", parent=page_ticket)
+        lay_margins = QFormLayout(gb_margins)
+        lay_margins.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
+        self.cfg_margin_left = _QDblSpin(gb_margins)
+        self.cfg_margin_left.setRange(0.0, 10.0)
+        self.cfg_margin_left.setSingleStep(0.5)
+        self.cfg_margin_left.setDecimals(1)
+        self.cfg_margin_left.setSuffix(" mm")
+        self.cfg_margin_left.setValue(float(tk.get("margin_left_mm", 2.0)))
+        self.cfg_margin_left.setToolTip("Margen izquierdo del contenido del ticket.\n0 = sin margen, 4 = valor anterior.")
+        lay_margins.addRow("Margen izquierdo:", self.cfg_margin_left)
+
+        self.cfg_margin_right = _QDblSpin(gb_margins)
+        self.cfg_margin_right.setRange(0.0, 10.0)
+        self.cfg_margin_right.setSingleStep(0.5)
+        self.cfg_margin_right.setDecimals(1)
+        self.cfg_margin_right.setSuffix(" mm")
+        self.cfg_margin_right.setValue(float(tk.get("margin_right_mm", 2.0)))
+        self.cfg_margin_right.setToolTip("Margen derecho del contenido del ticket.\n0 = sin margen, 4 = valor anterior.")
+        lay_margins.addRow("Margen derecho:", self.cfg_margin_right)
+
+        lbl_margins_help = QLabel(
+            "Ajusta los márgenes del contenido impreso. "
+            "Si el ticket se imprime muy a la derecha, reducí el margen izquierdo."
+        )
+        lbl_margins_help.setWordWrap(True)
+        lbl_margins_help.setStyleSheet("color: #888; font-size: 9pt;")
+        lay_margins.addRow("", lbl_margins_help)
+
+        lay_tk.addWidget(gb_margins)
+
         # ===== SECCIÓN: ETIQUETAS DE CÓDIGO DE BARRAS =====
         barcode_cfg = cfg.get("barcode") or {}
         gb_barcode = QGroupBox("Etiquetas de código de barras", parent=page_ticket)
@@ -462,6 +496,13 @@ class ConfiguracionMixin:
         self.cfg_edt_fiscal_url_prod.setPlaceholderText("URL base producción (AfipSDK)")
         self.cfg_edt_fiscal_url_prod.setText(af.get("base_url_prod", ""))
         lay_fisc_form.addRow("URL producción:", self.cfg_edt_fiscal_url_prod)
+
+        # CUIT/CUIL predefinido del cliente (se usa en diálogos de pago)
+        self.cfg_edt_fiscal_cuit_cliente = QLineEdit(gb_fisc)
+        self.cfg_edt_fiscal_cuit_cliente.setPlaceholderText("CUIT/CUIL predefinido del cliente (ej: 20000000001)")
+        self.cfg_edt_fiscal_cuit_cliente.setText(str(fisc.get("cuit_predefinido", "20000000001") or "20000000001"))
+        self.cfg_edt_fiscal_cuit_cliente.setMaxLength(13)
+        lay_fisc_form.addRow("CUIT/CUIL cliente predefinido:", self.cfg_edt_fiscal_cuit_cliente)
 
         lay_fisc.addWidget(gb_fisc)
         lay_fisc.addStretch(1)
@@ -920,6 +961,12 @@ class ConfiguracionMixin:
         tk = cfg.get("ticket") or {}
         if hasattr(self, "cfg_txt_tpl"):
             tk["template"] = self.cfg_txt_tpl.toPlainText()
+        # ---------- márgenes ticket ----------
+        try:
+            tk["margin_left_mm"] = self.cfg_margin_left.value()
+            tk["margin_right_mm"] = self.cfg_margin_right.value()
+        except Exception:
+            pass
         cfg["ticket"] = tk
 
         # ---------- barcode / etiquetas ----------
@@ -958,6 +1005,10 @@ class ConfiguracionMixin:
             pass
         try:
             fisc["tipo_cbte"] = self.cfg_cmb_fiscal_tipo.currentData() or "FACTURA_B"
+        except Exception:
+            pass
+        try:
+            fisc["cuit_predefinido"] = (self.cfg_edt_fiscal_cuit_cliente.text() or "").strip()
         except Exception:
             pass
 

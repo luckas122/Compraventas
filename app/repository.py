@@ -189,6 +189,10 @@ class VentaRepo:
         self.session.add(v)
         self.session.flush()  # asegura v.id
         return v
+    def listar_items(self, venta_id: int):
+        """Lista los items de una venta por ID."""
+        return self.session.query(VentaItem).filter_by(venta_id=venta_id).all()
+
     def obtener_por_numero(self, numero_ticket: int):
         return self.session.query(Venta).filter(Venta.numero_ticket == numero_ticket).first()
 

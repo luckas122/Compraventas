@@ -4,6 +4,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 from PyQt5.QtWidgets import QMessageBox, QDialog
+from PyQt5.QtCore import Qt
 from app.gui.common import icon
 from app.models import Producto, Venta, VentaItem
 
@@ -160,8 +161,15 @@ class VentasFinalizacionMixin:
             # Conversiones seguras con try-except
             try:
                 cant = int(float(item_cant.text().replace(",", ".").strip() or "0"))
-                pu = float(item_pu.text().replace("$", "").replace(",", ".").strip() or "0")
-            except (ValueError, AttributeError):
+                # Leer precio base desde UserRole (el texto puede tener "→" por descuento)
+                pu_data = item_pu.data(Qt.UserRole)
+                if pu_data is not None:
+                    base_price = float(pu_data)
+                    pct_item = float(item_pu.data(Qt.UserRole + 1) or 0.0)
+                    pu = round(base_price * (1.0 - pct_item / 100.0), 2)
+                else:
+                    pu = float(item_pu.text().replace("$", "").replace(",", ".").strip() or "0")
+            except (ValueError, AttributeError, TypeError):
                 continue  # Saltar filas con valores invalidos
 
             if cant <= 0 or pu < 0:

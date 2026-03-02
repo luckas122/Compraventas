@@ -67,6 +67,18 @@ class SyncConfigPanel(QWidget):
         self.spn_intervalo.setSuffix(" minutos")
         lay_modo.addRow(self.lbl_intervalo, self.spn_intervalo)
 
+        self.lbl_refresh = QLabel("Refresco UI:")
+        self.spn_refresh = QSpinBox()
+        self.spn_refresh.setRange(10, 3600)
+        self.spn_refresh.setValue(300)
+        self.spn_refresh.setSuffix(" segundos")
+        self.spn_refresh.setToolTip(
+            "Intervalo en segundos para refrescar automáticamente\n"
+            "las pestañas de Productos e Historial.\n"
+            "Valor recomendado: 60-300 segundos."
+        )
+        lay_modo.addRow(self.lbl_refresh, self.spn_refresh)
+
         self.cmb_modo.currentIndexChanged.connect(self._on_modo_changed)
         root.addWidget(gb_modo)
 
@@ -268,6 +280,8 @@ class SyncConfigPanel(QWidget):
 
         self.spn_intervalo.setValue(sync_cfg.get("interval_minutes", 5))
 
+        self.spn_refresh.setValue(self.cfg.get("refresh_seconds", 300))
+
         fb = sync_cfg.get("firebase", {})
         self.ed_db_url.setText(fb.get("database_url", ""))
         self.ed_auth_token.setText(fb.get("auth_token", ""))
@@ -295,6 +309,9 @@ class SyncConfigPanel(QWidget):
             "last_processed_keys": old_sync.get("last_processed_keys", {}),
         }
 
+        # Guardar refresh_seconds a nivel raíz (no dentro de sync)
+        cfg["refresh_seconds"] = self.spn_refresh.value()
+
         save_config(cfg)
         QMessageBox.information(self, "Sincronizacion", "Configuracion guardada correctamente.")
 
@@ -303,6 +320,9 @@ class SyncConfigPanel(QWidget):
             mw = self._find_main_window()
             if mw and hasattr(mw, "_reiniciar_sync_scheduler"):
                 mw._reiniciar_sync_scheduler()
+            # Actualizar timer de auto-refresh
+            if mw and hasattr(mw, "_auto_refresh_timer"):
+                mw._auto_refresh_timer.setInterval(self.spn_refresh.value() * 1000)
         except Exception:
             pass
 
