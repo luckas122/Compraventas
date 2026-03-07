@@ -89,55 +89,30 @@ def _norm_item_fields(it):
     except Exception:
         pu = 0.0
     return codigo, nombre, cant, pu
-# ---------------------- Email helper (SMTP simple) ----------------------
-def _send_mail_with_attachments(subject: str, body: str,
-                                recipients: List[str], attachments: List[str] = None):
-    import smtplib
-    from email.message import EmailMessage
+# ---------------------- Email worker (hilo separado) ----------------------
+from PyQt5.QtCore import QThread, pyqtSignal
 
-    cfg = load_config()
-    e = (cfg.get("email") or {})
-    smtp = (e.get("smtp") or {})
+class SmtpWorker(QThread):
+    """Worker thread para operaciones SMTP sin bloquear la UI."""
+    finished = pyqtSignal(bool, str)  # (success, error_message)
 
-    host = smtp.get("host")
-    port = int(smtp.get("port") or 587)
-    use_tls = bool(smtp.get("use_tls", True))
-    user = smtp.get("username")
-    pwd  = smtp.get("password")
-    from_addr = e.get("sender") or user
+    def __init__(self, subject, body, recipients, attachments=None, parent=None):
+        super().__init__(parent)
+        self.subject = subject
+        self.body = body
+        self.recipients = recipients
+        self.attachments = attachments
 
-    if not host or not user or not pwd or not from_addr:
-        raise RuntimeError("Falta configurar SMTP en Configuración → Email.")
-
-    msg = EmailMessage()
-    msg["Subject"] = subject or "Reporte"
-    msg["From"] = from_addr
-    msg["To"] = ", ".join(recipients or [])
-    if e.get("bcc"):
-        msg["Bcc"] = ", ".join(e.get("bcc"))
-
-    msg.set_content(body or "")
-
-    for path in (attachments or []):
+    def run(self):
         try:
-            with open(path, "rb") as f:
-                data = f.read()
-            filename = os.path.basename(path)
-            msg.add_attachment(data, maintype="application",
-                               subtype="octet-stream", filename=filename)
+            from app.email_helper import send_mail_with_attachments
+            send_mail_with_attachments(
+                self.subject, self.body,
+                self.recipients, self.attachments
+            )
+            self.finished.emit(True, "")
         except Exception as ex:
-            logger.warning("Adjunto falló: %s", ex)
-
-    if use_tls:
-        server = smtplib.SMTP(host, port)
-        server.starttls()
-    else:
-        server = smtplib.SMTP_SSL(host, port)
-
-    server.login(user, pwd)
-    server.send_message(msg)
-    server.quit()
-    return True
+            self.finished.emit(False, str(ex))
 
 
 # ---------------------- UI principal ----------------------
@@ -865,8 +840,18 @@ class HistorialVentasWidget(QWidget):
                 return q in nro.lower()
             ventas = [v for v in ventas if _match(v)]
 
+        # Obtener pagos a proveedores del mismo rango
+        pagos_prov = []
+        try:
+            from app.repository import PagoProveedorRepo
+            pago_repo = PagoProveedorRepo(self.session)
+            pagos_prov = pago_repo.listar_por_rango(dt_min, dt_max, sucursal=suc)
+        except Exception:
+            pagos_prov = []
+
         # Rellenar tabla
         self._ventas_cache = ventas
+        self._pagos_cache = pagos_prov
         self._pintar_tabla()
 
     def _pintar_tabla(self):
@@ -945,8 +930,10 @@ class HistorialVentasWidget(QWidget):
             coment = self._obtener_comentario(v)
 
             # Campos AFIP
-            cae = getattr(v, "afip_cae", None) or "-"
-            cae_vto = getattr(v, "afip_cae_vencimiento", None) or "-"
+            cae = getattr(v, "afip_cae", None) or ""
+            cae_vto = getattr(v, "afip_cae_vencimiento", None) or ""
+            afip_error = getattr(v, "afip_error", None) or ""
+            has_error = bool(afip_error and not cae)
 
             # Orden EXACTO de columnas (coincide con headers)
             data = [
@@ -961,8 +948,8 @@ class HistorialVentasWidget(QWidget):
                 f"${tot:.2f}",                        # Total
                 pagado_txt,                           # Pagado
                 vuelto_txt,                           # Vuelto
-                str(cae),                             # CAE
-                str(cae_vto),                         # Vto CAE
+                "",                                   # CAE (placeholder - se llena abajo)
+                str(cae_vto) if cae_vto else "-",     # Vto CAE
                 coment,                               # Comentario
                 str(getattr(v, "id", ""))             # ID
             ]
@@ -972,9 +959,64 @@ class HistorialVentasWidget(QWidget):
                 it.setTextAlignment(Qt.AlignCenter)
                 self.tbl.setItem(row, c, it)
 
+            # Columna CAE: botón reintentar si hay error, o texto normal
+            if has_error:
+                from PyQt5.QtWidgets import QPushButton
+                btn_retry = QPushButton("⚠ Reintentar")
+                btn_retry.setStyleSheet(
+                    "background: #E67E22; color: white; padding: 2px 8px; "
+                    "font-weight: bold; font-size: 9pt; border-radius: 3px;"
+                )
+                btn_retry.setToolTip(f"Error: {afip_error[:120]}")
+                venta_id = getattr(v, "id", None)
+                btn_retry.clicked.connect(lambda _, vid=venta_id: self._reintentar_cae_desde_tabla(vid))
+                self.tbl.setCellWidget(row, 11, btn_retry)
+                # Vto CAE: mostrar resumen del error en rojo
+                it_err = QTableWidgetItem(afip_error[:40])
+                it_err.setTextAlignment(Qt.AlignCenter)
+                from PyQt5.QtGui import QColor
+                it_err.setForeground(QColor(220, 30, 30))
+                self.tbl.setItem(row, 12, it_err)
+            else:
+                it_cae = QTableWidgetItem(str(cae) if cae else "-")
+                it_cae.setTextAlignment(Qt.AlignCenter)
+                self.tbl.setItem(row, 11, it_cae)
+
+        # Agregar pagos a proveedores (en rojo)
+        from PyQt5.QtGui import QColor, QBrush
+        red_brush = QBrush(QColor(220, 30, 30))
+        tot_pagos = 0.0
+        pagos_cache = getattr(self, '_pagos_cache', []) or []
+        for p in pagos_cache:
+            row = self.tbl.rowCount()
+            self.tbl.insertRow(row)
+            fch = getattr(p, 'fecha', None)
+            hora = fch.strftime("%Y-%m-%d %H:%M") if fch else ""
+            pdata = [
+                str(getattr(p, 'numero_ticket', '') or ''),
+                hora,
+                getattr(p, 'sucursal', '') or '',
+                f"PAGO: {p.proveedor_nombre}",
+                p.metodo_pago,
+                '-', '-', '-',
+                f"-${p.monto:.2f}",
+                'Caja' if p.pago_de_caja else '-',
+                p.nota or '-',
+                '-', '-',
+                'Pago a proveedor',
+                ''
+            ]
+            for c, val in enumerate(pdata):
+                it = QTableWidgetItem(val)
+                it.setTextAlignment(Qt.AlignCenter)
+                it.setForeground(red_brush)
+                self.tbl.setItem(row, c, it)
+            tot_pagos += p.monto
+
         # Resumen inferior
+        pagos_txt = f" — Pagos: -${tot_pagos:.2f}" if tot_pagos > 0 else ""
         self.lbl_resumen.setText(
-            f"{len(self._ventas_cache)} ventas — Efectivo ${tot_efectivo:.2f} — Tarjeta ${tot_tarjeta:.2f} — Total ${total:.2f}"
+            f"{len(self._ventas_cache)} ventas — Efectivo ${tot_efectivo:.2f} — Tarjeta ${tot_tarjeta:.2f} — Total ${total:.2f}{pagos_txt}"
         )
 
         # Ocultar ID (última columna)
@@ -1048,6 +1090,61 @@ class HistorialVentasWidget(QWidget):
             pass
 
         return ""
+
+    def _reintentar_cae_desde_tabla(self, venta_id):
+        """Reintenta la emisión de CAE para una venta directamente desde la tabla."""
+        from app.afip_integration import crear_cliente_afip
+        from app.config import load as load_config
+        from app.models import Venta
+
+        if not venta_id:
+            return
+
+        cfg = load_config()
+        fiscal = cfg.get("fiscal", {})
+        if not fiscal.get("enabled"):
+            QMessageBox.warning(self, "AFIP", "La facturación electrónica no está habilitada en Configuración.")
+            return
+
+        # Obtener sucursal de la venta para resolver punto de venta correcto
+        venta = self.session.query(Venta).get(venta_id)
+        sucursal_venta = getattr(venta, "sucursal", "") if venta else ""
+
+        client = crear_cliente_afip(fiscal, sucursal=sucursal_venta)
+        if not client:
+            QMessageBox.warning(self, "AFIP", "No se pudo crear el cliente AFIP. Verificá la configuración.")
+            return
+        if not venta:
+            QMessageBox.warning(self, "AFIP", "No se encontró la venta.")
+            return
+
+        total = float(venta.total or 0)
+        subtotal = round(total / 1.21, 2)
+        iva = round(total - subtotal, 2)
+
+        try:
+            response = client.emitir_factura_b(
+                items=[],
+                total=total,
+                subtotal=subtotal,
+                iva=iva
+            )
+
+            if response.success:
+                venta.afip_cae = response.cae
+                venta.afip_cae_vencimiento = response.cae_vencimiento
+                if hasattr(venta, 'afip_numero_comprobante') and response.numero_comprobante:
+                    venta.afip_numero_comprobante = response.numero_comprobante
+                venta.afip_error = None
+                self.session.commit()
+                QMessageBox.information(self, "AFIP", f"CAE obtenido: {response.cae}")
+                # Refrescar tabla
+                self.refrescar()
+            else:
+                QMessageBox.warning(self, "AFIP", f"AFIP rechazó:\n{response.error_message}")
+        except Exception as e:
+            QMessageBox.warning(self, "AFIP", f"Error al reintentar:\n{e}")
+
     # ------------------- Exportar / enviar -------------------
     def _armar_dataframe(self) -> pd.DataFrame:
         rows = []
@@ -1438,6 +1535,30 @@ class HistorialVentasWidget(QWidget):
                 except Exception as e_top:
                     logger.debug(f"No se pudo crear hoja Top 10: {e_top}")
 
+                # --- Hoja "Pagos a Proveedores" ---
+                try:
+                    pagos_cache = getattr(self, '_pagos_cache', []) or []
+                    if pagos_cache:
+                        from app.repository import PagoProveedorRepo
+                        pago_repo = PagoProveedorRepo(self.session)
+                        df_pagos = pago_repo.exportar_rango(
+                            suc if suc else None,
+                            *self._rango_fechas()
+                        )
+                        if not df_pagos.empty:
+                            df_pagos.to_excel(xw, index=False, sheet_name="Pagos Proveedores")
+                            try:
+                                ws_pag = xw.sheets.get("Pagos Proveedores") if hasattr(xw, "sheets") else None
+                                if ws_pag is None:
+                                    wb = getattr(xw, "book", None)
+                                    if wb: ws_pag = wb["Pagos Proveedores"]
+                                if ws_pag:
+                                    _autofit_sheet(ws_pag, df_pagos, _engine)
+                            except Exception:
+                                pass
+                except Exception as e_pag:
+                    logger.debug(f"No se pudo crear hoja Pagos Proveedores: {e_pag}")
+
             # Verificación final (archivo debe existir y tener >0 bytes)
             if not os.path.exists(path) or os.path.getsize(path) <= 0:
                 base, _ = os.path.splitext(path)
@@ -1490,15 +1611,34 @@ class HistorialVentasWidget(QWidget):
         fpath = os.path.join(tmpdir, fname)
         self._crear_excel(fpath, for_freq=for_freq)
 
-        # Enviar
-        try:
-            subj_prefix = (e.get("subject_prefix") or "[Historial]")
-            subj = f"{subj_prefix} Ventas {self.dt_desde.date().toString('yyyy-MM-dd')} a {self.dt_hasta.date().toString('yyyy-MM-dd')}"
-            body = "Se adjunta el reporte con los filtros aplicados."
-            _send_mail_with_attachments(subj, body, recipients, [fpath])
-            QMessageBox.information(self, "Correo", "Enviado.")
-        except Exception as ex:
-            QMessageBox.warning(self, "Correo", f"No se pudo enviar:\n{ex}")
+        # Enviar en hilo separado para no bloquear la UI
+        from PyQt5.QtWidgets import QProgressDialog
+        from PyQt5.QtCore import Qt
+
+        subj_prefix = (e.get("subject_prefix") or "[Historial]")
+        subj = f"{subj_prefix} Ventas {self.dt_desde.date().toString('yyyy-MM-dd')} a {self.dt_hasta.date().toString('yyyy-MM-dd')}"
+        body = "Se adjunta el reporte con los filtros aplicados."
+
+        progress = QProgressDialog("Enviando correo...", "Cancelar", 0, 0, self)
+        progress.setWindowModality(Qt.WindowModal)
+        progress.setMinimumDuration(0)
+        progress.show()
+
+        self._smtp_worker = SmtpWorker(subj, body, recipients, [fpath], parent=self)
+
+        def _on_finished(ok, err):
+            progress.close()
+            if ok:
+                QMessageBox.information(self, "Correo", "Enviado correctamente.")
+            else:
+                QMessageBox.warning(self, "Correo", f"No se pudo enviar:\n{err}")
+            self._smtp_worker = None
+
+        self._smtp_worker.finished.connect(_on_finished)
+        progress.canceled.connect(lambda: (
+            self._smtp_worker.terminate() if self._smtp_worker and self._smtp_worker.isRunning() else None
+        ))
+        self._smtp_worker.start()
 
 
 
@@ -1614,7 +1754,8 @@ class _VentaDetalleDialog(QDialog):
             QMessageBox.warning(self, "AFIP", "La facturación electrónica no está habilitada en Configuración.")
             return
 
-        client = crear_cliente_afip(fiscal)
+        sucursal_venta = getattr(venta, "sucursal", "") if venta else ""
+        client = crear_cliente_afip(fiscal, sucursal=sucursal_venta)
         if not client:
             QMessageBox.warning(self, "AFIP", "No se pudo crear el cliente AFIP. Verifica la configuración.")
             return
@@ -1635,8 +1776,8 @@ class _VentaDetalleDialog(QDialog):
             )
 
             if response.success:
-                venta.cae = response.cae
-                venta.cae_vencimiento = response.cae_vencimiento
+                venta.afip_cae = response.cae
+                venta.afip_cae_vencimiento = response.cae_vencimiento
                 venta.afip_error = None
                 session.commit()
                 QMessageBox.information(self, "AFIP", f"CAE obtenido exitosamente: {response.cae}")

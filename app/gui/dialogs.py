@@ -1460,3 +1460,129 @@ class PagoEfectivoDialog(QDialog):
     def get_datos(self):
         """Retorna los datos ingresados o None si se canceló."""
         return self._result
+
+
+class PagoProveedorDialog(QDialog):
+    """Dialog para registrar un pago a proveedor."""
+
+    def __init__(self, session, sucursal, parent=None):
+        super().__init__(parent)
+        self.session = session
+        self.sucursal = sucursal
+        self.setWindowTitle("Pago a Proveedor")
+        self.setMinimumWidth(450)
+        self._result = None
+
+        layout = QVBoxLayout(self)
+        form = QFormLayout()
+
+        # Proveedor dropdown
+        self.cmb_proveedor = QComboBox()
+        self.cmb_proveedor.setEditable(False)
+        self._cargar_proveedores()
+        self.cmb_proveedor.currentIndexChanged.connect(self._on_proveedor_changed)
+        form.addRow("Proveedor:", self.cmb_proveedor)
+
+        # Formulario inline para nuevo proveedor (oculto por defecto)
+        self.grp_nuevo = QGroupBox("Nuevo proveedor")
+        self.grp_nuevo.setVisible(False)
+        grp_form = QFormLayout(self.grp_nuevo)
+        self.ed_nombre = QLineEdit()
+        self.ed_nombre.setPlaceholderText("Nombre del proveedor (obligatorio)")
+        self.ed_telefono = QLineEdit()
+        self.ed_telefono.setPlaceholderText("Opcional")
+        self.ed_cuenta = QLineEdit()
+        self.ed_cuenta.setPlaceholderText("Opcional")
+        self.ed_cbu = QLineEdit()
+        self.ed_cbu.setPlaceholderText("Opcional")
+        grp_form.addRow("Nombre:", self.ed_nombre)
+        grp_form.addRow("Teléfono:", self.ed_telefono)
+        grp_form.addRow("Cuenta:", self.ed_cuenta)
+        grp_form.addRow("CBU:", self.ed_cbu)
+        form.addRow(self.grp_nuevo)
+
+        # Monto
+        self.spin_monto = QDoubleSpinBox()
+        self.spin_monto.setRange(0.01, 99999999.99)
+        self.spin_monto.setDecimals(2)
+        self.spin_monto.setPrefix("$ ")
+        self.spin_monto.setMinimumHeight(32)
+        font = self.spin_monto.font()
+        font.setPointSize(font.pointSize() + 2)
+        self.spin_monto.setFont(font)
+        form.addRow("Monto:", self.spin_monto)
+
+        # Metodo de pago
+        self.cmb_metodo = QComboBox()
+        self.cmb_metodo.addItems(["Efectivo", "Tarjeta", "Transferencia"])
+        form.addRow("Método de pago:", self.cmb_metodo)
+
+        # Pago de caja
+        self.chk_caja = QCheckBox("Pago de caja (descontar del efectivo)")
+        form.addRow("", self.chk_caja)
+
+        # Nota
+        self.ed_nota = QLineEdit()
+        self.ed_nota.setPlaceholderText("Nota opcional...")
+        form.addRow("Nota:", self.ed_nota)
+
+        layout.addLayout(form)
+
+        # Botones
+        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        btns.button(QDialogButtonBox.Ok).setText("Registrar Pago")
+        btns.accepted.connect(self._on_accept)
+        btns.rejected.connect(self.reject)
+        layout.addWidget(btns)
+
+    def _cargar_proveedores(self):
+        from app.gui.proveedores import ProveedorService
+        svc = ProveedorService(self.session)
+        provs = svc.listar_todos()
+        for p in provs:
+            self.cmb_proveedor.addItem(p.nombre, p.id)
+        self.cmb_proveedor.addItem("-- Otro (nuevo) --", -1)
+
+    def _on_proveedor_changed(self, idx):
+        data = self.cmb_proveedor.currentData()
+        self.grp_nuevo.setVisible(data == -1)
+
+    def _on_accept(self):
+        data = self.cmb_proveedor.currentData()
+        if data == -1:
+            nombre = self.ed_nombre.text().strip()
+            if not nombre:
+                QMessageBox.warning(self, "Pago", "Ingresá el nombre del proveedor.")
+                return
+            # Crear nuevo proveedor
+            from app.gui.proveedores import ProveedorService
+            svc = ProveedorService(self.session)
+            prov = svc.crear_o_actualizar_por_nombre(
+                nombre,
+                telefono=self.ed_telefono.text().strip() or None,
+                numero_cuenta=self.ed_cuenta.text().strip() or None,
+                cbu=self.ed_cbu.text().strip() or None
+            )
+            prov_id = prov.id if prov else None
+            prov_nombre = nombre
+        else:
+            prov_id = data
+            prov_nombre = self.cmb_proveedor.currentText()
+
+        monto = self.spin_monto.value()
+        if monto <= 0:
+            QMessageBox.warning(self, "Pago", "El monto debe ser mayor a 0.")
+            return
+
+        self._result = {
+            'proveedor_id': prov_id,
+            'proveedor_nombre': prov_nombre,
+            'monto': monto,
+            'metodo_pago': self.cmb_metodo.currentText(),
+            'pago_de_caja': self.chk_caja.isChecked(),
+            'nota': self.ed_nota.text().strip() or None
+        }
+        self.accept()
+
+    def get_datos(self):
+        return self._result

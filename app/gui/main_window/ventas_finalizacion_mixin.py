@@ -253,7 +253,16 @@ class VentasFinalizacionMixin:
             except Exception as e:
                 QMessageBox.warning(self, "WhatsApp", f"No se pudo abrir WhatsApp Web:\n{e}")
         else:
-            self.imprimir_ticket(venta.id)
+            # Confirmar antes de imprimir (Enter=imprimir, Escape=cancelar)
+            resp_print = QMessageBox.question(
+                self, "Imprimir Ticket",
+                "¿Imprimir el ticket?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.Yes
+            )
+            if resp_print == QMessageBox.Yes:
+                self.imprimir_ticket(venta.id)
+            # Si No/Escape → no imprime, nada se encola en el spooler
 
         # Limpiar UI
         self.nueva_venta()
@@ -262,6 +271,69 @@ class VentasFinalizacionMixin:
             self.historial.recargar_historial()
 
 
+    # ------------------------------------------------------------------
+    #  Helper: un solo intento de emisión AFIP
+    # ------------------------------------------------------------------
+    def _intentar_emision_afip(self, fiscal_config, sucursal, items,
+                                total, subtotal, iva,
+                                tipo_cbte, cuit_cliente):
+        """
+        Crea un cliente AFIP nuevo y emite una factura.
+        Retorna (AfipResponse | None, error_detail_str | None).
+        NO modifica la venta ni muestra diálogos.
+        """
+        try:
+            from app.afip_integration import crear_cliente_afip
+            client = crear_cliente_afip(fiscal_config, sucursal=sucursal)
+            if not client:
+                return None, "No se pudo crear el cliente AFIP. Verifica la configuracion."
+        except Exception as e:
+            logger.error("[AFIP] No se pudo inicializar AfipSDKClient: %s", e)
+            return None, f"Error inicializando cliente AFIP: {e}"
+
+        try:
+            if tipo_cbte and "FACTURA_A" in str(tipo_cbte).upper():
+                response = client.emitir_factura_a(
+                    items=items, total=total, subtotal=subtotal,
+                    iva=iva, cuit_cliente=cuit_cliente
+                )
+            else:
+                response = client.emitir_factura_b(
+                    items=items, total=total, subtotal=subtotal, iva=iva
+                )
+
+            if response.success:
+                return response, None
+            else:
+                return response, response.error_message or "Error desconocido de AFIP"
+
+        except Exception as e:
+            logger.error("[AFIP] Error al emitir factura: %s", e, exc_info=True)
+            error_msg = str(e)
+            if "400" in error_msg or "Bad Request" in error_msg:
+                detail = (
+                    "Error 400: Bad Request\n\n"
+                    "Posibles causas:\n"
+                    "- API Key invalida o sin permisos\n"
+                    "- CUIT no registrado con esta API Key\n"
+                    "- Modo (test/prod) incorrecto\n\n"
+                    f"CUIT actual: {fiscal_config.get('cuit')}\n"
+                    f"Modo: {fiscal_config.get('mode')}\n\n"
+                    f"Error tecnico: {error_msg}"
+                )
+            elif "401" in error_msg or "Unauthorized" in error_msg:
+                detail = (
+                    "Error 401: No autorizado\n\n"
+                    "La API Key es invalida o ha expirado.\n"
+                    "Verifica en Configuracion -> Facturacion Electronica"
+                )
+            else:
+                detail = f"Error al emitir comprobante electronico:\n\n{error_msg}"
+            return None, detail
+
+    # ------------------------------------------------------------------
+    #  Emisión AFIP con reintento automático
+    # ------------------------------------------------------------------
     def _afip_emitir_si_corresponde(self, venta, modo_pago: str, *,
                                       forzar_afip: bool = False,
                                       tipo_cbte: str = None,
@@ -272,80 +344,36 @@ class VentasFinalizacionMixin:
           - y (por defecto) la venta es con tarjeta.
           - O si forzar_afip=True (para efectivo con factura)
         No lanza excepciones hacia afuera: cualquier error se avisa pero no rompe la venta.
-
-        Parametros opcionales:
-          - forzar_afip: Si True, emite factura aunque sea efectivo
-          - tipo_cbte: Tipo de comprobante (FACTURA_A, FACTURA_B, etc.)
-          - cuit_cliente: CUIT del cliente (requerido para Factura A)
+        Si el primer intento falla, reintenta automáticamente con un cliente nuevo.
         """
         try:
             from app.config import load as _load_cfg
             cfg = _load_cfg()
         except Exception:
-            # Si no se puede leer config, no hacemos nada
             return
 
         fisc = (cfg.get("fiscal") or {})
         if not fisc.get("enabled", False):
             return
 
-        # Por defecto solo tarjeta; si desmarcas la opcion, tambien facturaria efectivo
-        # EXCEPCION: si forzar_afip=True, siempre emitir
         only_card = bool(fisc.get("only_card", True))
         if only_card and modo_pago.lower() != "tarjeta" and not forzar_afip:
             return
 
-        # Intentamos construir los items de forma normalizada
         try:
             items = self._items_para_ticket(venta.id)
         except Exception:
             items = []
 
-        # Cliente AfipSDK
-        try:
-            from app.afip_integration import crear_cliente_afip
-            cfg = _load_cfg()
-            # CORRECCION: La seccion se llama "fiscal" no "afip"
-            fiscal_config = cfg.get("fiscal", {}).copy()  # Copiar para no modificar original
+        fiscal_config = cfg.get("fiscal", {})
+        sucursal = getattr(self, "sucursal", "")
 
-            # Mapear access_token desde afipsdk.api_key si existe
-            if "afipsdk" in fiscal_config and "api_key" in fiscal_config["afipsdk"]:
-                fiscal_config["access_token"] = fiscal_config["afipsdk"]["api_key"]
-
-            # Mapear environment desde mode (test -> dev, prod -> prod)
-            mode = fiscal_config.get("mode", "test")
-            if mode == "test":
-                fiscal_config["environment"] = "dev"
-            elif mode == "prod":
-                fiscal_config["environment"] = "prod"
-            else:
-                fiscal_config["environment"] = "dev"  # Fallback
-
-            # Mapear only_card_payments desde only_card
-            if "only_card" in fiscal_config:
-                fiscal_config["only_card_payments"] = fiscal_config["only_card"]
-
-            client = crear_cliente_afip(fiscal_config)
-            if not client:
-                return  # AFIP deshabilitado
-        except Exception as e:
-            logger.error("[AFIP] No se pudo inicializar AfipSDKClient: %s", e)
-            return
-
-        # Calcular total, subtotal e IVA para AFIP
         total = float(getattr(venta, 'total', 0.0) or 0.0)
-        # Asumimos IVA 21% (puedes ajustar segun tu logica)
         iva_rate = 0.21
         subtotal = round(total / (1.0 + iva_rate), 2)
         iva = round(total - subtotal, 2)
 
-        # Debug: Mostrar configuracion que se esta usando
-        logger.debug("[AFIP] Config: enabled=%s, environment=%s, cuit=%s, has_api_key=%s",
-                     fiscal_config.get('enabled'), fiscal_config.get('environment'),
-                     fiscal_config.get('cuit'), bool(fiscal_config.get('access_token')))
-
         # Determinar tipo de comprobante y CUIT cliente
-        # Prioridad: parametros explicitos > _datos_tarjeta > default
         tipo_comprobante_final = tipo_cbte
         cuit_cliente_final = cuit_cliente
 
@@ -353,66 +381,60 @@ class VentasFinalizacionMixin:
             tipo_comprobante_final = self._datos_tarjeta.get("tipo_comprobante")
             cuit_cliente_final = self._datos_tarjeta.get("cuit_cliente", "")
 
-        logger.debug("[AFIP] Tipo comprobante: %s, CUIT cliente: %s", tipo_comprobante_final, cuit_cliente_final)
+        logger.debug("[AFIP] Tipo comprobante: %s, CUIT cliente: %s",
+                     tipo_comprobante_final, cuit_cliente_final)
 
-        # Emitir factura según tipo de comprobante
-        try:
-            if tipo_comprobante_final and "FACTURA_A" in str(tipo_comprobante_final).upper():
-                # Factura A: requiere CUIT del cliente (11 dígitos)
-                cuit = (cuit_cliente_final or "").replace("-", "").strip()
-                if not cuit or len(cuit) != 11 or not cuit.isdigit():
-                    QMessageBox.warning(
-                        self, "AFIP - Factura A",
-                        "Para emitir Factura A se requiere un CUIT válido de 11 dígitos.\n"
-                        f"CUIT ingresado: '{cuit_cliente_final or '(vacío)'}'"
-                    )
-                    return
-                logger.info(f"[AFIP] Emitiendo Factura A, CUIT cliente: {cuit}")
-                response = client.emitir_factura_a(
-                    items=items,
-                    total=total,
-                    subtotal=subtotal,
-                    iva=iva,
-                    cuit_cliente=cuit
+        # Validar CUIT para Factura A ANTES de intentar (para no preguntar 2 veces)
+        cuit_limpio = ""
+        if tipo_comprobante_final and "FACTURA_A" in str(tipo_comprobante_final).upper():
+            cuit_limpio = (cuit_cliente_final or "").replace("-", "").strip()
+            if not cuit_limpio or len(cuit_limpio) != 11 or not cuit_limpio.isdigit():
+                QMessageBox.warning(
+                    self, "AFIP - Factura A",
+                    "Para emitir Factura A se requiere un CUIT valido de 11 digitos.\n"
+                    f"CUIT ingresado: '{cuit_cliente_final or '(vacio)'}'"
                 )
-            else:
-                # Factura B (default para consumidor final)
-                response = client.emitir_factura_b(
-                    items=items,
-                    total=total,
-                    subtotal=subtotal,
-                    iva=iva
-                )
-        except Exception as e:
-            logger.error("[AFIP] Error al emitir factura: %s", e, exc_info=True)
+                return
 
-            # Mensaje de error mas especifico segun el tipo
-            error_msg = str(e)
-            if "400" in error_msg or "Bad Request" in error_msg:
-                error_detail = (
-                    "Error 400: Bad Request\n\n"
-                    "Posibles causas:\n"
-                    "- API Key invalida o sin permisos\n"
-                    "- CUIT no registrado con esta API Key\n"
-                    "- Modo (test/prod) incorrecto\n\n"
-                    f"Verifica la configuracion en:\n"
-                    f"Configuracion -> Facturacion Electronica\n\n"
-                    f"CUIT actual: {fiscal_config.get('cuit')}\n"
-                    f"Modo: {fiscal_config.get('mode')}\n\n"
-                    f"Error tecnico: {error_msg}"
-                )
-            elif "401" in error_msg or "Unauthorized" in error_msg:
-                error_detail = (
-                    "Error 401: No autorizado\n\n"
-                    "La API Key es invalida o ha expirado.\n"
-                    "Verifica en Configuracion -> Facturacion Electronica"
-                )
-            else:
-                error_detail = f"Error al emitir comprobante electronico:\n\n{error_msg}"
+        # ─── Emisión única ───
+        # NOTA: Se eliminó el doble-intento automático (sleep 1.5s + reintento)
+        # porque empeoraba el error 10016: la caché del proxy AfipSDK no se
+        # refresca en 1.5s y el segundo intento repetía el mismo número viejo.
+        # Ahora se confía en FECompUltimoAutorizado + resync interno ampliado (+15).
+        logger.info("[AFIP] ══ Inicio emisión ══ VentaID=%s | ModoPago=%s | Tipo=%s | Total=$%.2f | Sucursal=%s",
+                    getattr(venta, 'id', '?'), modo_pago, tipo_comprobante_final, total, sucursal)
+        response, error_detail = self._intentar_emision_afip(
+            fiscal_config, sucursal, items, total, subtotal, iva,
+            tipo_comprobante_final, cuit_limpio or cuit_cliente_final
+        )
 
-            # Guardar el error en la venta para poder reintentar despues
+        # ─── Procesar resultado final ───
+        if response and response.success:
+            logger.info("[AFIP] ✓ CAE obtenido: %s | Nro: %s | Vto: %s",
+                        response.cae, response.numero_comprobante, response.cae_vencimiento)
+            venta.afip_cae = response.cae
+            venta.afip_cae_vencimiento = response.cae_vencimiento
+            venta.afip_numero_comprobante = response.numero_comprobante
+            venta.afip_error = None
             try:
-                venta.afip_error = f"Error AFIP: {error_msg[:500]}"  # Limitar longitud
+                self.session.commit()
+            except Exception as e:
+                logger.error("[AFIP] Error al guardar CAE en BD: %s", e)
+
+            QMessageBox.information(
+                self,
+                "AFIP - Factura Electronica",
+                "Comprobante electronico emitido correctamente.\n\n"
+                f"CAE: {response.cae}\n"
+                f"Vencimiento: {response.cae_vencimiento}\n"
+                f"Numero de comprobante: {response.numero_comprobante}"
+            )
+        else:
+            # Guardar error para reintentar desde historial
+            err_txt = error_detail or "Error desconocido de AFIP"
+            logger.error("[AFIP] ✗ Emisión fallida: %s", err_txt[:300])
+            try:
+                venta.afip_error = f"AFIP: {err_txt[:500]}"
                 self.session.commit()
             except Exception:
                 pass
@@ -420,56 +442,7 @@ class VentasFinalizacionMixin:
             QMessageBox.warning(
                 self,
                 "AFIP - Error",
-                f"{error_detail}\n\n"
+                f"{err_txt}\n\n"
                 "La venta fue registrada pero SIN comprobante electronico.\n"
                 "Puedes reintentar desde el historial de ventas."
             )
-            return
-
-        # Guardar CAE si fue exitoso
-        if response.success:
-            venta.afip_cae = response.cae
-            venta.afip_cae_vencimiento = response.cae_vencimiento
-            venta.afip_numero_comprobante = response.numero_comprobante
-            try:
-                self.session.commit()
-            except Exception as e:
-                logger.error("[AFIP] Error al guardar CAE: %s", e)
-
-        # Mostramos feedback al usuario
-        try:
-            if response.success:
-                # Limpiar cualquier error previo
-                venta.afip_error = None
-                try:
-                    self.session.commit()
-                except Exception:
-                    pass
-
-                QMessageBox.information(
-                    self,
-                    "AFIP - Factura Electronica",
-                    "Comprobante electronico emitido correctamente.\n\n"
-                    f"CAE: {response.cae}\n"
-                    f"Vencimiento: {response.cae_vencimiento}\n"
-                    f"Numero de comprobante: {response.numero_comprobante}"
-                )
-            else:
-                # Guardar el error para poder reintentar despues
-                error_msg = response.error_message or "Error desconocido de AFIP"
-                try:
-                    venta.afip_error = f"AFIP rechazo: {error_msg[:500]}"
-                    self.session.commit()
-                except Exception:
-                    pass
-
-                QMessageBox.warning(
-                    self,
-                    "AFIP - Error",
-                    "No se pudo emitir el comprobante electronico.\n\n"
-                    f"Detalle:\n{error_msg}\n\n"
-                    "La venta fue registrada pero SIN comprobante electronico.\n"
-                    "Puedes reintentar desde el historial de ventas."
-                )
-        except Exception as e:
-            logger.error("[AFIP] Error mostrando mensaje AFIP: %s", e)

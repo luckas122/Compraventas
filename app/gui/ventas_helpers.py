@@ -1,10 +1,13 @@
 # -*- coding: utf-8 -*-
+import logging
 from PyQt5.QtCore import Qt, QRect, QSizeF, QStringListModel, QSize
-from PyQt5.QtGui import QFont, QFontMetrics, QPainter
+from PyQt5.QtGui import QFont, QFontMetrics, QPainter, QPixmap
 from PyQt5.QtWidgets import QCompleter
 from PyQt5.QtPrintSupport import QPrinter, QPrinterInfo, QPrintPreviewDialog, QPrintDialog
 
 from app.config import load as load_config
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------
 # Autocompletado de productos en buscadores
@@ -311,6 +314,17 @@ def _draw_ticket(p, page_rect, prn, venta, sucursal, direcciones, width_mm=75.0,
             x = 0.0
         return f"${x:,.2f}".replace(",", "X").replace(".", ",").replace("X",".")
 
+    def draw_image(pixmap, size_mm=20.0):
+        """Dibuja un QPixmap cuadrado (size_mm x size_mm) centrado y avanza y."""
+        nonlocal y
+        if pixmap is None or pixmap.isNull():
+            return
+        side = px(size_mm)
+        scaled = pixmap.scaled(side, side, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        img_x = x + (w - scaled.width()) // 2
+        p.drawPixmap(img_x, y, scaled)
+        y += scaled.height() + px(1.0)
+
     # ---------- NUEVO: si hay plantilla (en override o en config), dibujar SOLO la plantilla ----------
     from app.config import load as load_config
     cfg = load_config()
@@ -319,7 +333,7 @@ def _draw_ticket(p, page_rect, prn, venta, sucursal, direcciones, width_mm=75.0,
 
     if template_text:
         # usa el motor de plantilla y salí (sin encabezado/ítems/totales predefinidos)
-        _tpl_draw_block(p, px, draw_text, line, gap, f_norm, f_head, venta, sucursal, direcciones, template_override=template_text)
+        _tpl_draw_block(p, px, draw_text, draw_image, line, gap, f_norm, f_head, venta, sucursal, direcciones, template_override=template_text)
         return
 
 
@@ -515,7 +529,7 @@ def _draw_ticket(p, page_rect, prn, venta, sucursal, direcciones, width_mm=75.0,
             draw_lr("Vencimiento CAE", str(afip_cae_venc), f_norm)
 
     # ===== Plantilla 100% editable (sin "footer" automático) =====
-    _tpl_draw_block(p, px, draw_text, line, gap, f_norm, f_head, venta, sucursal, direcciones, template_override=template_override)
+    _tpl_draw_block(p, px, draw_text, draw_image, line, gap, f_norm, f_head, venta, sucursal, direcciones, template_override=template_override)
 
 
     
@@ -636,6 +650,8 @@ def _compute_ticket_height_mm(venta, prn, width_mm=75.0, template_override: str 
         # Usa el override si llegó desde la vista previa; si no, lo de Config
         template_text = (template_override if template_override is not None else (tk.get("template") or "")).strip()
         if template_text:
+            import re
+            _img_re_h = re.compile(r"^\s*\{\{img:\w+\}\}\s*$")
             lines = template_text.splitlines()
             line_count = 0
             for raw in lines:
@@ -644,6 +660,9 @@ def _compute_ticket_height_mm(venta, prn, width_mm=75.0, template_override: str 
                 elif "{{items}}" in raw:
                     items = getattr(venta, "_ticket_items", None) or []
                     line_count += max(0, len(items) * 2)
+                elif _img_re_h.match(raw):
+                    _isz = float((tk.get("images") or {}).get("size_mm", 20))
+                    total += _isz + 1.0  # imagen + 1mm gap
                 else:
                     line_count += 1
             total += line_count * h_n
@@ -815,6 +834,9 @@ def _tpl_render_lines(template_text, ctx, items, venta=None):
             out = out.replace("{{" + k + "}}", str(v))
         return out
 
+    import re
+    _img_re = re.compile(r"\{\{img:(\w+)\}\}")
+
     # Expansión de {{cae}} - Datos AFIP
     def _expand_cae():
         if venta is None:
@@ -908,6 +930,18 @@ def _tpl_render_lines(template_text, ctx, items, venta=None):
                 lines.append({"text": l, "align": Qt.AlignLeft, "bold": False, "italic": False, "is_rule": False})
             continue
 
+        # Imagen {{img:xxx}}
+        img_m = _img_re.search(raw.strip())
+        if img_m and raw.strip() == img_m.group(0):
+            # Línea que es SÓLO un placeholder de imagen
+            img_key = img_m.group(1)
+            lines.append({
+                "text": "", "align": Qt.AlignHCenter, "bold": False,
+                "italic": False, "is_rule": False,
+                "is_image": True, "image_key": img_key,
+            })
+            continue
+
         # Alineado y estilo por prefijo
         align = Qt.AlignLeft
         bold = italic = False
@@ -934,7 +968,7 @@ def _tpl_render_lines(template_text, ctx, items, venta=None):
 
     return lines
 
-def _tpl_draw_block(p, px, draw_text, line, gap, f_norm, f_head, venta, sucursal, direcciones, template_override: str = None):
+def _tpl_draw_block(p, px, draw_text, draw_image, line, gap, f_norm, f_head, venta, sucursal, direcciones, template_override: str = None):
     from app.config import load as load_config
     cfg = load_config()
     tk  = (cfg.get("ticket") or {})
@@ -945,9 +979,43 @@ def _tpl_draw_block(p, px, draw_text, line, gap, f_norm, f_head, venta, sucursal
     ctx, items = _tpl_context(venta, sucursal, direcciones)
     lines = _tpl_render_lines(template_text, ctx, items, venta)
 
+    # Precargar imagenes de ticket
+    _img_cache = {}
+    img_cfg = tk.get("images") or {}
+    img_size_mm = float(img_cfg.get("size_mm", 20))   # 20mm=2cm default, 10mm=1cm
+    try:
+        from app.config import get_images_dir
+        import os
+        logger.info("[ticket-img] config images: %s, size=%smm", img_cfg, img_size_mm)
+        for key, fname in img_cfg.items():
+            if fname and key not in ("qr_url", "size_mm"):
+                fpath = os.path.join(get_images_dir(), fname)
+                logger.info("[ticket-img] cargando '%s' -> %s (existe=%s)", key, fpath, os.path.isfile(fpath))
+                if os.path.isfile(fpath):
+                    pm = QPixmap(fpath)
+                    if not pm.isNull():
+                        _img_cache[key] = pm
+                        logger.info("[ticket-img] '%s' cargada OK (%dx%d)", key, pm.width(), pm.height())
+                    else:
+                        logger.warning("[ticket-img] '%s' QPixmap es null - formato no soportado?", key)
+    except Exception as ex:
+        logger.error("[ticket-img] error cargando imagenes: %s", ex, exc_info=True)
+
     for ln in lines:
         if ln["is_rule"]:
             gap(); line(); continue
+
+        # Dibujar imagen si es linea de imagen
+        if ln.get("is_image"):
+            img_key = ln.get("image_key", "")
+            pm = _img_cache.get(img_key)
+            if pm is not None:
+                logger.info("[ticket-img] dibujando '%s' a %smm", img_key, img_size_mm)
+                draw_image(pm, size_mm=img_size_mm)
+            else:
+                logger.warning("[ticket-img] '%s' no encontrada en cache (configurada?)", img_key)
+            continue
+
         f = f_norm
         if ln["bold"] or ln["italic"]:
             f = QFont(f_norm)

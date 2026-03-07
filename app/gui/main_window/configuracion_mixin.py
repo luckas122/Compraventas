@@ -355,6 +355,65 @@ class ConfiguracionMixin:
 
         lay_tk.addWidget(gb_margins)
 
+        # ===== SECCIÓN: IMÁGENES PARA TICKET =====
+        gb_images = QGroupBox("Imágenes para Ticket", parent=page_ticket)
+        lay_images = QFormLayout(gb_images)
+        lay_images.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
+        self._ticket_img_labels = {}
+        images_cfg = tk.get("images") or {}
+        for img_key, img_label in [("logo", "Logo"), ("instagram", "Instagram"), ("whatsapp", "WhatsApp"), ("qr", "Código QR")]:
+            row_h = QHBoxLayout()
+            btn_sel = QPushButton("Seleccionar...")
+            btn_sel.setToolTip(f"Seleccionar imagen para {img_label}")
+            btn_clear = QPushButton("Quitar")
+            btn_clear.setToolTip(f"Quitar imagen de {img_label}")
+            lbl_prev = QLabel(images_cfg.get(img_key) or "(sin imagen)")
+            lbl_prev.setStyleSheet("color: #666; font-size: 9pt;")
+            self._ticket_img_labels[img_key] = lbl_prev
+
+            btn_sel.clicked.connect(lambda _, k=img_key: self._select_ticket_image(k))
+            btn_clear.clicked.connect(lambda _, k=img_key: self._clear_ticket_image(k))
+
+            row_h.addWidget(btn_sel)
+            row_h.addWidget(btn_clear)
+            row_h.addWidget(lbl_prev)
+            row_h.addStretch()
+            lay_images.addRow(f"{img_label}:", row_h)
+
+        # Generador de QR desde URL
+        self.ed_qr_url = QLineEdit()
+        self.ed_qr_url.setPlaceholderText("URL para generar QR automáticamente...")
+        self.ed_qr_url.setText(images_cfg.get("qr_url") or "")
+        btn_gen_qr = QPushButton("Generar QR")
+        btn_gen_qr.clicked.connect(self._generate_qr_from_url)
+        qr_row = QHBoxLayout()
+        qr_row.addWidget(self.ed_qr_url)
+        qr_row.addWidget(btn_gen_qr)
+        lay_images.addRow("URL QR:", qr_row)
+
+        # Tamaño de imágenes
+        self.cmb_img_size = QComboBox()
+        self.cmb_img_size.addItem("2 × 2 cm", 20)
+        self.cmb_img_size.addItem("1.5 × 1.5 cm", 15)
+        self.cmb_img_size.addItem("1 × 1 cm", 10)
+        current_size = int(images_cfg.get("size_mm", 20))
+        for i in range(self.cmb_img_size.count()):
+            if self.cmb_img_size.itemData(i) == current_size:
+                self.cmb_img_size.setCurrentIndex(i)
+                break
+        lay_images.addRow("Tamaño:", self.cmb_img_size)
+
+        img_help = QLabel(
+            "Usá {{img:logo}}, {{img:instagram}}, {{img:whatsapp}} o {{img:qr}} "
+            "en la plantilla del ticket. Formato PNG recomendado."
+        )
+        img_help.setWordWrap(True)
+        img_help.setStyleSheet("color: #888; font-size: 9pt;")
+        lay_images.addRow("", img_help)
+
+        lay_tk.addWidget(gb_images)
+
         # ===== SECCIÓN: ETIQUETAS DE CÓDIGO DE BARRAS =====
         barcode_cfg = cfg.get("barcode") or {}
         gb_barcode = QGroupBox("Etiquetas de código de barras", parent=page_ticket)
@@ -457,14 +516,30 @@ class ConfiguracionMixin:
         self.cfg_edt_fiscal_cuit.setMaxLength(13)
         lay_fisc_form.addRow("CUIT:", self.cfg_edt_fiscal_cuit)
 
-        # Punto de venta
+        # Punto de venta — global (fallback) + por sucursal
         self.cfg_spn_fiscal_pv = QSpinBox(gb_fisc)
         self.cfg_spn_fiscal_pv.setRange(1, 9999)
         try:
             self.cfg_spn_fiscal_pv.setValue(int(fisc.get("punto_venta", 1) or 1))
         except Exception:
             self.cfg_spn_fiscal_pv.setValue(1)
-        lay_fisc_form.addRow("Punto de venta:", self.cfg_spn_fiscal_pv)
+        lay_fisc_form.addRow("Punto de venta (global):", self.cfg_spn_fiscal_pv)
+
+        # --- Puntos de venta por sucursal ---
+        pv_por_suc = fisc.get("puntos_venta_por_sucursal") or {}
+        sucursales_cfg = (cfg.get("business") or {}).get("sucursales") or {"Sarmiento": "", "Salta": ""}
+        self._fiscal_pv_spinners = {}  # {nombre_sucursal: QSpinBox}
+        for suc_name in sorted(sucursales_cfg.keys()):
+            spn = QSpinBox(gb_fisc)
+            spn.setRange(0, 9999)       # 0 = usar global
+            spn.setSpecialValueText("(usar global)")
+            try:
+                spn.setValue(int(pv_por_suc.get(suc_name, 0) or 0))
+            except Exception:
+                spn.setValue(0)
+            spn.setToolTip(f"Punto de venta para {suc_name}. Dejá 0 para usar el global.")
+            lay_fisc_form.addRow(f"  PV {suc_name}:", spn)
+            self._fiscal_pv_spinners[suc_name] = spn
 
         # Tipo de comprobante
         self.cfg_cmb_fiscal_tipo = QComboBox(gb_fisc)
@@ -505,6 +580,15 @@ class ConfiguracionMixin:
         lay_fisc_form.addRow("CUIT/CUIL cliente predefinido:", self.cfg_edt_fiscal_cuit_cliente)
 
         lay_fisc.addWidget(gb_fisc)
+
+        # Botón consultar último comprobante
+        btn_consultar_ultimo = QPushButton(" Consultar último Nº comprobante en AFIP")
+        btn_consultar_ultimo.setStyleSheet(
+            "padding: 8px 16px; font-weight: bold; background: #3498DB; color: white; border-radius: 4px;"
+        )
+        btn_consultar_ultimo.clicked.connect(self._consultar_ultimo_comprobante_afip)
+        lay_fisc.addWidget(btn_consultar_ultimo)
+
         lay_fisc.addStretch(1)
 
         scr_fisc = QScrollArea(tabs_cfg)
@@ -967,6 +1051,14 @@ class ConfiguracionMixin:
             tk["margin_right_mm"] = self.cfg_margin_right.value()
         except Exception:
             pass
+        # ---------- tamaño imágenes ticket ----------
+        try:
+            if hasattr(self, "cmb_img_size"):
+                images = tk.get("images") or {}
+                images["size_mm"] = self.cmb_img_size.currentData()
+                tk["images"] = images
+        except Exception:
+            pass
         cfg["ticket"] = tk
 
         # ---------- barcode / etiquetas ----------
@@ -1001,6 +1093,16 @@ class ConfiguracionMixin:
             pass
         try:
             fisc["punto_venta"] = int(self.cfg_spn_fiscal_pv.value())
+        except Exception:
+            pass
+        # Puntos de venta por sucursal
+        try:
+            pv_map = {}
+            for suc_name, spn in getattr(self, "_fiscal_pv_spinners", {}).items():
+                val = int(spn.value())
+                if val > 0:
+                    pv_map[suc_name] = val
+            fisc["puntos_venta_por_sucursal"] = pv_map
         except Exception:
             pass
         try:
@@ -1280,6 +1382,146 @@ class ConfiguracionMixin:
             """
             app.setStyleSheet(app.styleSheet() + arrows_css)
 
+
+    # --- Métodos para imágenes de ticket ---
+    def _select_ticket_image(self, key):
+        from PyQt5.QtWidgets import QFileDialog, QMessageBox
+        from app.config import load as load_config, save as save_config, get_images_dir
+        import shutil
+
+        path, _ = QFileDialog.getOpenFileName(
+            self, f"Seleccionar imagen PNG para {key}",
+            "", "Imágenes PNG (*.png)"
+        )
+        if not path:
+            return
+        try:
+            dest_dir = get_images_dir()
+            filename = f"ticket_{key}.png"
+            dest = os.path.join(dest_dir, filename)
+            # Convertir a PNG si no lo es, y normalizar tamaño
+            from PyQt5.QtGui import QPixmap
+            pm = QPixmap(path)
+            if pm.isNull():
+                QMessageBox.warning(self, "Imagen", "No se pudo cargar la imagen.")
+                return
+            # Guardar como PNG
+            pm.save(dest, "PNG")
+
+
+            cfg = load_config()
+            tk = cfg.get("ticket") or {}
+            images = tk.get("images") or {}
+            images[key] = filename
+            tk["images"] = images
+            cfg["ticket"] = tk
+            save_config(cfg)
+
+            if key in self._ticket_img_labels:
+                self._ticket_img_labels[key].setText(os.path.basename(path))
+            QMessageBox.information(self, "Imagen", f"Imagen '{key}' configurada.")
+        except Exception as ex:
+            QMessageBox.warning(self, "Imagen", f"Error al guardar imagen: {ex}")
+
+    def _clear_ticket_image(self, key):
+        from PyQt5.QtWidgets import QMessageBox
+        from app.config import load as load_config, save as save_config
+
+        cfg = load_config()
+        tk = cfg.get("ticket") or {}
+        images = tk.get("images") or {}
+        images[key] = None
+        tk["images"] = images
+        cfg["ticket"] = tk
+        save_config(cfg)
+
+        if key in self._ticket_img_labels:
+            self._ticket_img_labels[key].setText("(sin imagen)")
+        QMessageBox.information(self, "Imagen", f"Imagen '{key}' eliminada.")
+
+    def _generate_qr_from_url(self):
+        from PyQt5.QtWidgets import QMessageBox
+        from app.config import load as load_config, save as save_config, get_images_dir
+
+        url = self.ed_qr_url.text().strip()
+        if not url:
+            QMessageBox.warning(self, "QR", "Ingresá una URL para generar el QR.")
+            return
+        try:
+            import qrcode
+            img = qrcode.make(url)
+            dest = os.path.join(get_images_dir(), "ticket_qr.png")
+            img.save(dest)
+
+            cfg = load_config()
+            tk = cfg.get("ticket") or {}
+            images = tk.get("images") or {}
+            images["qr"] = "ticket_qr.png"
+            images["qr_url"] = url
+            tk["images"] = images
+            cfg["ticket"] = tk
+            save_config(cfg)
+
+            if "qr" in self._ticket_img_labels:
+                self._ticket_img_labels["qr"].setText("ticket_qr.png")
+            QMessageBox.information(self, "QR", "QR generado correctamente.")
+        except ImportError:
+            QMessageBox.warning(self, "QR", "Instale la librería 'qrcode':\npip install qrcode[pil]")
+        except Exception as ex:
+            QMessageBox.warning(self, "QR", f"Error generando QR: {ex}")
+
+    def _consultar_ultimo_comprobante_afip(self):
+        """Consulta el último número de comprobante autorizado en AFIP (por sucursal si corresponde)."""
+        from PyQt5.QtWidgets import QMessageBox
+        from app.config import load as load_config
+
+        cfg = load_config()
+        fiscal = cfg.get("fiscal", {})
+        if not fiscal.get("enabled"):
+            QMessageBox.warning(self, "AFIP", "La facturación electrónica no está habilitada.")
+            return
+
+        try:
+            from app.afip_integration import crear_cliente_afip, resolver_punto_venta
+
+            pv_map = fiscal.get("puntos_venta_por_sucursal") or {}
+            sucursales_cfg = (cfg.get("business") or {}).get("sucursales") or {"Sarmiento": "", "Salta": ""}
+
+            # Recopilar puntos de venta únicos a consultar
+            pvs_a_consultar = {}  # {label: punto_venta}
+            pv_global = int(fiscal.get("punto_venta", 1) or 1)
+
+            has_per_suc = any(pv_map.get(s) for s in sucursales_cfg)
+            if has_per_suc:
+                for suc_name in sorted(sucursales_cfg.keys()):
+                    pv = resolver_punto_venta(fiscal, suc_name)
+                    pvs_a_consultar[suc_name] = pv
+            else:
+                pvs_a_consultar["Global"] = pv_global
+
+            msg = "Último comprobante autorizado en AFIP:\n"
+
+            for label, pv in pvs_a_consultar.items():
+                msg += f"\n{'─'*30}\n"
+                msg += f"  {label} (PV {pv}):\n"
+                client = crear_cliente_afip(fiscal, sucursal=label if label != "Global" else "")
+                if not client:
+                    msg += "    No se pudo crear cliente\n"
+                    continue
+                try:
+                    ultimo_b = client.get_ultimo_comprobante(client.FACTURA_B)
+                    msg += f"    Factura B:  Nº {ultimo_b}  →  próximo: {ultimo_b + 1}\n"
+                except Exception as e:
+                    msg += f"    Factura B:  error: {e}\n"
+                try:
+                    ultimo_a = client.get_ultimo_comprobante(client.FACTURA_A)
+                    msg += f"    Factura A:  Nº {ultimo_a}  →  próximo: {ultimo_a + 1}\n"
+                except Exception:
+                    pass
+
+            QMessageBox.information(self, "AFIP - Último Comprobante", msg)
+        except Exception as e:
+            QMessageBox.warning(self, "AFIP", f"Error al consultar AFIP:\n{e}")
 
     def _aplicar_modo_noche(self, activo: bool):
         from app.config import load as load_config, save as save_config

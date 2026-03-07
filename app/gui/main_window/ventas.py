@@ -59,7 +59,7 @@ class VentasMixin:
         # Scanner auto-add: timer que detecta cuando el scanner terminó de escribir
         self._scanner_timer = QTimer()
         self._scanner_timer.setSingleShot(True)
-        self._scanner_timer.setInterval(300)
+        self._scanner_timer.setInterval(100)
         self._scanner_timer.timeout.connect(self._check_scanner_auto_add)
         self.input_venta_buscar.textChanged.connect(lambda: self._scanner_timer.start())
 
@@ -93,6 +93,14 @@ class VentasMixin:
         btn_cargar_borr.setToolTip('Cargar borrador guardado')
         btn_cargar_borr.clicked.connect(self._abrir_borradores)
         h1.addWidget(btn_cargar_borr)
+
+        # Botón "Pagos a Proveedor"
+        btn_pago_prov = QPushButton(' Pagos')
+        btn_pago_prov.setIcon(icon('dollar.svg') if os.path.exists(os.path.join(str(Path(__file__).resolve().parent.parent.parent.parent / 'icons'), 'dollar.svg')) else icon('edit.svg'))
+        btn_pago_prov.setIconSize(ICON_SIZE)
+        btn_pago_prov.setToolTip('Registrar pago a proveedor')
+        btn_pago_prov.clicked.connect(self._registrar_pago_proveedor)
+        h1.addWidget(btn_pago_prov)
 
         layout.addLayout(h1)
         self.input_venta_buscar.setMinimumWidth(360)  # ajusta a gusto
@@ -306,6 +314,12 @@ class VentasMixin:
         self.table_ventas_dia.verticalHeader().setDefaultSectionSize(28)
 
         layout.addWidget(self.table_ventas_dia)
+
+        # Resumen diario (ventas + pagos caja)
+        self.lbl_resumen_dia = QLabel("")
+        self.lbl_resumen_dia.setAlignment(Qt.AlignCenter)
+        self.lbl_resumen_dia.setStyleSheet("font-weight: bold; padding: 4px; font-size: 12px;")
+        layout.addWidget(self.lbl_resumen_dia)
 
         # Final
         w.setLayout(layout)
@@ -1256,6 +1270,37 @@ class VentasMixin:
         if respuesta == QMessageBox.Yes:
             self.table_cesta.setRowCount(0)
             self._reset_ajustes_globales()
+
+    def _registrar_pago_proveedor(self):
+        """Abre el dialog de pago a proveedor y registra el pago."""
+        from app.gui.dialogs import PagoProveedorDialog
+
+        dlg = PagoProveedorDialog(self.session, self.sucursal, parent=self)
+        if dlg.exec_() != QDialog.Accepted:
+            return
+
+        datos = dlg.get_datos()
+        if not datos:
+            return
+
+        try:
+            pago = self.pago_prov_repo.crear_pago(
+                sucursal=self.sucursal,
+                proveedor_id=datos['proveedor_id'],
+                proveedor_nombre=datos['proveedor_nombre'],
+                monto=datos['monto'],
+                metodo_pago=datos['metodo_pago'],
+                pago_de_caja=datos['pago_de_caja'],
+                nota=datos['nota']
+            )
+            QMessageBox.information(
+                self, "Pago Registrado",
+                f"Pago #{pago.numero_ticket} a {datos['proveedor_nombre']} "
+                f"por ${datos['monto']:.2f} registrado."
+            )
+            self.recargar_ventas_dia()
+        except Exception as ex:
+            QMessageBox.warning(self, "Error", f"No se pudo registrar el pago:\n{ex}")
 
     def _reset_ajustes_globales(self):
         # porcentajes

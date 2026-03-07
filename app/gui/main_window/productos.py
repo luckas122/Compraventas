@@ -90,7 +90,6 @@ class ProductosMixin:
         btn_list = QPushButton('Ver listado con filtros'); btn_list.setIcon(icon('list.svg'));btn_list.setToolTip('Ver listado con filtros');btn_list.setMinimumHeight(MIN_BTN_HEIGHT);btn_list.setIconSize(ICON_SIZE);btn_list.clicked.connect(self.abrir_listado_productos)
         btn_sin_ventas = QPushButton('Sin movimiento'); btn_sin_ventas.setIcon(icon('list.svg'));btn_sin_ventas.setToolTip('Productos sin ventas en 90 días');btn_sin_ventas.setMinimumHeight(MIN_BTN_HEIGHT);btn_sin_ventas.setIconSize(ICON_SIZE);btn_sin_ventas.clicked.connect(self._ver_productos_sin_ventas)
         self.lbl_paginacion = QLabel("")
-        self.btn_export_png = QPushButton("Exportar PNG")
 
         hb = QHBoxLayout()
         for btn in (btn_a, btn_d, btn_u, btn_m, btn_imp, btn_exp, btn_p, btn_list, btn_sin_ventas):
@@ -142,13 +141,11 @@ class ProductosMixin:
         self.table_productos.setColumnWidth(5, 200)
 
         layout.addWidget(self.table_productos)
-        layout.addWidget(self.btn_export_png)
         layout.addWidget(self.lbl_paginacion)
 
         self.table_productos.itemChanged.connect(self._on_producto_item_changed)
         self.table_productos.cellClicked.connect(self.cargar_producto)
         self.table_productos.cellDoubleClicked.connect(self.cargar_producto)
-        self.btn_export_png.clicked.connect(self.exportar_codigos_png)
 
         w.setLayout(layout)
 
@@ -606,77 +603,6 @@ class ProductosMixin:
 
             # 3) Footer
             self.lbl_paginacion.setText(f"Total: {total} productos")
-            
-    def exportar_codigos_png(self):
-        from PyQt5.QtWidgets import QFileDialog, QMessageBox
-        from PyQt5.QtGui import QPainter, QImage
-        from PyQt5.QtCore import Qt
-
-        # 0) Pedir ruta de guardado
-        path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Guardar etiquetas de códigos",
-            "codigos.png",
-            "PNG (*.png)"
-        )
-        if not path:
-            return
-
-        # 1) Filtrar filas seleccionadas
-        rows = []
-        for r in range(self.table_productos.rowCount()):
-            it = self.table_productos.item(r, 0)  # 0 = checkbox
-            if it and it.checkState() == Qt.Checked:
-                rows.append(r)
-
-        if not rows:
-            QMessageBox.information(self, "Exportar PNG", "Marcá al menos un producto.")
-            return
-
-        # 2) Armar lista (code, name)
-        items = []
-        for r in rows:
-            id_it   = self.table_productos.item(r, 1)  # 1 = ID
-            code_it = self.table_productos.item(r, 2)  # 2 = Código
-            name_it = self.table_productos.item(r, 3)  # 3 = Nombre
-
-            pid  = int(id_it.text()) if id_it and id_it.text().strip().isdigit() else 0
-            code = code_it.text().strip() if code_it else ""
-            name = name_it.text().strip() if name_it else ""
-
-            if not code:
-                code = f"ID{pid:08d}"
-
-            items.append((code, name))
-
-        # 3) Render de la imagen
-        #    (usa tu helper _draw_barcode_label importado desde app.gui.dialogs)
-        w_px, h_px = 945, 2362
-
-        tmp = QImage(w_px, 100, QImage.Format_ARGB32)
-        tmp.fill(0xffffffff)
-        tp = QPainter(tmp)
-        from app.gui.dialogs import _draw_barcode_label  # por si no estaba en el scope
-        y_test = _draw_barcode_label(tp, w_px, "0000000000000", "preview")
-        tp.end()
-        block_h = max(120, y_test)
-
-        total_h = 48 + len(items) * block_h
-        img = QImage(w_px, total_h, QImage.Format_ARGB32)
-        img.fill(0xffffffff)
-        p = QPainter(img)
-        try:
-            y = 24
-            for code, name in items:
-                y = _draw_barcode_label(p, w_px, code, name, margin=24)
-        finally:
-            p.end()
-
-        if img.save(path, "PNG"):
-            QMessageBox.information(self, "Exportar PNG", f"Guardado: {path}")
-        else:
-            QMessageBox.warning(self, "Exportar PNG", "No se pudo guardar la imagen.")
-
             
     def abrir_listado_productos(self):
         dlg = ProductosDialog(self.session, self)

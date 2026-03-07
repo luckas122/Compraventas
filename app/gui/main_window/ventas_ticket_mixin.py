@@ -285,9 +285,11 @@ class VentasTicketMixin:
     def recargar_ventas_dia(self):
         """
         Recarga en memoria (y si existe, en la tabla) las ventas del dia.
+        Incluye pagos a proveedores (en rojo).
         Tolerante a errores para no romper la app.
         """
         from datetime import datetime, timedelta
+        from PyQt5.QtGui import QColor, QBrush
         try:
             if not hasattr(self, 'venta_repo') or self.venta_repo is None:
                 self._ventas_dia = []
@@ -320,16 +322,61 @@ class VentasTicketMixin:
 
             self._ventas_dia = ventas
 
-            # 3) Poblar tabla si existe
+            # 3) Obtener pagos a proveedores del dia
+            pagos_hoy = []
+            try:
+                if hasattr(self, 'pago_prov_repo') and self.pago_prov_repo is not None:
+                    pagos_hoy = self.pago_prov_repo.listar_hoy(sucursal=None)
+            except Exception:
+                pagos_hoy = []
+
+            # 4) Crear lista unificada ordenada por fecha
+            unified = []
+            for v in ventas:
+                unified.append(('venta', v))
+            for p in pagos_hoy:
+                unified.append(('pago', p))
+            unified.sort(key=lambda x: getattr(x[1], 'fecha', datetime.min), reverse=True)
+
+            # 5) Poblar tabla si existe
             if not hasattr(self, 'table_ventas_dia') or self.table_ventas_dia is None:
                 return
 
             from PyQt5.QtWidgets import QTableWidgetItem, QWidget, QHBoxLayout, QPushButton
             tbl = self.table_ventas_dia
-            tbl.setUpdatesEnabled(False)                 # <- DESACTIVO repaints
+            red_brush = QBrush(QColor(220, 30, 30))
+            tbl.setUpdatesEnabled(False)
             try:
                 tbl.setRowCount(0)
-                for v in ventas:
+                for tipo, item in unified:
+
+                    if tipo == 'pago':
+                        # --- Fila de PAGO A PROVEEDOR (en rojo) ---
+                        row = tbl.rowCount()
+                        tbl.insertRow(row)
+                        nro = str(getattr(item, 'numero_ticket', '') or '')
+                        fch = getattr(item, 'fecha', None)
+                        hora = fch.strftime('%H:%M') if fch else ''
+                        suc = getattr(item, 'sucursal', '') or ''
+                        data = [
+                            nro, hora, suc,
+                            f"-${item.monto:.2f}",
+                            f"PAGO: {item.proveedor_nombre}",
+                            item.metodo_pago,
+                            '-', '-', '-',
+                            'Caja' if item.pago_de_caja else '-',
+                            item.nota or '-'
+                        ]
+                        for c, val in enumerate(data):
+                            it = QTableWidgetItem(val)
+                            it.setTextAlignment(Qt.AlignCenter)
+                            it.setForeground(red_brush)
+                            tbl.setItem(row, c, it)
+                        tbl.setItem(row, 11, QTableWidgetItem(""))
+                        continue
+
+                    # --- Fila de VENTA normal ---
+                    v = item
                     row = tbl.rowCount()
                     tbl.insertRow(row)
 
@@ -395,16 +442,15 @@ class VentasTicketMixin:
                     row_h = self.table_ventas_dia.verticalHeader().defaultSectionSize()
                     btn_sz = max(28, row_h - 8)
 
-
                     def _mk_btn(ico_name, tip, slot):
                         b = QPushButton()
-                        b.setProperty("role", "cell")      # usa el CSS centralizado
+                        b.setProperty("role", "cell")
                         b.setIcon(icon(ico_name))
                         b.setToolTip(tip)
-                        b.setFixedSize(btn_sz, btn_sz)     # cuadrado y sin cortarse
+                        b.setFixedSize(btn_sz, btn_sz)
                         b.setIconSize(QSize(btn_sz - 12, btn_sz - 12))
                         b.setFocusPolicy(Qt.NoFocus)
-                        b.setStyleSheet("")  # deja el estilo al CSS global
+                        b.setStyleSheet("")
                         b.clicked.connect(slot)
                         return b
 
@@ -424,7 +470,27 @@ class VentasTicketMixin:
                     tbl.setItem(row, 11, QTableWidgetItem(""))
                     tbl.setCellWidget(row, 11, actions)
             finally:
-                tbl.setUpdatesEnabled(True)              # <- SIEMPRE reactivar
+                tbl.setUpdatesEnabled(True)
+
+            # 6) Actualizar resumen diario
+            try:
+                if hasattr(self, 'lbl_resumen_dia') and self.lbl_resumen_dia:
+                    total_ventas = sum(float(getattr(v, 'total', 0) or 0) for v in ventas)
+                    total_efectivo = sum(
+                        float(getattr(v, 'total', 0) or 0) for v in ventas
+                        if (getattr(v, 'modo_pago', '') or '').lower().startswith('efe')
+                    )
+                    total_tarjeta = total_ventas - total_efectivo
+                    total_pagos_caja = sum(p.monto for p in pagos_hoy if p.pago_de_caja)
+                    caja_real = total_efectivo - total_pagos_caja
+                    self.lbl_resumen_dia.setText(
+                        f"Ventas: {len(ventas)} | Total: ${total_ventas:.2f} | "
+                        f"Efectivo: ${total_efectivo:.2f} | Tarjeta: ${total_tarjeta:.2f} | "
+                        f"Pagos caja: -${total_pagos_caja:.2f} | Caja real: ${caja_real:.2f}"
+                    )
+            except Exception:
+                pass
+
         except Exception as e:
             logger.warning(f"[WARN] recargar_ventas_dia: {e}")
 

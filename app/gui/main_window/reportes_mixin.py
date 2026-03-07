@@ -106,6 +106,7 @@ class ReportesMixin:
         - MONTHLY: si HOY es el día objetivo del mensual.
         """
         from datetime import datetime, timedelta, date
+        from app.config import load as load_config, save as save_config
         try:
             rules = getattr(self, "_rep_sched", None)
             if not rules or not rules.get("enabled"):
@@ -178,58 +179,76 @@ class ReportesMixin:
             any_ok = False
             last_err = None
 
+            # Generar Excel y enviar en hilo separado para no bloquear la UI
+            from app.gui.historialventas import SmtpWorker
+            from app.email_helper import send_historial_via_email
+
+            all_paths = []
             for f in freqs_to_send:
                 fd, fpath = tempfile.mkstemp(prefix="historial_", suffix=".xlsx")
                 os.close(fd)
                 try:
-                    # Generar Excel desde la pestaña Historial
                     self.historial._crear_excel(fpath, for_freq=f)
-
-                    # Enviar por correo
-                    from app.email_helper import send_historial_via_email
-                    ok, err = send_historial_via_email(
-                        subject_prefix=None,
-                        body="Se adjunta el reporte automático.",
-                        attachments=[fpath]
-                    )
-
-                    if ok:
-                        any_ok = True
-                        logger.info("[auto-send] enviado OK: %s", f)
-                        try:
-                            from PyQt5.QtWidgets import QMessageBox
-                            QMessageBox.information(self, "Reportes", f"Reporte {f.title()} enviado.")
-                        except Exception:
-                            pass
-                    else:
-                        last_err = err
-                        logger.error("[auto-send] error enviando %s: %s", f, err)
-                        try:
-                            from PyQt5.QtWidgets import QMessageBox
-                            QMessageBox.warning(self, "Reportes", f"No se pudo enviar reporte {f.title()}:\n{err}")
-                        except Exception:
-                            pass
-                finally:
+                    all_paths.append((f, fpath))
+                except Exception as ex:
+                    logger.error("[auto-send] error generando Excel %s: %s", f, ex)
                     try:
-                        if os.path.exists(fpath):
-                            os.remove(fpath)
+                        os.remove(fpath)
                     except Exception:
                         pass
 
-            # Marcar 'last_sent' sólo si al menos uno salió OK
-            if any_ok:
-                from app.config import load as load_config, save as save_config
-                cfg = load_config()
-                rep = ((cfg.get("reports") or {}).get("historial") or {})
-                auto = rep.get("auto_send") or {}
-                auto["last_sent"] = today_key
-                rep["auto_send"] = auto
-                cfg["reports"]["historial"] = rep
-                save_config(cfg)
-                try:
-                    self._rep_sched["last_sent"] = today_key
-                except Exception:
-                    pass
+            if not all_paths:
+                return
+
+            # Enviar cada reporte en un worker thread
+            for freq_name, fpath in all_paths:
+                cfg_mail = load_config()
+                email_cfg = (cfg_mail.get("email") or {})
+                recips = list(filter(None, email_cfg.get("recipients") or []))
+                if not recips:
+                    logger.error("[auto-send] no hay destinatarios configurados.")
+                    continue
+
+                subj_prefix = email_cfg.get("subject_prefix") or "[Historial]"
+                subj = f"{subj_prefix} Reporte {freq_name.title()} {today_key}"
+
+                worker = SmtpWorker(subj, "Se adjunta el reporte automático.", recips, [fpath])
+                # Guardar referencia para evitar GC
+                if not hasattr(self, '_report_workers'):
+                    self._report_workers = []
+                self._report_workers.append(worker)
+
+                def _on_done(ok, err, _freq=freq_name, _path=fpath, _worker=worker):
+                    if ok:
+                        logger.info("[auto-send] enviado OK: %s", _freq)
+                        # Marcar last_sent
+                        try:
+                            cfg2 = load_config()
+                            rep = ((cfg2.get("reports") or {}).get("historial") or {})
+                            auto = rep.get("auto_send") or {}
+                            auto["last_sent"] = today_key
+                            rep["auto_send"] = auto
+                            cfg2["reports"]["historial"] = rep
+                            save_config(cfg2)
+                            self._rep_sched["last_sent"] = today_key
+                        except Exception:
+                            pass
+                    else:
+                        logger.error("[auto-send] error enviando %s: %s", _freq, err)
+                    # Limpiar archivo temporal
+                    try:
+                        if os.path.exists(_path):
+                            os.remove(_path)
+                    except Exception:
+                        pass
+                    # Quitar referencia al worker
+                    try:
+                        self._report_workers.remove(_worker)
+                    except Exception:
+                        pass
+
+                worker.finished.connect(_on_done)
+                worker.start()
 
         except Exception as e:
             logger.error("[auto-send] error en scheduler: %s", e)

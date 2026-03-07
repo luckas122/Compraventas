@@ -8,6 +8,7 @@ Documentación: https://docs.afipsdk.com/
 API Reference: https://afipsdk.com/blog/crear-factura-electronica-de-afip-via-api/
 """
 
+import os
 import requests
 import logging
 from datetime import datetime, timezone
@@ -28,6 +29,62 @@ except ImportError:
     ZONEINFO_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
+
+
+# ── Logging a archivo para operaciones AFIP ──────────────────────────
+def _setup_afip_file_logger():
+    """
+    Configura un FileHandler dedicado para registrar TODAS las operaciones
+    AFIP en %APPDATA%/CompraventasV2/logs/afip.log.
+    Se llama una sola vez al importar el módulo.
+    """
+    try:
+        from app.config import _get_log_dir
+        log_dir = _get_log_dir()
+    except Exception:
+        # Fallback si no se puede importar config
+        import sys
+        base = os.environ.get("APPDATA") or os.environ.get("LOCALAPPDATA") or os.path.expanduser("~")
+        log_dir = os.path.join(base, "CompraventasV2", "logs")
+        os.makedirs(log_dir, exist_ok=True)
+
+    log_path = os.path.join(log_dir, "afip.log")
+    try:
+        # Usar RotatingFileHandler para no crecer infinitamente (max 5MB, 3 backups)
+        from logging.handlers import RotatingFileHandler
+        fh = RotatingFileHandler(
+            log_path, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"
+        )
+        fh.setLevel(logging.DEBUG)
+        fmt = logging.Formatter(
+            "[%(asctime)s] %(levelname)-8s %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S"
+        )
+        fh.setFormatter(fmt)
+        logger.addHandler(fh)
+        # Asegurar que el logger capture DEBUG
+        if logger.level == logging.NOTSET or logger.level > logging.DEBUG:
+            logger.setLevel(logging.DEBUG)
+        logger.info("═══ AFIP File Logger inicializado ═══  Archivo: %s", log_path)
+    except Exception as e:
+        print(f"[AFIP] No se pudo crear file logger: {e}")
+
+_setup_afip_file_logger()
+
+
+def _sanitize_payload_for_log(payload: dict) -> dict:
+    """Copia el payload ocultando Token y Sign para no loguear credenciales."""
+    import copy
+    safe = copy.deepcopy(payload)
+    try:
+        auth = safe.get("params", {}).get("Auth", {})
+        if auth.get("Token"):
+            auth["Token"] = auth["Token"][:10] + "..."
+        if auth.get("Sign"):
+            auth["Sign"] = auth["Sign"][:10] + "..."
+    except Exception:
+        pass
+    return safe
 
 
 @dataclass
@@ -105,13 +162,16 @@ class AfipSDKClient:
             requests.RequestException: Si hay error en la petición
         """
         url = f"{self.BASE_URL}/{endpoint}"
-        logger.debug(f"AFIP Request to {url}: {payload}")
+        # Log detallado del request (sin token/sign por seguridad)
+        safe_payload = _sanitize_payload_for_log(payload)
+        logger.info("→ REQUEST  %s  payload=%s", url, safe_payload)
 
         response = requests.post(url, json=payload, headers=self.headers, timeout=30)
+        logger.info("← RESPONSE status=%d", response.status_code)
         response.raise_for_status()
 
         data = response.json()
-        logger.debug(f"AFIP Response: {data}")
+        logger.info("← RESPONSE body=%s", data)
         return data
 
     def get_auth_token(self, force: bool = False) -> Tuple[str, str]:
@@ -250,6 +310,10 @@ class AfipSDKClient:
             # 2. Obtener próximo número de comprobante
             ultimo_nro = self.get_ultimo_comprobante(self.FACTURA_B)
             proximo_nro = ultimo_nro + 1
+            logger.info(
+                "══ FACTURA B ══ PtoVta=%d | UltimoAutorizado=%d | ProximoNro=%d | Total=$%.2f | Subtotal=$%.2f | IVA=$%.2f",
+                self.config.punto_venta, ultimo_nro, proximo_nro, total, subtotal, iva
+            )
 
             # 3. Preparar fecha (usar timezone de Argentina)
             if fecha is None:
@@ -345,7 +409,7 @@ class AfipSDKClient:
             resultado = fe_det.get("Resultado", "")
 
             if resultado == "A" and cae:  # A = Aprobado
-                logger.info(f"Factura emitida exitosamente - CAE: {cae}, Vto: {cae_vto}")
+                logger.info(f"Factura B emitida exitosamente - CAE: {cae}, Vto: {cae_vto}")
                 return AfipResponse(
                     success=True,
                     cae=cae,
@@ -354,21 +418,70 @@ class AfipSDKClient:
                     raw_response=response
                 )
             else:
-                # Obtener errores desde Errors.Err[]
+                # Obtener errores desde Errors.Err[] (puede ser dict o lista)
                 errors = result.get("Errors", {})
                 err_list = errors.get("Err", [])
+                if isinstance(err_list, dict):
+                    err_list = [err_list]
+                observaciones = fe_det.get("Observaciones", {}).get("Obs", [])
+                if isinstance(observaciones, dict):
+                    observaciones = [observaciones]
+
+                # --- AUTO-RESYNC: error 10016 (número desincronizado) ---
+                # El server de AfipSDK puede cachear FECompUltimoAutorizado.
+                # Probar incrementando el Nº hasta encontrar el correcto.
+                try:
+                    all_codes = [str(e.get('Code', '')) for e in err_list] + \
+                                [str(o.get('Code', '')) for o in observaciones]
+                except Exception:
+                    all_codes = []
+
+                if '10016' in all_codes:
+                    logger.warning("[AFIP] Error 10016 en Factura B (Nº %d) - probando números siguientes...", proximo_nro)
+                    det_key = payload["params"]["FeCAEReq"]["FeDetReq"]["FECAEDetRequest"]
+                    for offset in range(1, 16):  # probar +1 a +15 (ampliado para cubrir desfases grandes)
+                        try_nro = proximo_nro + offset
+                        logger.info("[AFIP] Reintentando Factura B con Nº %d (offset +%d)", try_nro, offset)
+                        det_key["CbteDesde"] = try_nro
+                        det_key["CbteHasta"] = try_nro
+                        try:
+                            response2 = self._make_request("requests", payload)
+                            result2 = response2.get("FECAESolicitarResult", {})
+                            fe_det2 = (result2.get("FeDetResp", {}).get("FECAEDetResponse", []) or [{}])[0]
+                            cae2 = fe_det2.get("CAE", "")
+                            cae_vto2 = fe_det2.get("CAEFchVto", "")
+                            if fe_det2.get("Resultado") == "A" and cae2:
+                                logger.info("[AFIP] Resync Factura B exitoso - CAE: %s, Nº: %d", cae2, try_nro)
+                                return AfipResponse(
+                                    success=True, cae=cae2,
+                                    cae_vencimiento=cae_vto2,
+                                    numero_comprobante=try_nro,
+                                    raw_response=response2
+                                )
+                            # Si no fue aprobado, verificar si sigue siendo 10016
+                            errs2 = result2.get("Errors", {}).get("Err", [])
+                            if isinstance(errs2, dict):
+                                errs2 = [errs2]
+                            obs2 = fe_det2.get("Observaciones", {}).get("Obs", [])
+                            if isinstance(obs2, dict):
+                                obs2 = [obs2]
+                            codes2 = [str(x.get('Code', '')) for x in errs2] + \
+                                     [str(x.get('Code', '')) for x in obs2]
+                            if '10016' not in codes2:
+                                logger.error("[AFIP] Error diferente a 10016, abortando resync")
+                                break  # Error diferente, no seguir incrementando
+                        except Exception as ex_retry:
+                            logger.error("[AFIP] Error en reintento +%d: %s", offset, ex_retry)
+                            break
 
                 if err_list:
                     error_msg = "; ".join([f"[{e.get('Code')}] {e.get('Msg', '')}" for e in err_list])
+                elif observaciones:
+                    error_msg = "; ".join([f"[{o.get('Code')}] {o.get('Msg', '')}" for o in observaciones])
                 else:
-                    # Intentar observaciones también
-                    observaciones = fe_det.get("Observaciones", {}).get("Obs", [])
-                    if observaciones:
-                        error_msg = "; ".join([f"[{o.get('Code')}] {o.get('Msg', '')}" for o in observaciones])
-                    else:
-                        error_msg = "Error desconocido"
+                    error_msg = "Error desconocido"
 
-                logger.error(f"AFIP rechazó la factura: {error_msg}")
+                logger.error(f"AFIP rechazó la factura B: {error_msg}")
                 return AfipResponse(
                     success=False,
                     error_message=error_msg,
@@ -376,7 +489,7 @@ class AfipSDKClient:
                 )
 
         except Exception as e:
-            logger.error(f"Error al emitir factura en AFIP: {e}", exc_info=True)
+            logger.error(f"Error al emitir factura B en AFIP: {e}", exc_info=True)
             return AfipResponse(
                 success=False,
                 error_message=str(e)
@@ -389,7 +502,7 @@ class AfipSDKClient:
         subtotal: float,
         iva: float,
         cuit_cliente: str,
-        fecha: Optional[datetime] = None,
+        fecha: Optional[datetime] = None
     ) -> AfipResponse:
         """
         Emite una Factura A electrónica en AFIP.
@@ -425,6 +538,10 @@ class AfipSDKClient:
             token, sign = self.get_auth_token()
             ultimo_nro = self.get_ultimo_comprobante(self.FACTURA_A)
             proximo_nro = ultimo_nro + 1
+            logger.info(
+                "══ FACTURA A ══ PtoVta=%d | UltimoAutorizado=%d | ProximoNro=%d | Total=$%.2f | CUIT=%s",
+                self.config.punto_venta, ultimo_nro, proximo_nro, total, cuit_clean
+            )
 
             if fecha is None:
                 if PYTZ_AVAILABLE:
@@ -515,14 +632,61 @@ class AfipSDKClient:
             else:
                 errors = result.get("Errors", {})
                 err_list = errors.get("Err", [])
+                if isinstance(err_list, dict):
+                    err_list = [err_list]
+                observaciones = fe_det.get("Observaciones", {}).get("Obs", [])
+                if isinstance(observaciones, dict):
+                    observaciones = [observaciones]
+
+                # --- AUTO-RESYNC: error 10016 (número desincronizado) ---
+                try:
+                    all_codes = [str(e.get('Code', '')) for e in err_list] + \
+                                [str(o.get('Code', '')) for o in observaciones]
+                except Exception:
+                    all_codes = []
+
+                if '10016' in all_codes:
+                    logger.warning("[AFIP] Error 10016 en Factura A (Nº %d) - probando números siguientes...", proximo_nro)
+                    det_key = payload["params"]["FeCAEReq"]["FeDetReq"]["FECAEDetRequest"]
+                    for offset in range(1, 16):  # ampliado a +15
+                        try_nro = proximo_nro + offset
+                        logger.info("[AFIP] Reintentando Factura A con Nº %d (offset +%d)", try_nro, offset)
+                        det_key["CbteDesde"] = try_nro
+                        det_key["CbteHasta"] = try_nro
+                        try:
+                            response2 = self._make_request("requests", payload)
+                            result2 = response2.get("FECAESolicitarResult", {})
+                            fe_det2 = (result2.get("FeDetResp", {}).get("FECAEDetResponse", []) or [{}])[0]
+                            cae2 = fe_det2.get("CAE", "")
+                            cae_vto2 = fe_det2.get("CAEFchVto", "")
+                            if fe_det2.get("Resultado") == "A" and cae2:
+                                logger.info("[AFIP] Resync Factura A exitoso - CAE: %s, Nº: %d", cae2, try_nro)
+                                return AfipResponse(
+                                    success=True, cae=cae2,
+                                    cae_vencimiento=cae_vto2,
+                                    numero_comprobante=try_nro,
+                                    raw_response=response2
+                                )
+                            errs2 = result2.get("Errors", {}).get("Err", [])
+                            if isinstance(errs2, dict):
+                                errs2 = [errs2]
+                            obs2 = fe_det2.get("Observaciones", {}).get("Obs", [])
+                            if isinstance(obs2, dict):
+                                obs2 = [obs2]
+                            codes2 = [str(x.get('Code', '')) for x in errs2] + \
+                                     [str(x.get('Code', '')) for x in obs2]
+                            if '10016' not in codes2:
+                                break
+                        except Exception as ex_retry:
+                            logger.error("[AFIP] Error en reintento Factura A +%d: %s", offset, ex_retry)
+                            break
+
                 if err_list:
                     error_msg = "; ".join([f"[{e.get('Code')}] {e.get('Msg', '')}" for e in err_list])
+                elif observaciones:
+                    error_msg = "; ".join([f"[{o.get('Code')}] {o.get('Msg', '')}" for o in observaciones])
                 else:
-                    observaciones = fe_det.get("Observaciones", {}).get("Obs", [])
-                    if observaciones:
-                        error_msg = "; ".join([f"[{o.get('Code')}] {o.get('Msg', '')}" for o in observaciones])
-                    else:
-                        error_msg = "Error desconocido"
+                    error_msg = "Error desconocido"
 
                 logger.error(f"AFIP rechazó la Factura A: {error_msg}")
                 return AfipResponse(
@@ -571,12 +735,28 @@ class AfipSDKClient:
         )
 
 
-def crear_cliente_afip(config_dict: dict) -> Optional[AfipSDKClient]:
+def resolver_punto_venta(fiscal_config: dict, sucursal: str = "") -> int:
+    """
+    Devuelve el punto de venta correcto según la sucursal.
+    Prioridad: puntos_venta_por_sucursal[sucursal] → punto_venta global → 1
+    """
+    pv_map = fiscal_config.get("puntos_venta_por_sucursal") or {}
+    if sucursal and pv_map.get(sucursal):
+        pv = int(pv_map[sucursal])
+        logger.info("[AFIP] Punto de venta para '%s': %d (por sucursal)", sucursal, pv)
+        return pv
+    pv = int(fiscal_config.get("punto_venta", 1) or 1)
+    logger.info("[AFIP] Punto de venta global: %d (sucursal='%s')", pv, sucursal)
+    return pv
+
+
+def crear_cliente_afip(config_dict: dict, sucursal: str = "") -> Optional[AfipSDKClient]:
     """
     Factory para crear un cliente AFIP desde configuración.
 
     Args:
-        config_dict: Diccionario con configuración AFIP desde app_config.json
+        config_dict: Diccionario con configuración AFIP (sección 'fiscal' del config)
+        sucursal:    Nombre de la sucursal para resolver el punto de venta
 
     Returns:
         Cliente AFIP o None si está deshabilitado
@@ -585,17 +765,37 @@ def crear_cliente_afip(config_dict: dict) -> Optional[AfipSDKClient]:
         logger.info("AFIP deshabilitado en configuración")
         return None
 
+    pv = resolver_punto_venta(config_dict, sucursal)
+
+    # --- Normalizar claves: fiscal config → AfipConfig ---
+    # access_token: puede venir directo O dentro de afipsdk.api_key
+    access_token = config_dict.get("access_token", "")
+    if not access_token:
+        af = config_dict.get("afipsdk") or {}
+        access_token = af.get("api_key", "")
+
+    # environment: puede venir directo O como 'mode' (test→dev, prod→prod)
+    environment = config_dict.get("environment", "")
+    if not environment:
+        mode = config_dict.get("mode", "test")
+        environment = "dev" if mode == "test" else ("prod" if mode == "prod" else "dev")
+
+    # only_card_payments: puede venir directo O como 'only_card'
+    only_card = config_dict.get("only_card_payments",
+                                config_dict.get("only_card", True))
+
     config = AfipConfig(
-        access_token=config_dict.get("access_token", ""),
-        environment=config_dict.get("environment", "dev"),
+        access_token=access_token,
+        environment=environment,
         cuit=config_dict.get("cuit", ""),
-        punto_venta=config_dict.get("punto_venta", 1),
+        punto_venta=pv,
         enabled=config_dict.get("enabled", False),
-        only_card_payments=config_dict.get("only_card_payments", True)
+        only_card_payments=bool(only_card)
     )
 
     if not config.access_token or not config.cuit:
-        logger.warning("AFIP configurado pero faltan access_token o CUIT")
+        logger.warning("AFIP configurado pero faltan access_token o CUIT (token=%s, cuit=%s)",
+                        bool(config.access_token), bool(config.cuit))
         return None
 
     return AfipSDKClient(config)

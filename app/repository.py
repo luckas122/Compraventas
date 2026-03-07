@@ -8,7 +8,7 @@ from app.models import Producto
 
 from app.models import (
     Usuario, Producto, Proveedor,
-    Venta, VentaItem, VentaLog
+    Venta, VentaItem, VentaLog, PagoProveedor
 )
 
 class OptimisticLockError(Exception):
@@ -160,19 +160,33 @@ class VentaRepo:
     def commit(self):
         self.session.commit()
 
-    # NUEVO: siguiente número para la sucursal, conservando paridad
+    # siguiente número para la sucursal, conservando paridad
+    # Consulta también pagos_proveedores para evitar colisión
     def siguiente_ticket(self, sucursal: str) -> int:
         base = 1 if sucursal == 'Sarmiento' else 2  # impares Sarmiento, pares Salta
-        last = (
+        last_venta = (
             self.session.query(Venta)
             .filter(Venta.sucursal == sucursal, Venta.numero_ticket.isnot(None))
             .order_by(Venta.numero_ticket.desc())
             .first()
         )
-        if not last or not getattr(last, 'numero_ticket', None):
+        max_ticket = 0
+        if last_venta and getattr(last_venta, 'numero_ticket', None):
+            max_ticket = last_venta.numero_ticket
+        try:
+            last_pago = (
+                self.session.query(PagoProveedor)
+                .filter(PagoProveedor.sucursal == sucursal, PagoProveedor.numero_ticket.isnot(None))
+                .order_by(PagoProveedor.numero_ticket.desc())
+                .first()
+            )
+            if last_pago and getattr(last_pago, 'numero_ticket', None):
+                max_ticket = max(max_ticket, last_pago.numero_ticket)
+        except Exception:
+            pass
+        if max_ticket < base:
             return base
-        # siempre saltamos de a 2 para conservar la paridad
-        return last.numero_ticket + 2
+        return max_ticket + 2
 
     
     # ====== CREAR VENTA CON total=0.0 ======
@@ -381,3 +395,87 @@ class VentaRepo:
             .order_by(Producto.nombre)
             .all()
         )
+
+
+class PagoProveedorRepo:
+    """Repositorio para pagos a proveedores."""
+
+    def __init__(self, session):
+        self.session = session
+
+    def siguiente_ticket(self, sucursal: str) -> int:
+        """Siguiente ticket compartiendo numeracion con VentaRepo."""
+        base = 1 if sucursal == 'Sarmiento' else 2
+        max_ticket = 0
+        last_venta = (
+            self.session.query(Venta)
+            .filter(Venta.sucursal == sucursal, Venta.numero_ticket.isnot(None))
+            .order_by(Venta.numero_ticket.desc())
+            .first()
+        )
+        if last_venta and getattr(last_venta, 'numero_ticket', None):
+            max_ticket = last_venta.numero_ticket
+        last_pago = (
+            self.session.query(PagoProveedor)
+            .filter(PagoProveedor.sucursal == sucursal, PagoProveedor.numero_ticket.isnot(None))
+            .order_by(PagoProveedor.numero_ticket.desc())
+            .first()
+        )
+        if last_pago and getattr(last_pago, 'numero_ticket', None):
+            max_ticket = max(max_ticket, last_pago.numero_ticket)
+        if max_ticket < base:
+            return base
+        return max_ticket + 2
+
+    def crear_pago(self, sucursal, proveedor_id, proveedor_nombre, monto,
+                   metodo_pago='Efectivo', pago_de_caja=False, nota=None):
+        numero_ticket = self.siguiente_ticket(sucursal)
+        pago = PagoProveedor(
+            sucursal=sucursal,
+            proveedor_id=proveedor_id,
+            proveedor_nombre=proveedor_nombre,
+            fecha=datetime.now(),
+            monto=monto,
+            metodo_pago=metodo_pago,
+            pago_de_caja=pago_de_caja,
+            numero_ticket=numero_ticket,
+            nota=nota
+        )
+        self.session.add(pago)
+        self.session.commit()
+        return pago
+
+    def listar_hoy(self, sucursal=None):
+        inicio = datetime.combine(date.today(), time.min)
+        fin = datetime.combine(date.today(), time.max)
+        q = self.session.query(PagoProveedor).filter(
+            PagoProveedor.fecha >= inicio, PagoProveedor.fecha <= fin
+        )
+        if sucursal:
+            q = q.filter(PagoProveedor.sucursal == sucursal)
+        return q.order_by(PagoProveedor.fecha.desc()).all()
+
+    def listar_por_rango(self, desde, hasta, sucursal=None):
+        q = self.session.query(PagoProveedor).filter(
+            PagoProveedor.fecha >= desde, PagoProveedor.fecha <= hasta
+        )
+        if sucursal:
+            q = q.filter(PagoProveedor.sucursal == sucursal)
+        return q.order_by(PagoProveedor.fecha.desc()).all()
+
+    def exportar_rango(self, sucursal, inicio, fin):
+        pagos = self.listar_por_rango(inicio, fin, sucursal)
+        rows = []
+        for p in pagos:
+            rows.append({
+                'ticket': p.numero_ticket,
+                'fecha': p.fecha.strftime('%Y-%m-%d %H:%M:%S') if p.fecha else '',
+                'tipo': 'PAGO A PROVEEDOR',
+                'proveedor': p.proveedor_nombre,
+                'monto': round(p.monto, 2),
+                'metodo_pago': p.metodo_pago,
+                'pago_de_caja': 'Sí' if p.pago_de_caja else 'No',
+                'sucursal': p.sucursal,
+                'nota': p.nota or ''
+            })
+        return pd.DataFrame(rows)

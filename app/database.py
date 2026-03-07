@@ -124,6 +124,11 @@ def _run_migrations():
         if "sync_log" in inspector.get_table_names():
             conn.execute(text("DROP TABLE sync_log"))
 
+        # Crear tabla pagos_proveedores si no existe (v3.7.0)
+        if "pagos_proveedores" not in inspector.get_table_names():
+            from app.models import PagoProveedor
+            PagoProveedor.__table__.create(bind=engine)
+
         conn.commit()
 
 

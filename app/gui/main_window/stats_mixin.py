@@ -662,6 +662,14 @@ class StatsMixin:
             ("{{hr}}",    "{{hr}}",    "Linea separadora horizontal"),
         ])
 
+        # --- Imágenes ---
+        _add_group(v, "Imágenes", [
+            ("{{img:logo}}",      "{{img:logo}}",      "Logo del comercio (configurar en Configuración)"),
+            ("{{img:instagram}}", "{{img:instagram}}", "Icono de Instagram"),
+            ("{{img:whatsapp}}",  "{{img:whatsapp}}",  "Icono de WhatsApp"),
+            ("{{img:qr}}",        "{{img:qr}}",        "Código QR (configurar en Configuración)"),
+        ])
+
         # --- Formato ---
         _add_group(v, "Formato", [
             ("{{center: }}",  "{{center: }}",  "Centra el texto de la linea"),

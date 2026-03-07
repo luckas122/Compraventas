@@ -26,6 +26,12 @@ def _get_app_data_dir() -> str:
     os.makedirs(path, exist_ok=True)
     return path
 
+def get_images_dir() -> str:
+    """Carpeta persistente para imagenes de tickets."""
+    img_dir = os.path.join(_get_app_data_dir(), "ticket_images")
+    os.makedirs(img_dir, exist_ok=True)
+    return img_dir
+
 def _get_log_dir() -> str:
     """Carpeta persistente para logs."""
     log_dir = os.path.join(_get_app_data_dir(), "logs")
@@ -302,8 +308,17 @@ Interés: {{totales.interes}}
             "{{abonado}}", "{{vuelto}}", "{{business}}", "{{title}}",
             "{{business.cuit}}", "{{business.direccion}}",
             "{{vendedor}}",
-            "{{hr}}", "{{items}}", "{{cae}}"
-        ]
+            "{{hr}}", "{{items}}", "{{cae}}",
+            "{{img:logo}}", "{{img:instagram}}", "{{img:whatsapp}}", "{{img:qr}}"
+        ],
+        "images": {
+            "logo": None,
+            "instagram": None,
+            "whatsapp": None,
+            "qr": None,
+            "qr_url": None,
+            "size_mm": 20
+        }
     },
 
     # CÓDIGOS DE BARRAS / ETIQUETAS
@@ -386,7 +401,8 @@ Interés: {{totales.interes}}
         "mode": "test",            # "test" o "prod"
         "only_card": True,         # Solo dispara AFIP cuando el pago es con tarjeta
         "cuit": "",                # CUIT del comercio (solo números o con guiones, como prefieras)
-        "punto_venta": 1,          # Punto de venta AFIP
+        "punto_venta": 1,          # Punto de venta AFIP (fallback global)
+        "puntos_venta_por_sucursal": {},  # {"Sarmiento": 1, "Salta": 2} — vacío = usa global
         "tipo_cbte": "FACTURA_B",  # Identificador interno para el tipo de comprobante
 
         "afipsdk": {

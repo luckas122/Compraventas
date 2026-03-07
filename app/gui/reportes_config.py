@@ -7,7 +7,6 @@ from PyQt5.QtWidgets import (
     QMessageBox, QSpinBox
 )
 from app.config import load as load_config, save as save_config
-from app.email_helper import send_mail_with_attachments
 import tempfile, os
 
 MAX_RECIP = 6
@@ -327,9 +326,35 @@ class ReportesCorreoConfig(QWidget):
         QMessageBox.information(self, "Correo", "Correo/SMTP guardado." if save else "Error al guardar.")
 
     def _test_login(self):
-        try:
-            # mail “en seco” sin adjuntos
-            send_mail_with_attachments("Prueba SMTP", "Prueba de conexión OK.", [self.ed_sender.text().strip()] or [])
-            QMessageBox.information(self, "SMTP", "Conexión / envío de prueba OK (revisá tu bandeja).")
-        except Exception as ex:
-            QMessageBox.warning(self, "SMTP", f"Falló la conexión/envío: {ex}")
+        from app.gui.historialventas import SmtpWorker
+        from PyQt5.QtWidgets import QProgressDialog
+        from PyQt5.QtCore import Qt
+
+        sender = self.ed_sender.text().strip()
+        if not sender:
+            QMessageBox.warning(self, "SMTP", "Ingresá un remitente antes de probar.")
+            return
+
+        progress = QProgressDialog("Probando conexión SMTP...", "Cancelar", 0, 0, self)
+        progress.setWindowModality(Qt.WindowModal)
+        progress.setMinimumDuration(0)
+        progress.show()
+
+        self._test_worker = SmtpWorker(
+            "Prueba SMTP", "Prueba de conexión OK.",
+            [sender], parent=self
+        )
+
+        def _on_finished(ok, err):
+            progress.close()
+            if ok:
+                QMessageBox.information(self, "SMTP", "Conexión / envío de prueba OK (revisá tu bandeja).")
+            else:
+                QMessageBox.warning(self, "SMTP", f"Falló la conexión/envío: {err}")
+            self._test_worker = None
+
+        self._test_worker.finished.connect(_on_finished)
+        progress.canceled.connect(lambda: (
+            self._test_worker.terminate() if self._test_worker and self._test_worker.isRunning() else None
+        ))
+        self._test_worker.start()

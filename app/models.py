@@ -128,3 +128,21 @@ class VentaBorradorItem(Base):
     producto = relationship("Producto")
 
 
+class PagoProveedor(Base):
+    __tablename__ = 'pagos_proveedores'
+    id = Column(Integer, primary_key=True)
+    proveedor_id = Column(Integer, ForeignKey('proveedores.id'), nullable=True)
+    proveedor_nombre = Column(String, nullable=False)
+    fecha = Column(DateTime, default=datetime.datetime.now, nullable=False)
+    monto = Column(Float, nullable=False)
+    metodo_pago = Column(String, nullable=False, default='Efectivo')
+    pago_de_caja = Column(Boolean, default=False, nullable=False)
+    sucursal = Column(String, nullable=False)
+    numero_ticket = Column(Integer, index=True, nullable=True)
+    nota = Column(String, nullable=True)
+
+    proveedor = relationship("Proveedor")
+
+    __table_args__ = (
+        Index('ix_pagos_prov_sucursal_fecha', 'sucursal', 'fecha'),
+    )

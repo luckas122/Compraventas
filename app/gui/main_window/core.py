@@ -60,7 +60,7 @@ from app.config import (
     get_backup_path,
 )
 from app.models import Producto, Proveedor, Venta, VentaItem
-from app.repository import prod_repo, VentaRepo, UsuarioRepo
+from app.repository import prod_repo, VentaRepo, UsuarioRepo, PagoProveedorRepo
 from app.gui.qt_helpers import freeze_table
 from pathlib import Path
 from PyQt5.QtMultimedia import QSoundEffect
@@ -142,6 +142,7 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
         self.prod_repo = prod_repo(self.session, Producto)
         
         self.venta_repo = VentaRepo(self.session)
+        self.pago_prov_repo = PagoProveedorRepo(self.session)
         self.user_repo  = UsuarioRepo(self.session)
         # Admin?
         self.es_admin = es_admin
