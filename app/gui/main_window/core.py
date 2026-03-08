@@ -280,8 +280,7 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
 
                 # --- Ventas (letras) ---
                 "ventas.finalizar":           self._shortcut_finalizar_venta_dialog,
-                "ventas.efectivo":            self._shortcut_set_efectivo,
-                "ventas.tarjeta":             self._shortcut_set_tarjeta_dialog,  # pide cuotas + interés
+                "ventas.consultar_precio":    self._consultar_precio_popup,
                 "ventas.devolucion":          self._on_devolucion,
                 "ventas.whatsapp":            self.enviar_ticket_whatsapp,     # usa la última venta si existe
                 "ventas.imprimir":            self._imprimir_ticket_via_shortcut, # reimprime ticket seleccionado/último
@@ -1104,6 +1103,130 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
         except Exception:
             return False
 
+    def _consultar_precio_popup(self):
+        """Abre un popup rápido para consultar precio de un producto por código o nombre."""
+        try:
+            from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLineEdit,
+                                         QLabel, QPushButton, QFrame, QCompleter)
+            from PyQt5.QtCore import Qt, QStringListModel, QSortFilterProxyModel
+
+            dlg = QDialog(self)
+            dlg.setWindowTitle("Consultar Precio")
+            dlg.setMinimumWidth(420)
+            dlg.setWindowFlags(dlg.windowFlags() | Qt.WindowStaysOnTopHint)
+            lay = QVBoxLayout(dlg)
+            lay.setSpacing(12)
+
+            lbl_title = QLabel("<b>Buscar producto por código o nombre</b>")
+            lbl_title.setAlignment(Qt.AlignCenter)
+            lay.addWidget(lbl_title)
+
+            input_buscar = QLineEdit()
+            input_buscar.setPlaceholderText("Código de barras o nombre del producto...")
+            input_buscar.setMinimumHeight(36)
+            input_buscar.setStyleSheet("font-size: 14px; padding: 4px 8px;")
+            lay.addWidget(input_buscar)
+
+            # Autocomplete usando los mismos datos del completer de ventas
+            try:
+                from app.repository import prod_repo
+                repo = prod_repo(self.session)
+                pares = repo.listar_codigos_nombres()
+                items_list = [f"{(c or '').strip()} - {(n or '').strip()}" for (c, n) in pares]
+                completer = QCompleter(items_list, dlg)
+                completer.setCaseSensitivity(Qt.CaseInsensitive)
+                completer.setFilterMode(Qt.MatchContains)
+                completer.setMaxVisibleItems(10)
+                input_buscar.setCompleter(completer)
+            except Exception:
+                pass
+
+            # Frame de resultado
+            frame_result = QFrame()
+            frame_result.setFrameShape(QFrame.StyledPanel)
+            frame_result.setStyleSheet("QFrame { background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 12px; }")
+            rl = QVBoxLayout(frame_result)
+            lbl_nombre = QLabel("")
+            lbl_nombre.setStyleSheet("font-size: 16px; font-weight: bold; color: #333;")
+            lbl_nombre.setWordWrap(True)
+            lbl_codigo = QLabel("")
+            lbl_codigo.setStyleSheet("font-size: 13px; color: #666;")
+            lbl_precio = QLabel("")
+            lbl_precio.setStyleSheet("font-size: 22px; font-weight: bold; color: #28a745;")
+            lbl_stock = QLabel("")
+            lbl_stock.setStyleSheet("font-size: 13px; color: #666;")
+            rl.addWidget(lbl_nombre)
+            rl.addWidget(lbl_codigo)
+            rl.addWidget(lbl_precio)
+            rl.addWidget(lbl_stock)
+            frame_result.setVisible(False)
+            lay.addWidget(frame_result)
+
+            lbl_no_result = QLabel("")
+            lbl_no_result.setAlignment(Qt.AlignCenter)
+            lbl_no_result.setStyleSheet("color: #dc3545; font-size: 13px;")
+            lay.addWidget(lbl_no_result)
+
+            def _buscar():
+                text = input_buscar.text().strip()
+                if not text:
+                    frame_result.setVisible(False)
+                    lbl_no_result.setText("")
+                    return
+
+                from app.models import Producto
+                # Buscar por código de barras exacto primero
+                prod = self.session.query(Producto).filter_by(codigo_barra=text).first()
+                if not prod:
+                    # Si el texto es "CODIGO - NOMBRE" (del completer), extraer el código
+                    if " - " in text:
+                        code_part = text.split(" - ")[0].strip()
+                        prod = self.session.query(Producto).filter_by(codigo_barra=code_part).first()
+                if not prod:
+                    # Buscar por nombre parcial
+                    prod = self.session.query(Producto).filter(
+                        Producto.nombre.ilike(f"%{text}%")
+                    ).first()
+
+                if prod:
+                    lbl_nombre.setText(f"{prod.nombre or 'Sin nombre'}")
+                    lbl_codigo.setText(f"Código: {prod.codigo_barra or 'N/A'}")
+                    precio = float(getattr(prod, 'precio_venta', 0) or getattr(prod, 'precio', 0) or 0)
+                    lbl_precio.setText(f"Precio: ${precio:,.2f}")
+                    stock = getattr(prod, 'stock', None)
+                    if stock is not None:
+                        lbl_stock.setText(f"Stock: {stock}")
+                    else:
+                        lbl_stock.setText("")
+                    frame_result.setVisible(True)
+                    lbl_no_result.setText("")
+                else:
+                    frame_result.setVisible(False)
+                    lbl_no_result.setText("Producto no encontrado.")
+
+            btn_buscar = QPushButton("Buscar")
+            btn_buscar.setMinimumHeight(32)
+            btn_buscar.clicked.connect(_buscar)
+            input_buscar.returnPressed.connect(_buscar)
+
+            btn_row = QHBoxLayout()
+            btn_row.addStretch(1)
+            btn_row.addWidget(btn_buscar)
+            btn_cerrar = QPushButton("Cerrar")
+            btn_cerrar.setMinimumHeight(32)
+            btn_cerrar.clicked.connect(dlg.close)
+            btn_row.addWidget(btn_cerrar)
+            lay.addLayout(btn_row)
+
+            lay.addStretch(1)
+            input_buscar.setFocus()
+            dlg.exec_()
+        except Exception as e:
+            try:
+                from PyQt5.QtWidgets import QMessageBox
+                QMessageBox.warning(self, "Error", f"No se pudo abrir consulta de precio:\n{e}")
+            except Exception:
+                pass
 
     def _imprimir_ticket_via_shortcut(self):
         """Si hay una fila seleccionada en 'Ventas del día', reimprime esa.

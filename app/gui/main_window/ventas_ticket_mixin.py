@@ -155,20 +155,43 @@ class VentasTicketMixin:
                         })
 
             # 2) Datos extra para el dibujante
+            #    IMPORTANTE: Solo sobrescribir con valores de la UI si NO son None,
+            #    para que al reimprimir ventas históricas se usen los datos de la BD.
             v._ticket_items = items
-            v.subtotal_base = getattr(self, "_subtotal_base", None)
-            v.descuento_monto = getattr(self, "_descuento_monto", None)
-            v.total           = getattr(self, "_total_actual", None)
-            v.interes_monto = getattr(self, "_interes_monto", None)
-            v.pagado        = getattr(self, "_ultimo_pagado", None)
-            v.vuelto        = getattr(self, "_ultimo_vuelto", None)
+
+            _ui_subtotal = getattr(self, "_subtotal_base", None)
+            _ui_descuento = getattr(self, "_descuento_monto", None)
+            _ui_total = getattr(self, "_total_actual", None)
+            _ui_interes = getattr(self, "_interes_monto", None)
+            _ui_pagado = getattr(self, "_ultimo_pagado", None)
+            _ui_vuelto = getattr(self, "_ultimo_vuelto", None)
+
+            # Determinar si es la venta recién finalizada o una reimpresión histórica
+            _es_venta_actual = (getattr(self, "_last_venta_id", None) == venta_id and _ui_total is not None)
+
+            if _es_venta_actual:
+                # Venta recién finalizada: usar datos de la UI (más precisos)
+                v.subtotal_base = _ui_subtotal
+                v.descuento_monto = _ui_descuento
+                v.total = _ui_total
+                v.interes_monto = _ui_interes
+                v.pagado = _ui_pagado
+                v.vuelto = _ui_vuelto
+            else:
+                # Reimpresión histórica: usar datos de la BD, no sobrescribir
+                if not hasattr(v, 'subtotal_base') or v.subtotal_base is None:
+                    v.subtotal_base = getattr(v, 'subtotal', None)
+                if not hasattr(v, 'descuento_monto') or v.descuento_monto is None:
+                    v.descuento_monto = getattr(v, 'descuento', None) or 0
+                if not hasattr(v, 'interes_monto') or v.interes_monto is None:
+                    v.interes_monto = getattr(v, 'interes', None) or 0
+                # total, pagado, vuelto ya vienen de la BD
 
             # cuotas (para tarjeta): intenta tomar de la venta, o de posibles atributos del flujo
             try:
                 v.cuotas = int(
                     (getattr(v, "cuotas", None)
-                    or getattr(self, "_cuotas", None)
-                    or getattr(self, "cuotas", None)
+                    or (getattr(self, "_cuotas", None) if _es_venta_actual else None)
                     or 0) or 0
                 )
             except Exception:

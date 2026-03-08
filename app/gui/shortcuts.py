@@ -14,7 +14,7 @@ class SectionMap:
 
 DEFAULT_SECTION_MAP = {
     "productos": {"agregar": "A", "editar": "E", "eliminar": "Delete", "imprimir_codigo": "I"},
-    "ventas":    {"finalizar": "V", "efectivo": "E", "tarjeta": "T", "devolucion": "D", "whatsapp": "W", "imprimir": "F", "guardar_borrador": "G", "abrir_borradores": "B", "sumar": "+", "restar": "-", "editar_cantidad": "C", "descuento_item": "X", "vaciar_cesta": "Z"},
+    "ventas":    {"finalizar": "V", "consultar_precio": "P", "devolucion": "D", "whatsapp": "W", "imprimir": "F", "guardar_borrador": "G", "abrir_borradores": "B", "sumar": "+", "restar": "-", "editar_cantidad": "C", "descuento_item": "X", "vaciar_cesta": "Z"},
 }
 
 DEFAULT_GLOBAL_MAP = {
@@ -358,6 +358,7 @@ class ShortcutManager(QObject):
         # Lista blanca de atajos que siempre funcionan, incluso con foco en input
         ALWAYS_ALLOWED = [
             "ventas.finalizar",
+            "ventas.consultar_precio",
             "ventas.guardar_borrador",
             "ventas.abrir_borradores",
             "ventas.sumar",

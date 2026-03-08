@@ -713,8 +713,7 @@ class ConfiguracionMixin:
         lv.setHorizontalSpacing(12)
         lv.setVerticalSpacing(8)
         self.ed_sc_ven_V = QLineEdit((_sec.get("ventas", {}) or {}).get("finalizar", "V"))
-        self.ed_sc_ven_E = QLineEdit((_sec.get("ventas", {}) or {}).get("efectivo", "E"))
-        self.ed_sc_ven_T = QLineEdit((_sec.get("ventas", {}) or {}).get("tarjeta", "T"))
+        self.ed_sc_ven_P = QLineEdit((_sec.get("ventas", {}) or {}).get("consultar_precio", "P"))
         self.ed_sc_ven_D = QLineEdit((_sec.get("ventas", {}) or {}).get("devolucion", "D"))
         self.ed_sc_ven_W = QLineEdit((_sec.get("ventas", {}) or {}).get("whatsapp", "W"))
         self.ed_sc_ven_F = QLineEdit((_sec.get("ventas", {}) or {}).get("imprimir", "F"))
@@ -725,25 +724,24 @@ class ConfiguracionMixin:
         self.ed_sc_ven_C = QLineEdit((_sec.get("ventas", {}) or {}).get("editar_cantidad", "C"))
         self.ed_sc_ven_X = QLineEdit((_sec.get("ventas", {}) or {}).get("descuento_item", "X"))
         self.ed_sc_ven_Z = QLineEdit((_sec.get("ventas", {}) or {}).get("vaciar_cesta", "Z"))
-        for w_ in (self.ed_sc_ven_V, self.ed_sc_ven_E, self.ed_sc_ven_T, self.ed_sc_ven_D, self.ed_sc_ven_W, self.ed_sc_ven_F, self.ed_sc_ven_G, self.ed_sc_ven_B, self.ed_sc_ven_plus, self.ed_sc_ven_minus, self.ed_sc_ven_C, self.ed_sc_ven_X, self.ed_sc_ven_Z):
+        for w_ in (self.ed_sc_ven_V, self.ed_sc_ven_P, self.ed_sc_ven_D, self.ed_sc_ven_W, self.ed_sc_ven_F, self.ed_sc_ven_G, self.ed_sc_ven_B, self.ed_sc_ven_plus, self.ed_sc_ven_minus, self.ed_sc_ven_C, self.ed_sc_ven_X, self.ed_sc_ven_Z):
             w_.setMaxLength(10)
             w_.setPlaceholderText("A–Z, F1–F12 o Delete")
         lv.addWidget(QLabel("V = Finalizar"), 0, 0); lv.addWidget(self.ed_sc_ven_V, 0, 1)
-        lv.addWidget(QLabel("E = Efectivo"), 1, 0);  lv.addWidget(self.ed_sc_ven_E, 1, 1)
-        lv.addWidget(QLabel("T = Tarjeta"), 2, 0);   lv.addWidget(self.ed_sc_ven_T, 2, 1)
-        lv.addWidget(QLabel("D = Devolución"), 3, 0);lv.addWidget(self.ed_sc_ven_D, 3, 1)
-        lv.addWidget(QLabel("W = WhatsApp"), 4, 0);  lv.addWidget(self.ed_sc_ven_W, 4, 1)
-        lv.addWidget(QLabel("F = Imprimir"), 5, 0);  lv.addWidget(self.ed_sc_ven_F, 5, 1)
-        lv.addWidget(QLabel("G = Guardar Borrador"), 6, 0); lv.addWidget(self.ed_sc_ven_G, 6, 1)
-        lv.addWidget(QLabel("B = Abrir Borradores"), 7, 0); lv.addWidget(self.ed_sc_ven_B, 7, 1)
+        lv.addWidget(QLabel("P = Consultar Precio"), 1, 0); lv.addWidget(self.ed_sc_ven_P, 1, 1)
+        lv.addWidget(QLabel("D = Devolución"), 2, 0);lv.addWidget(self.ed_sc_ven_D, 2, 1)
+        lv.addWidget(QLabel("W = WhatsApp"), 3, 0);  lv.addWidget(self.ed_sc_ven_W, 3, 1)
+        lv.addWidget(QLabel("F = Imprimir"), 4, 0);  lv.addWidget(self.ed_sc_ven_F, 4, 1)
+        lv.addWidget(QLabel("G = Guardar Borrador"), 5, 0); lv.addWidget(self.ed_sc_ven_G, 5, 1)
+        lv.addWidget(QLabel("B = Abrir Borradores"), 6, 0); lv.addWidget(self.ed_sc_ven_B, 6, 1)
 
         # Separador visual para atajos de cesta
-        lv.addWidget(QLabel("<b>— Cesta —</b>"), 8, 0, 1, 2)
-        lv.addWidget(QLabel("+ = Sumar cantidad"), 9, 0); lv.addWidget(self.ed_sc_ven_plus, 9, 1)
-        lv.addWidget(QLabel("- = Restar cantidad"), 10, 0); lv.addWidget(self.ed_sc_ven_minus, 10, 1)
-        lv.addWidget(QLabel("C = Editar cantidad"), 11, 0); lv.addWidget(self.ed_sc_ven_C, 11, 1)
-        lv.addWidget(QLabel("X = Descuento ítem"), 12, 0); lv.addWidget(self.ed_sc_ven_X, 12, 1)
-        lv.addWidget(QLabel("Z = Vaciar cesta"), 13, 0); lv.addWidget(self.ed_sc_ven_Z, 13, 1)
+        lv.addWidget(QLabel("<b>— Cesta —</b>"), 7, 0, 1, 2)
+        lv.addWidget(QLabel("+ = Sumar cantidad"), 8, 0); lv.addWidget(self.ed_sc_ven_plus, 8, 1)
+        lv.addWidget(QLabel("- = Restar cantidad"), 9, 0); lv.addWidget(self.ed_sc_ven_minus, 9, 1)
+        lv.addWidget(QLabel("C = Editar cantidad"), 10, 0); lv.addWidget(self.ed_sc_ven_C, 10, 1)
+        lv.addWidget(QLabel("X = Descuento ítem"), 11, 0); lv.addWidget(self.ed_sc_ven_X, 11, 1)
+        lv.addWidget(QLabel("Z = Vaciar cesta"), 12, 0); lv.addWidget(self.ed_sc_ven_Z, 12, 1)
         lay_acc.addWidget(gb_ven)
         
         
@@ -801,7 +799,7 @@ class ConfiguracionMixin:
             # Sección: Productos
             self.ed_sc_prod_A, self.ed_sc_prod_E, self.ed_sc_prod_D, self.ed_sc_prod_I,
             # Sección: Ventas
-            self.ed_sc_ven_V, self.ed_sc_ven_E, self.ed_sc_ven_T, self.ed_sc_ven_D, self.ed_sc_ven_W, self.ed_sc_ven_F,
+            self.ed_sc_ven_V, self.ed_sc_ven_P, self.ed_sc_ven_D, self.ed_sc_ven_W, self.ed_sc_ven_F,
             self.ed_sc_ven_G, self.ed_sc_ven_B,
             # Sección: Ventas - Cesta
             self.ed_sc_ven_plus, self.ed_sc_ven_minus, self.ed_sc_ven_C, self.ed_sc_ven_X, self.ed_sc_ven_Z
@@ -836,8 +834,7 @@ class ConfiguracionMixin:
             }
             section["ventas"] = {
                 "finalizar": _normalize(self.ed_sc_ven_V.text(), "V"),
-                "efectivo": _normalize(self.ed_sc_ven_E.text(), "E"),
-                "tarjeta": _normalize(self.ed_sc_ven_T.text(), "T"),
+                "consultar_precio": _normalize(self.ed_sc_ven_P.text(), "P"),
                 "devolucion": _normalize(self.ed_sc_ven_D.text(), "D"),
                 "whatsapp": _normalize(self.ed_sc_ven_W.text(), "W"),
                 "imprimir": _normalize(self.ed_sc_ven_F.text(), "F"),
@@ -887,8 +884,7 @@ class ConfiguracionMixin:
             self.ed_sc_prod_I.setText(DEFAULT_SECTION_MAP["productos"]["imprimir_codigo"])
             # Sección: Ventas
             self.ed_sc_ven_V.setText(DEFAULT_SECTION_MAP["ventas"]["finalizar"])
-            self.ed_sc_ven_E.setText(DEFAULT_SECTION_MAP["ventas"]["efectivo"])
-            self.ed_sc_ven_T.setText(DEFAULT_SECTION_MAP["ventas"]["tarjeta"])
+            self.ed_sc_ven_P.setText(DEFAULT_SECTION_MAP["ventas"]["consultar_precio"])
             self.ed_sc_ven_D.setText(DEFAULT_SECTION_MAP["ventas"]["devolucion"])
             self.ed_sc_ven_W.setText(DEFAULT_SECTION_MAP["ventas"]["whatsapp"])
             self.ed_sc_ven_F.setText(DEFAULT_SECTION_MAP["ventas"]["imprimir"])
