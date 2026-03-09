@@ -156,11 +156,7 @@ class VentasMixin:
 
         layout.addWidget(self.table_cesta)
 
-        # ----------------- Pago -----------------
-        
-        form = QFormLayout()
-
-        # Radios
+        # ----------------- Pago (oculto, widgets en memoria para compatibilidad) ---
         self.rb_efectivo = QRadioButton('Efectivo')
         self.rb_tarjeta  = QRadioButton('Tarjeta')
         self.rb_efectivo.setChecked(True)
@@ -168,63 +164,27 @@ class VentasMixin:
         bg.addButton(self.rb_efectivo)
         bg.addButton(self.rb_tarjeta)
 
-        # Controles (crearlos ANTES de usarlos)
         self.spin_cuotas = QSpinBox()
         self.spin_cuotas.setRange(1, 12)
         self.spin_cuotas.setEnabled(False)
-
         self.cuota_label = QLabel('')
-        from PyQt5.QtWidgets import QAbstractSpinBox
-        self.spin_cuotas.setButtonSymbols(QAbstractSpinBox.UpDownArrows)
         self.btn_interes = QPushButton(' Interés')
         self.btn_interes.setVisible(False)
-        self.btn_interes.setIcon(icon('interes.svg'))
-        self.btn_interes.setIconSize(QSize(18, 18))
-        self.btn_interes.setFixedHeight(28)
-        self.btn_interes.setToolTip('Aplicar interés (%)')
-        self.btn_interes.setAutoDefault(False)
-        self.btn_interes.setDefault(False)
-        self.btn_interes.setFocusPolicy(Qt.NoFocus)
-        self.btn_interes.clicked.connect(self._aplicar_interes_dialog)
-        self.btn_interes.setProperty("role", "inline")
-
         self.btn_descuento = QPushButton(' Descuento')
-        self.btn_descuento.setIcon(icon('discount.svg'))
-        self.btn_descuento.setIconSize(QSize(18, 18))
-        self.btn_descuento.setFixedHeight(28)
-        self.btn_descuento.setToolTip('Aplicar descuento (%)')
-        self.btn_descuento.setAutoDefault(False)
-        self.btn_descuento.setDefault(False)
-        self.btn_descuento.setFocusPolicy(Qt.NoFocus)
-        self.btn_descuento.clicked.connect(self._aplicar_descuento_dialog)
-        self.btn_descuento.setProperty("role", "inline")
 
-        # Fila compacta: pago + cuotas + interés + descuento
-        row_pago = QHBoxLayout()
-        row_pago.addWidget(self.rb_efectivo)
-        row_pago.addWidget(self.rb_tarjeta)
-        row_pago.addSpacing(10)
-        row_pago.addWidget(QLabel("Cuotas:"))
-        row_pago.addWidget(self.spin_cuotas)
-        row_pago.addSpacing(10)
-        row_pago.addWidget(self.btn_interes)
-        row_pago.addWidget(self.btn_descuento)
-        row_pago.addStretch(1)
-        row_pago.addSpacing(10)
-        row_pago.addWidget(QLabel("Monto x cuota:"))
-        row_pago.addWidget(self.cuota_label)
+        # Contenedor oculto (los widgets existen pero no se muestran)
+        self._pago_hidden = QWidget()
+        _ph = QHBoxLayout(self._pago_hidden)
+        _ph.setContentsMargins(0, 0, 0, 0)
+        for w in (self.rb_efectivo, self.rb_tarjeta, self.spin_cuotas,
+                  self.cuota_label, self.btn_interes, self.btn_descuento):
+            _ph.addWidget(w)
+        self._pago_hidden.setVisible(False)
+        layout.addWidget(self._pago_hidden)
 
-        row_pago.setAlignment(Qt.AlignVCenter)      # centra verticalmente todo
-        self.spin_cuotas.setFixedHeight(28)      # iguala alturas con los botones
-        form.addRow('Pago / Cuotas:', row_pago)
-
-        
-
-        # señales
+        # señales (mantener por compatibilidad)
         self.rb_tarjeta.toggled.connect(self._on_pago_method_changed)
         self.spin_cuotas.valueChanged.connect(self._update_cuota_label)
-
-        layout.addLayout(form)
 
         # ----------------- Total / Acciones -----------------
         
@@ -541,7 +501,7 @@ class VentasMixin:
     def _add_row_to_cesta(self, prod):
         r = self.table_cesta.rowCount()
         self.table_cesta.insertRow(r)
-        # Columnas 0–4 con el producto
+        # Columnas 0–4 con el producto (solo col 2=Cantidad es editable)
         for c, val in enumerate([
             prod.codigo_barra,
             prod.nombre,
@@ -549,7 +509,10 @@ class VentasMixin:
             f'{prod.precio:.2f}',
             f'{prod.precio:.2f}'
         ]):
-            self.table_cesta.setItem(r, c, QTableWidgetItem(val))
+            it = QTableWidgetItem(val)
+            if c != 2:
+                it.setFlags(it.flags() & ~Qt.ItemIsEditable)
+            self.table_cesta.setItem(r, c, it)
             # Guardar "precio base" en UserRole para cálculos de interés
         pu_item = self.table_cesta.item(r, 3)
         try:
@@ -1100,11 +1063,11 @@ class VentasMixin:
         r = self.table_cesta.rowCount()
         self.table_cesta.insertRow(r)
 
-        self.table_cesta.setItem(r, 0, QTableWidgetItem(codigo))
-        self.table_cesta.setItem(r, 1, QTableWidgetItem(nombre))
-        self.table_cesta.setItem(r, 2, QTableWidgetItem(str(cantidad)))
-        self.table_cesta.setItem(r, 3, QTableWidgetItem(f"{precio:.2f}"))
-        self.table_cesta.setItem(r, 4, QTableWidgetItem(f"{cantidad * precio:.2f}"))
+        for c, val in enumerate([codigo, nombre, str(cantidad), f"{precio:.2f}", f"{cantidad * precio:.2f}"]):
+            it = QTableWidgetItem(val)
+            if c != 2:
+                it.setFlags(it.flags() & ~Qt.ItemIsEditable)
+            self.table_cesta.setItem(r, c, it)
 
         # Agregar botones de acciones (copiado de _add_row_to_cesta)
         self._add_action_buttons_to_row(r)
@@ -1390,10 +1353,14 @@ class VentasMixin:
     
 
     def _refrescar_interes_btn(self):
-    # mostrar botón "Interés %" solo si Tarjeta y cuotas > 1
-        visible = self.rb_tarjeta.isChecked() and self.spin_cuotas.value() > 1
-        if hasattr(self, 'btn_interes'):
-            self.btn_interes.setVisible(visible)
+        # mostrar botón "Interés %" solo si Tarjeta y cuotas > 1
+        try:
+            visible = (hasattr(self, 'rb_tarjeta') and self.rb_tarjeta.isChecked()
+                       and hasattr(self, 'spin_cuotas') and self.spin_cuotas.value() > 1)
+            if hasattr(self, 'btn_interes'):
+                self.btn_interes.setVisible(visible)
+        except Exception:
+            pass
             
             
     # -----------------------------------------------------------------------

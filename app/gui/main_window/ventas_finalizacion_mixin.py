@@ -95,10 +95,19 @@ class VentasFinalizacionMixin:
             QMessageBox.warning(self, 'Cesta vacia', 'Agrega al menos un producto.')
             return
 
-        # Efectivo o Tarjeta?
-        forma_combo = (self.cb_forma_pago.currentText() if hasattr(self, 'cb_forma_pago') else '').lower()
-        is_efectivo = (forma_combo.startswith('efectivo') or
-                    (hasattr(self, 'rb_efectivo') and self.rb_efectivo.isChecked()))
+        # Preguntar método de pago
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Método de pago")
+        msg.setText("¿Cómo paga el cliente?")
+        msg.setIcon(QMessageBox.Question)
+        btn_efect = msg.addButton("Efectivo", QMessageBox.AcceptRole)
+        btn_tarj = msg.addButton("Tarjeta", QMessageBox.AcceptRole)
+        btn_cancel = msg.addButton("Cancelar", QMessageBox.RejectRole)
+        msg.exec_()
+
+        if msg.clickedButton() == btn_cancel:
+            return
+        is_efectivo = (msg.clickedButton() == btn_efect)
 
         pagado = None
         vuelto = None
@@ -110,16 +119,23 @@ class VentasFinalizacionMixin:
         efectivo_cuit_cliente = ""
 
         if is_efectivo:
-            # Usar el nuevo dialogo de pago en efectivo
             from app.gui.dialogs import PagoEfectivoDialog
 
             dlg = PagoEfectivoDialog(total_actual=total_actual, parent=self)
             if dlg.exec_() != QDialog.Accepted:
-                return  # cancelado
+                return
 
             datos_efectivo = dlg.get_datos()
             if not datos_efectivo:
                 return
+
+            # Aplicar descuento del diálogo
+            _d_pct = datos_efectivo.get("descuento_pct", 0)
+            _d_monto = datos_efectivo.get("descuento_monto", 0)
+            if _d_pct > 0 or _d_monto > 0:
+                self._descuento_pct = float(_d_pct)
+                self.actualizar_total()
+                total_actual = float(getattr(self, "_total_actual", 0.0))
 
             pagado = datos_efectivo["abonado"]
             vuelto = datos_efectivo["vuelto"]
@@ -131,10 +147,33 @@ class VentasFinalizacionMixin:
             self._ultimo_vuelto = vuelto
             self.vuelto = vuelto
         else:
+            # Tarjeta: abrir diálogo
+            from app.gui.dialogs import PagoTarjetaDialog
+            dlg_t = PagoTarjetaDialog(total_actual=total_actual, parent=self)
+            if dlg_t.exec_() != QDialog.Accepted:
+                return
+
+            datos_tarjeta = dlg_t.get_datos()
+            if not datos_tarjeta:
+                return
+
+            self._datos_tarjeta = datos_tarjeta
+            # Aplicar interés del diálogo
+            if datos_tarjeta.get("interes_pct", 0) > 0:
+                self._interes_pct = float(datos_tarjeta["interes_pct"])
+            # Aplicar descuento del diálogo
+            _d_pct = datos_tarjeta.get("descuento_pct", 0)
+            if _d_pct > 0:
+                self._descuento_pct = float(_d_pct)
+            # Aplicar cuotas
+            if hasattr(self, 'spin_cuotas'):
+                self.spin_cuotas.setValue(datos_tarjeta["cuotas"])
+            self.actualizar_total()
+            total_actual = float(getattr(self, "_total_actual", 0.0))
             self.vuelto = 0.0
 
         modo = 'Efectivo' if is_efectivo else 'Tarjeta'
-        cuotas = self.spin_cuotas.value() if (hasattr(self, 'rb_tarjeta') and self.rb_tarjeta.isChecked()) else None
+        cuotas = self._datos_tarjeta["cuotas"] if (not is_efectivo and hasattr(self, '_datos_tarjeta') and self._datos_tarjeta) else None
 
 
         # Crear venta (total=0 en BD inicialmente)

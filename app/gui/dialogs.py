@@ -1070,16 +1070,19 @@ class PagoTarjetaDialog(QDialog):
     """
     Diálogo unificado para configurar pago con tarjeta.
     Incluye:
-    - Número de cuotas
+    - Número de cuotas (auto-focus)
     - Porcentaje de interés
+    - Descuento (% o monto fijo)
     - Tipo de comprobante fiscal (Factura A, B, C)
     - CUIT del cliente (si es Factura A)
+    Enter navega al siguiente campo.
     """
 
     def __init__(self, total_actual=0.0, parent=None):
         super().__init__(parent)
         self.total_actual = total_actual
         self._result = None
+        self._updating_discount = False
         self.setWindowTitle("Pago con Tarjeta")
         self.setMinimumWidth(450)
 
@@ -1121,17 +1124,34 @@ class PagoTarjetaDialog(QDialog):
         self.spin_interes.valueChanged.connect(self._actualizar_resumen)
         form.addRow("Interés por cuotas:", self.spin_interes)
 
+        # Descuento %
+        self.spin_descuento_pct = QDoubleSpinBox()
+        self.spin_descuento_pct.setRange(0.0, 100.0)
+        self.spin_descuento_pct.setValue(0.0)
+        self.spin_descuento_pct.setSuffix(" %")
+        self.spin_descuento_pct.setDecimals(2)
+        self.spin_descuento_pct.setSingleStep(1.0)
+        self.spin_descuento_pct.valueChanged.connect(self._on_descuento_pct_changed)
+        form.addRow("Descuento (%):", self.spin_descuento_pct)
+
+        # Descuento monto fijo
+        self.spin_descuento_monto = QDoubleSpinBox()
+        self.spin_descuento_monto.setRange(0.0, max(total_actual, 1.0))
+        self.spin_descuento_monto.setValue(0.0)
+        self.spin_descuento_monto.setPrefix("$ ")
+        self.spin_descuento_monto.setDecimals(2)
+        self.spin_descuento_monto.setSingleStep(10.0)
+        self.spin_descuento_monto.valueChanged.connect(self._on_descuento_monto_changed)
+        form.addRow("Descuento ($):", self.spin_descuento_monto)
+
         # Tipo de comprobante
         self.cmb_tipo_cbte = QComboBox()
         self.cmb_tipo_cbte.addItem("Factura A - Resp. Inscripto", "FACTURA_A")
         self.cmb_tipo_cbte.addItem("Factura B - Consumidor Final", "FACTURA_B")
         self.cmb_tipo_cbte.addItem("Factura C - Sin IVA discriminado", "FACTURA_C")
         self.cmb_tipo_cbte.addItem("Ticket Factura B", "TICKET_B")
-
-        # Por defecto Factura A (índice 0)
         self.cmb_tipo_cbte.setCurrentIndex(0)
         self.cmb_tipo_cbte.currentIndexChanged.connect(self._on_tipo_cbte_changed)
-
         form.addRow("Tipo de comprobante:", self.cmb_tipo_cbte)
 
         # CUIT del cliente (solo visible si es Factura A)
@@ -1139,12 +1159,10 @@ class PagoTarjetaDialog(QDialog):
         self.edt_cuit = QLineEdit()
         self.edt_cuit.setPlaceholderText("Ej: 20123456789 (solo números)")
         self.edt_cuit.setMaxLength(11)
-        # Cargar CUIT predefinido desde config
         from app.config import load as _load_cfg
         _cuit_default = (_load_cfg().get("fiscal", {}).get("cuit_predefinido", "20000000001") or "").strip()
         self.edt_cuit.setText(_cuit_default)
 
-        # Validar que solo se ingresen números (usar QRegExpValidator para números grandes)
         from PyQt5.QtGui import QRegExpValidator
         from PyQt5.QtCore import QRegExp
         regex = QRegExp("[0-9]{0,11}")
@@ -1174,16 +1192,62 @@ class PagoTarjetaDialog(QDialog):
         btn_cancelar.clicked.connect(self.reject)
         btn_layout.addWidget(btn_cancelar)
 
-        btn_aceptar = QPushButton("Aceptar")
-        btn_aceptar.setDefault(True)
-        btn_aceptar.clicked.connect(self._aceptar)
-        btn_layout.addWidget(btn_aceptar)
+        self.btn_aceptar = QPushButton("Aceptar")
+        self.btn_aceptar.setAutoDefault(False)
+        self.btn_aceptar.clicked.connect(self._aceptar)
+        btn_layout.addWidget(self.btn_aceptar)
 
         layout.addLayout(btn_layout)
 
-        # Inicializar visibilidad de CUIT
+        # Tab order explícito: cuotas → interes → desc% → desc$ → tipo cbte → cuit → aceptar
+        self.setTabOrder(self.spin_cuotas, self.spin_interes)
+        self.setTabOrder(self.spin_interes, self.spin_descuento_pct)
+        self.setTabOrder(self.spin_descuento_pct, self.spin_descuento_monto)
+        self.setTabOrder(self.spin_descuento_monto, self.cmb_tipo_cbte)
+        self.setTabOrder(self.cmb_tipo_cbte, self.edt_cuit)
+        self.setTabOrder(self.edt_cuit, self.btn_aceptar)
+
+        # Enter navega al siguiente campo (event filter)
+        for w in (self.spin_cuotas, self.spin_interes, self.spin_descuento_pct,
+                  self.spin_descuento_monto, self.edt_cuit):
+            w.installEventFilter(self)
+
+        # Inicializar
         self._on_tipo_cbte_changed()
         self._actualizar_resumen()
+
+        # Auto-focus en cuotas
+        self.spin_cuotas.setFocus()
+        self.spin_cuotas.selectAll()
+
+    def eventFilter(self, obj, event):
+        """Enter/Return navega al siguiente campo en vez de aceptar el diálogo."""
+        from PyQt5.QtCore import QEvent, Qt as _Qt
+        if event.type() == QEvent.KeyPress and event.key() in (_Qt.Key_Return, _Qt.Key_Enter):
+            self.focusNextChild()
+            return True
+        return super().eventFilter(obj, event)
+
+    def _on_descuento_pct_changed(self, val):
+        if self._updating_discount:
+            return
+        self._updating_discount = True
+        monto = round(self.total_actual * (val / 100.0), 2)
+        self.spin_descuento_monto.setValue(monto)
+        self._actualizar_resumen()
+        self._updating_discount = False
+
+    def _on_descuento_monto_changed(self, val):
+        if self._updating_discount:
+            return
+        self._updating_discount = True
+        if self.total_actual > 0:
+            pct = round((val / self.total_actual) * 100.0, 2)
+        else:
+            pct = 0.0
+        self.spin_descuento_pct.setValue(pct)
+        self._actualizar_resumen()
+        self._updating_discount = False
 
     def _on_tipo_cbte_changed(self):
         """Muestra/oculta el campo CUIT según el tipo de comprobante."""
@@ -1198,23 +1262,26 @@ class PagoTarjetaDialog(QDialog):
             self.edt_cuit.selectAll()
 
     def _actualizar_resumen(self):
-        """Actualiza el resumen de totales."""
+        """Actualiza el resumen de totales con interés y descuento."""
         cuotas = self.spin_cuotas.value()
         interes_pct = self.spin_interes.value()
+        descuento_monto = self.spin_descuento_monto.value()
 
         subtotal = self.total_actual
-        interes_monto = subtotal * (interes_pct / 100.0)
-        total_con_interes = subtotal + interes_monto
+        interes_monto = round(subtotal * (interes_pct / 100.0), 2)
+        total_final = round(subtotal + interes_monto - descuento_monto, 2)
+        total_final = max(0, total_final)
 
         if cuotas > 0:
-            monto_cuota = total_con_interes / cuotas
+            monto_cuota = total_final / cuotas
         else:
             monto_cuota = 0.0
 
         resumen = f"""<b>Resumen:</b><br>
 Subtotal: ${subtotal:,.2f}<br>
-Interés ({interes_pct}%): ${interes_monto:,.2f}<br>
-<b>Total: ${total_con_interes:,.2f}</b><br>
+Interés ({interes_pct}%): +${interes_monto:,.2f}<br>
+Descuento: -${descuento_monto:,.2f}<br>
+<b>Total: ${total_final:,.2f}</b><br>
 <br>
 <b>{cuotas} cuota(s) de ${monto_cuota:,.2f}</b>"""
 
@@ -1224,7 +1291,6 @@ Interés ({interes_pct}%): ${interes_monto:,.2f}<br>
         """Valida y acepta el diálogo."""
         tipo = self.cmb_tipo_cbte.currentData()
 
-        # Si es Factura A, validar CUIT
         if tipo == "FACTURA_A":
             cuit = self.edt_cuit.text().strip()
             if not cuit or len(cuit) != 11:
@@ -1236,10 +1302,11 @@ Interés ({interes_pct}%): ${interes_monto:,.2f}<br>
                 self.edt_cuit.setFocus()
                 return
 
-        # Guardar resultado
         self._result = {
             "cuotas": self.spin_cuotas.value(),
             "interes_pct": self.spin_interes.value(),
+            "descuento_pct": self.spin_descuento_pct.value(),
+            "descuento_monto": self.spin_descuento_monto.value(),
             "tipo_comprobante": tipo,
             "cuit_cliente": self.edt_cuit.text().strip() if tipo == "FACTURA_A" else ""
         }
@@ -1255,16 +1322,20 @@ class PagoEfectivoDialog(QDialog):
     """
     Diálogo para pago en efectivo con opción de emitir factura AFIP.
     Incluye:
-    - Importe abonado
+    - Importe abonado (auto-focus)
+    - Descuento (% o monto fijo)
     - Checkbox opcional para emitir factura AFIP
     - Tipo de comprobante (si AFIP habilitado)
     - CUIT del cliente (si es Factura A)
+    Enter navega al siguiente campo.
     """
 
     def __init__(self, total_actual=0.0, parent=None):
         super().__init__(parent)
         self.total_actual = total_actual
+        self._total_con_descuento = total_actual
         self._result = None
+        self._updating_discount = False  # evitar bucle entre % y $
         self.setWindowTitle("Pago en Efectivo")
         self.setMinimumWidth(450)
 
@@ -1288,10 +1359,35 @@ class PagoEfectivoDialog(QDialog):
         form = QFormLayout()
         form.setSpacing(12)
 
-        # Total a pagar (solo lectura)
+        # Subtotal (solo lectura)
         self.lbl_total_valor = QLabel(f"${total_actual:,.2f}")
         self.lbl_total_valor.setStyleSheet("font-weight: bold; font-size: 14px;")
-        form.addRow("Total a pagar:", self.lbl_total_valor)
+        form.addRow("Subtotal:", self.lbl_total_valor)
+
+        # Descuento %
+        self.spin_descuento_pct = QDoubleSpinBox()
+        self.spin_descuento_pct.setRange(0.0, 100.0)
+        self.spin_descuento_pct.setValue(0.0)
+        self.spin_descuento_pct.setSuffix(" %")
+        self.spin_descuento_pct.setDecimals(2)
+        self.spin_descuento_pct.setSingleStep(1.0)
+        self.spin_descuento_pct.valueChanged.connect(self._on_descuento_pct_changed)
+        form.addRow("Descuento (%):", self.spin_descuento_pct)
+
+        # Descuento monto fijo
+        self.spin_descuento_monto = QDoubleSpinBox()
+        self.spin_descuento_monto.setRange(0.0, max(total_actual, 1.0))
+        self.spin_descuento_monto.setValue(0.0)
+        self.spin_descuento_monto.setPrefix("$ ")
+        self.spin_descuento_monto.setDecimals(2)
+        self.spin_descuento_monto.setSingleStep(10.0)
+        self.spin_descuento_monto.valueChanged.connect(self._on_descuento_monto_changed)
+        form.addRow("Descuento ($):", self.spin_descuento_monto)
+
+        # Total con descuento
+        self.lbl_total_final = QLabel(f"${total_actual:,.2f}")
+        self.lbl_total_final.setStyleSheet("font-weight: bold; font-size: 16px; color: #2e7d32;")
+        form.addRow("Total a pagar:", self.lbl_total_final)
 
         # Importe abonado
         self.spin_abonado = QDoubleSpinBox()
@@ -1342,12 +1438,10 @@ class PagoEfectivoDialog(QDialog):
         self.edt_cuit = QLineEdit()
         self.edt_cuit.setPlaceholderText("Ej: 20123456789 (solo números)")
         self.edt_cuit.setMaxLength(11)
-        # Cargar CUIT predefinido desde config
         from app.config import load as _load_cfg2
         _cuit_default2 = (_load_cfg2().get("fiscal", {}).get("cuit_predefinido", "20000000001") or "").strip()
         self.edt_cuit.setText(_cuit_default2)
 
-        # Validar solo números
         from PyQt5.QtGui import QRegExpValidator
         from PyQt5.QtCore import QRegExp
         regex = QRegExp("[0-9]{0,11}")
@@ -1370,25 +1464,82 @@ class PagoEfectivoDialog(QDialog):
         btn_cancelar.clicked.connect(self.reject)
         btn_layout.addWidget(btn_cancelar)
 
-        btn_aceptar = QPushButton("Aceptar")
-        btn_aceptar.setDefault(True)
-        btn_aceptar.clicked.connect(self._aceptar)
-        btn_layout.addWidget(btn_aceptar)
+        self.btn_aceptar = QPushButton("Aceptar")
+        self.btn_aceptar.setAutoDefault(False)
+        self.btn_aceptar.clicked.connect(self._aceptar)
+        btn_layout.addWidget(self.btn_aceptar)
 
         layout.addLayout(btn_layout)
+
+        # Tab order explícito
+        self.setTabOrder(self.spin_abonado, self.spin_descuento_pct)
+        self.setTabOrder(self.spin_descuento_pct, self.spin_descuento_monto)
+        self.setTabOrder(self.spin_descuento_monto, self.chk_emitir_afip)
+        self.setTabOrder(self.chk_emitir_afip, self.cmb_tipo_cbte)
+        self.setTabOrder(self.cmb_tipo_cbte, self.edt_cuit)
+        self.setTabOrder(self.edt_cuit, self.btn_aceptar)
+
+        # Enter navega al siguiente campo (event filter)
+        for w in (self.spin_abonado, self.spin_descuento_pct, self.spin_descuento_monto, self.edt_cuit):
+            w.installEventFilter(self)
 
         # Inicializar
         self._on_tipo_cbte_changed()
         self._actualizar_vuelto()
 
+        # Auto-focus en importe abonado
+        self.spin_abonado.setFocus()
+        self.spin_abonado.selectAll()
+
+    def eventFilter(self, obj, event):
+        """Enter/Return navega al siguiente campo en vez de aceptar el diálogo."""
+        from PyQt5.QtCore import QEvent, Qt as _Qt
+        if event.type() == QEvent.KeyPress and event.key() in (_Qt.Key_Return, _Qt.Key_Enter):
+            self.focusNextChild()
+            return True
+        return super().eventFilter(obj, event)
+
+    def _on_descuento_pct_changed(self, val):
+        """Al cambiar descuento %, actualizar monto $ correspondiente."""
+        if self._updating_discount:
+            return
+        self._updating_discount = True
+        monto = round(self.total_actual * (val / 100.0), 2)
+        self.spin_descuento_monto.setValue(monto)
+        self._recalcular_total_con_descuento()
+        self._updating_discount = False
+
+    def _on_descuento_monto_changed(self, val):
+        """Al cambiar descuento $, actualizar % correspondiente."""
+        if self._updating_discount:
+            return
+        self._updating_discount = True
+        if self.total_actual > 0:
+            pct = round((val / self.total_actual) * 100.0, 2)
+        else:
+            pct = 0.0
+        self.spin_descuento_pct.setValue(pct)
+        self._recalcular_total_con_descuento()
+        self._updating_discount = False
+
+    def _recalcular_total_con_descuento(self):
+        """Recalcula total con descuento y actualiza labels."""
+        desc_monto = self.spin_descuento_monto.value()
+        self._total_con_descuento = max(0, round(self.total_actual - desc_monto, 2))
+        self.lbl_total_final.setText(f"${self._total_con_descuento:,.2f}")
+        # Actualizar abonado si estaba en el total original
+        if self.spin_abonado.value() == self.total_actual or self.spin_abonado.value() == self._total_con_descuento + desc_monto:
+            pass  # no forzar cambio, el usuario ya puso un valor
+        self._actualizar_vuelto()
+
     def _actualizar_vuelto(self):
-        """Actualiza el vuelto según el importe abonado."""
+        """Actualiza el vuelto según el importe abonado y descuento."""
         abonado = self.spin_abonado.value()
-        vuelto = max(0.0, abonado - self.total_actual)
+        total = self._total_con_descuento
+        vuelto = max(0.0, abonado - total)
         self.lbl_vuelto.setText(f"${vuelto:,.2f}")
 
-        # Cambiar color si es insuficiente
-        if abonado < self.total_actual - 0.01:
+        if abonado < total - 0.01:
             self.lbl_vuelto.setStyleSheet("font-weight: bold; color: #c62828; font-size: 14px;")
         else:
             self.lbl_vuelto.setStyleSheet("font-weight: bold; color: #2e7d32; font-size: 14px;")
@@ -1413,20 +1564,20 @@ class PagoEfectivoDialog(QDialog):
     def _aceptar(self):
         """Valida y acepta el diálogo."""
         abonado = self.spin_abonado.value()
+        total = self._total_con_descuento
 
-        # Validar que abonado >= total
-        if abonado < self.total_actual - 0.01:
+        # Validar que abonado >= total con descuento
+        if abonado < total - 0.01:
             QMessageBox.warning(
                 self,
                 "Importe insuficiente",
-                f"El importe abonado (${abonado:,.2f}) es menor al total (${self.total_actual:,.2f})."
+                f"El importe abonado (${abonado:,.2f}) es menor al total (${total:,.2f})."
             )
             self.spin_abonado.setFocus()
             return
 
-        vuelto = max(0.0, abonado - self.total_actual)
+        vuelto = max(0.0, abonado - total)
 
-        # Si emitir AFIP está marcado, validar tipo y CUIT
         emitir_afip = self.chk_emitir_afip.isChecked()
         tipo_comprobante = None
         cuit_cliente = ""
@@ -1446,10 +1597,11 @@ class PagoEfectivoDialog(QDialog):
                     return
                 cuit_cliente = cuit
 
-        # Guardar resultado
         self._result = {
             "abonado": abonado,
             "vuelto": vuelto,
+            "descuento_pct": self.spin_descuento_pct.value(),
+            "descuento_monto": self.spin_descuento_monto.value(),
             "emitir_afip": emitir_afip,
             "tipo_comprobante": tipo_comprobante,
             "cuit_cliente": cuit_cliente
