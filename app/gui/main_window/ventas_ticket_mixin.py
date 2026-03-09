@@ -167,7 +167,11 @@ class VentasTicketMixin:
             _ui_vuelto = getattr(self, "_ultimo_vuelto", None)
 
             # Determinar si es la venta recién finalizada o una reimpresión histórica
-            _es_venta_actual = (getattr(self, "_last_venta_id", None) == venta_id and _ui_total is not None)
+            _es_venta_actual = (
+                getattr(self, "_last_venta_id", None) == venta_id
+                and _ui_total is not None
+                and _ui_total > 0
+            )
 
             if _es_venta_actual:
                 # Venta recién finalizada: usar datos de la UI (más precisos)
@@ -178,13 +182,14 @@ class VentasTicketMixin:
                 v.pagado = _ui_pagado
                 v.vuelto = _ui_vuelto
             else:
-                # Reimpresión histórica: usar datos de la BD, no sobrescribir
-                if not hasattr(v, 'subtotal_base') or v.subtotal_base is None:
-                    v.subtotal_base = getattr(v, 'subtotal', None)
-                if not hasattr(v, 'descuento_monto') or v.descuento_monto is None:
-                    v.descuento_monto = getattr(v, 'descuento', None) or 0
-                if not hasattr(v, 'interes_monto') or v.interes_monto is None:
-                    v.interes_monto = getattr(v, 'interes', None) or 0
+                # Reimpresión histórica: los datos ya vienen de la BD.
+                # Fallback para ventas antiguas sin subtotal_base guardado:
+                if not v.subtotal_base:
+                    v.subtotal_base = v.total or 0
+                if v.descuento_monto is None:
+                    v.descuento_monto = 0
+                if v.interes_monto is None:
+                    v.interes_monto = 0
                 # total, pagado, vuelto ya vienen de la BD
 
             # cuotas (para tarjeta): intenta tomar de la venta, o de posibles atributos del flujo

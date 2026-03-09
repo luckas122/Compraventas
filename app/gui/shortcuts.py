@@ -381,11 +381,7 @@ class ShortcutManager(QObject):
         if callable(cb):
             cb()
         else:
-            try:
-                from PyQt5.QtWidgets import QMessageBox
-                QMessageBox.information(self.w, "Acción", f"Acción no conectada: {key}")
-            except Exception:
-                pass
+            return  # Silenciosamente ignorar atajos sin callback conectado
 
 
     # ---------- Ayuda ----------
