@@ -176,9 +176,9 @@ class VentasMixin:
         self._pago_hidden = QWidget()
         _ph = QHBoxLayout(self._pago_hidden)
         _ph.setContentsMargins(0, 0, 0, 0)
-        for w in (self.rb_efectivo, self.rb_tarjeta, self.spin_cuotas,
-                  self.cuota_label, self.btn_interes, self.btn_descuento):
-            _ph.addWidget(w)
+        for _w in (self.rb_efectivo, self.rb_tarjeta, self.spin_cuotas,
+                   self.cuota_label, self.btn_interes, self.btn_descuento):
+            _ph.addWidget(_w)
         self._pago_hidden.setVisible(False)
         layout.addWidget(self._pago_hidden)
 
