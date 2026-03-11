@@ -1189,11 +1189,13 @@ class PagoTarjetaDialog(QDialog):
         btn_layout.addStretch()
 
         btn_cancelar = QPushButton("Cancelar")
+        btn_cancelar.setAutoDefault(False)
         btn_cancelar.clicked.connect(self.reject)
         btn_layout.addWidget(btn_cancelar)
 
         self.btn_aceptar = QPushButton("Aceptar")
-        self.btn_aceptar.setAutoDefault(False)
+        self.btn_aceptar.setAutoDefault(True)
+        self.btn_aceptar.setDefault(True)
         self.btn_aceptar.clicked.connect(self._aceptar)
         btn_layout.addWidget(self.btn_aceptar)
 
@@ -1461,26 +1463,31 @@ class PagoEfectivoDialog(QDialog):
         btn_layout.addStretch()
 
         btn_cancelar = QPushButton("Cancelar")
+        btn_cancelar.setAutoDefault(False)
         btn_cancelar.clicked.connect(self.reject)
         btn_layout.addWidget(btn_cancelar)
 
         self.btn_aceptar = QPushButton("Aceptar")
-        self.btn_aceptar.setAutoDefault(False)
+        self.btn_aceptar.setAutoDefault(True)
+        self.btn_aceptar.setDefault(True)
         self.btn_aceptar.clicked.connect(self._aceptar)
         btn_layout.addWidget(self.btn_aceptar)
 
         layout.addLayout(btn_layout)
 
-        # Tab order explícito
-        self.setTabOrder(self.spin_abonado, self.spin_descuento_pct)
+        # Tab order: abonado → aceptar (Enter directo para pago rápido)
+        # Descuento y AFIP accesibles con click/Tab si se necesitan
+        self.setTabOrder(self.spin_abonado, self.btn_aceptar)
+        self.setTabOrder(self.btn_aceptar, self.spin_descuento_pct)
         self.setTabOrder(self.spin_descuento_pct, self.spin_descuento_monto)
         self.setTabOrder(self.spin_descuento_monto, self.chk_emitir_afip)
         self.setTabOrder(self.chk_emitir_afip, self.cmb_tipo_cbte)
         self.setTabOrder(self.cmb_tipo_cbte, self.edt_cuit)
-        self.setTabOrder(self.edt_cuit, self.btn_aceptar)
+        self.setTabOrder(self.edt_cuit, btn_cancelar)
 
-        # Enter navega al siguiente campo (event filter)
-        for w in (self.spin_abonado, self.spin_descuento_pct, self.spin_descuento_monto, self.edt_cuit):
+        # Enter en abonado → acepta directamente (no navega a descuento)
+        # Solo edt_cuit necesita eventFilter para navegar con Enter
+        for w in (self.spin_descuento_pct, self.spin_descuento_monto, self.edt_cuit):
             w.installEventFilter(self)
 
         # Inicializar
