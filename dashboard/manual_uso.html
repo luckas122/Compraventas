@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manual de Uso - Tu Local 2025</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f0f2f5;
+            color: #333;
+            line-height: 1.6;
+        }
+        .header {
+            background: linear-gradient(135deg, #1a237e 0%, #283593 100%);
+            color: white;
+            padding: 24px;
+            text-align: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+        .header h1 { font-size: 26px; font-weight: 600; }
+        .header p { opacity: 0.85; font-size: 14px; margin-top: 4px; }
+
+        .container { max-width: 900px; margin: 0 auto; padding: 16px; }
+
+        /* Table of contents */
+        .toc {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            margin: 16px 0;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+        }
+        .toc h2 { color: #1a237e; font-size: 18px; margin-bottom: 12px; }
+        .toc ul { list-style: none; columns: 2; }
+        .toc li { margin: 4px 0; }
+        .toc a {
+            text-decoration: none;
+            color: #1a237e;
+            font-size: 14px;
+            padding: 4px 0;
+            display: inline-block;
+        }
+        .toc a:hover { text-decoration: underline; }
+
+        /* Sections */
+        .section {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            margin: 16px 0;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+        }
+        .section h2 {
+            color: #1a237e;
+            font-size: 20px;
+            border-bottom: 2px solid #e0e0e0;
+            padding-bottom: 8px;
+            margin-bottom: 16px;
+        }
+        .section h3 {
+            color: #283593;
+            font-size: 16px;
+            margin: 16px 0 8px;
+        }
+        .section p { margin: 8px 0; font-size: 15px; }
+        .section ul, .section ol {
+            margin: 8px 0 8px 24px;
+            font-size: 15px;
+        }
+        .section li { margin: 4px 0; }
+
+        /* Keyboard shortcuts table */
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin: 12px 0;
+        }
+        th {
+            background: #e8eaf6;
+            padding: 10px 14px;
+            text-align: left;
+            font-size: 13px;
+            text-transform: uppercase;
+            color: #1a237e;
+            border-bottom: 2px solid #c5cae9;
+        }
+        td {
+            padding: 8px 14px;
+            font-size: 14px;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        tr:hover td { background: #fafafa; }
+
+        kbd {
+            background: #e8eaf6;
+            border: 1px solid #c5cae9;
+            border-radius: 4px;
+            padding: 2px 8px;
+            font-family: 'Consolas', monospace;
+            font-size: 13px;
+            font-weight: 600;
+            color: #1a237e;
+        }
+
+        .tip {
+            background: #e3f2fd;
+            border-left: 4px solid #1565c0;
+            padding: 12px 16px;
+            margin: 12px 0;
+            border-radius: 0 8px 8px 0;
+            font-size: 14px;
+        }
+        .tip strong { color: #1565c0; }
+
+        .warning {
+            background: #fff3e0;
+            border-left: 4px solid #e65100;
+            padding: 12px 16px;
+            margin: 12px 0;
+            border-radius: 0 8px 8px 0;
+            font-size: 14px;
+        }
+        .warning strong { color: #e65100; }
+
+        .steps {
+            counter-reset: step;
+            list-style: none;
+            margin-left: 0;
+            padding-left: 0;
+        }
+        .steps li {
+            counter-increment: step;
+            padding: 8px 0 8px 40px;
+            position: relative;
+        }
+        .steps li::before {
+            content: counter(step);
+            position: absolute;
+            left: 0;
+            top: 8px;
+            background: #1a237e;
+            color: white;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .footer {
+            text-align: center;
+            padding: 24px;
+            color: #999;
+            font-size: 12px;
+        }
+
+        @media (max-width: 600px) {
+            .toc ul { columns: 1; }
+            .header h1 { font-size: 20px; }
+            .section { padding: 16px; }
+            td, th { padding: 6px 10px; font-size: 13px; }
+        }
+
+        @media print {
+            body { background: white; }
+            .section { box-shadow: none; border: 1px solid #ddd; page-break-inside: avoid; }
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Manual de Uso - Tu Local 2025</h1>
+        <p>Guia completa del sistema de gestion de compras y ventas</p>
+    </div>
+
+    <div class="container">
+
+        <!-- Table of contents -->
+        <div class="toc">
+            <h2>Contenido</h2>
+            <ul>
+                <li><a href="#inicio">1. Inicio de la aplicacion</a></li>
+                <li><a href="#ventas">2. Ventas</a></li>
+                <li><a href="#finalizar">3. Finalizar una venta</a></li>
+                <li><a href="#productos">4. Productos</a></li>
+                <li><a href="#proveedores">5. Proveedores</a></li>
+                <li><a href="#historial">6. Historial y reportes</a></li>
+                <li><a href="#config">7. Configuracion</a></li>
+                <li><a href="#dashboard">8. Dashboard web</a></li>
+                <li><a href="#atajos">9. Atajos de teclado</a></li>
+                <li><a href="#tips">10. Consejos utiles</a></li>
+            </ul>
+        </div>
+
+        <!-- 1. Inicio -->
+        <div class="section" id="inicio">
+            <h2>1. Inicio de la aplicacion</h2>
+            <ol class="steps">
+                <li>Abre la aplicacion haciendo doble clic en <strong>"Tu local 2025"</strong> en el escritorio o desde el menu de inicio.</li>
+                <li>Selecciona la <strong>sucursal</strong> donde estas trabajando (Sarmiento, Salta, etc.).</li>
+                <li>La aplicacion se abre en la pestana de <strong>Ventas</strong>, lista para operar.</li>
+            </ol>
+            <div class="tip">
+                <strong>Consejo:</strong> En Configuracion puedes elegir una sucursal por defecto para no tener que seleccionarla cada vez.
+            </div>
+        </div>
+
+        <!-- 2. Ventas -->
+        <div class="section" id="ventas">
+            <h2>2. Ventas</h2>
+            <p>La pestana de Ventas es donde se realizan las operaciones diarias. Se accede con <kbd>F3</kbd>.</p>
+
+            <h3>Buscar y agregar productos</h3>
+            <ol class="steps">
+                <li>Escribe el <strong>codigo de barras</strong> o el <strong>nombre</strong> del producto en el buscador.</li>
+                <li>Presiona <kbd>Enter</kbd> o haz clic en el boton <strong>+</strong> para agregarlo a la cesta.</li>
+                <li>Si usas un <strong>lector de codigos de barras</strong>, el producto se agrega automaticamente.</li>
+            </ol>
+
+            <div class="tip">
+                <strong>Producto no encontrado:</strong> Si el producto no existe, la app te preguntara si queres agregarlo como nuevo. Completa codigo, nombre y precio, y se creara al instante.
+            </div>
+
+            <h3>Modificar la cesta</h3>
+            <table>
+                <tr><th>Accion</th><th>Como hacerlo</th></tr>
+                <tr><td>Cambiar cantidad</td><td>Doble clic en la columna <strong>Cantidad</strong> y escribe el numero</td></tr>
+                <tr><td>Sumar 1 unidad</td><td>Boton <strong>+</strong> en la fila del producto, o atajo <kbd>+</kbd></td></tr>
+                <tr><td>Restar 1 unidad</td><td>Boton <strong>-</strong> en la fila del producto, o atajo <kbd>-</kbd></td></tr>
+                <tr><td>Descuento por item</td><td>Boton <strong>X</strong> en la fila, o atajo <kbd>X</kbd></td></tr>
+                <tr><td>Editar precio</td><td>Boton del <strong>lapiz</strong> en la fila del producto</td></tr>
+                <tr><td>Eliminar producto</td><td>Boton de <strong>papelera</strong> en la fila</td></tr>
+                <tr><td>Vaciar toda la cesta</td><td>Boton <strong>Vaciar Cesta</strong> o atajo <kbd>Z</kbd></td></tr>
+            </table>
+
+            <h3>Borradores</h3>
+            <p>Si necesitas pausar una venta para atender a otro cliente:</p>
+            <ul>
+                <li><strong>Guardar borrador</strong> (<kbd>G</kbd>): Guarda la cesta actual para despues.</li>
+                <li><strong>Cargar borrador</strong> (<kbd>B</kbd>): Recupera una cesta guardada anteriormente.</li>
+            </ul>
+
+            <h3>Otras funciones</h3>
+            <ul>
+                <li><strong>Consultar precio</strong> (<kbd>P</kbd>): Busca el precio de un producto sin agregarlo a la cesta.</li>
+                <li><strong>Devolucion</strong> (<kbd>D</kbd>): Procesa una devolucion de una venta anterior.</li>
+                <li><strong>Reimprimir ticket</strong> (<kbd>F</kbd>): Vuelve a imprimir el ultimo ticket o uno seleccionado.</li>
+                <li><strong>WhatsApp</strong> (<kbd>W</kbd>): Envia el ticket por WhatsApp Web al cliente.</li>
+                <li><strong>PDF</strong>: Exporta el ticket como archivo PDF.</li>
+            </ul>
+        </div>
+
+        <!-- 3. Finalizar venta -->
+        <div class="section" id="finalizar">
+            <h2>3. Finalizar una venta</h2>
+            <p>Cuando la cesta tiene todos los productos, presiona <kbd>V</kbd> o el boton de <strong>ticket</strong> para finalizar.</p>
+
+            <h3>Paso 1: Elegir metodo de pago</h3>
+            <p>Aparece un popup con dos opciones: <strong>Efectivo</strong> o <strong>Tarjeta</strong>.</p>
+
+            <h3>Pago en Efectivo</h3>
+            <ol class="steps">
+                <li>Se abre el dialogo de pago en efectivo con el total a pagar.</li>
+                <li>Ingresa el <strong>importe abonado</strong> por el cliente (se auto-selecciona).</li>
+                <li>Si aplica, agrega un <strong>descuento</strong> en porcentaje (%) o monto fijo ($).</li>
+                <li>El <strong>vuelto</strong> se calcula automaticamente.</li>
+                <li>Opcionalmente, marca <strong>"Emitir factura AFIP"</strong> si esta habilitado.</li>
+                <li>Presiona <strong>Aceptar</strong> para completar la venta e imprimir el ticket.</li>
+            </ol>
+
+            <h3>Pago con Tarjeta</h3>
+            <ol class="steps">
+                <li>Se abre el dialogo de pago con tarjeta.</li>
+                <li>Selecciona el <strong>numero de cuotas</strong> (1 a 12).</li>
+                <li>Si aplica, ingresa el <strong>interes por cuotas</strong> (%).</li>
+                <li>Si aplica, agrega un <strong>descuento</strong> (% o $).</li>
+                <li>Selecciona el <strong>tipo de comprobante</strong> AFIP (si esta habilitado).</li>
+                <li>Ingresa el <strong>CUIT del cliente</strong> si es necesario.</li>
+                <li>Presiona <strong>Aceptar</strong> para completar la venta.</li>
+            </ol>
+            <div class="tip">
+                <strong>Navegacion rapida:</strong> Usa <kbd>Enter</kbd> para saltar entre campos y <kbd>Tab</kbd> para avanzar al siguiente.
+            </div>
+
+            <h3>Ventas del dia</h3>
+            <p>En la parte inferior de la pestana de Ventas se muestra la <strong>tabla de ventas del dia</strong> con todos los tickets generados, detallando hora, sucursal, total, metodo de pago y mas.</p>
+        </div>
+
+        <!-- 4. Productos -->
+        <div class="section" id="productos">
+            <h2>4. Productos</h2>
+            <p>Accede a la pestana de Productos con <kbd>F1</kbd>. Aqui gestionas todo el catalogo.</p>
+
+            <h3>Agregar un producto</h3>
+            <ol class="steps">
+                <li>Completa los campos: <strong>Codigo</strong>, <strong>Nombre</strong>, <strong>Precio</strong> y opcionalmente <strong>Categoria</strong>.</li>
+                <li>Presiona <strong>Agregar</strong> o el atajo <kbd>A</kbd>.</li>
+                <li>El producto queda registrado y se sincroniza con otras sucursales.</li>
+            </ol>
+
+            <h3>Editar un producto</h3>
+            <ul>
+                <li><strong>Doble clic</strong> sobre una celda en la tabla para editarla directamente.</li>
+                <li>Atajo <kbd>E</kbd>: Pide el codigo y abre un editor.</li>
+            </ul>
+
+            <h3>Edicion masiva de precios</h3>
+            <ol class="steps">
+                <li>Selecciona los productos que queres modificar (casillas de verificacion).</li>
+                <li>Haz clic en <strong>Editar precios masivos</strong>.</li>
+                <li>Elige ajustar por <strong>porcentaje</strong> (ej: +10%) o por <strong>monto fijo</strong> (ej: +$500).</li>
+                <li>Confirma y todos los precios seleccionados se actualizan.</li>
+            </ol>
+
+            <h3>Importar / Exportar</h3>
+            <ul>
+                <li><strong>Importar desde Excel</strong>: Carga productos desde un archivo .xlsx con columnas: codigo, nombre, precio, categoria.</li>
+                <li><strong>Exportar a Excel</strong>: Descarga todo el catalogo a un archivo .xlsx.</li>
+            </ul>
+
+            <h3>Imprimir codigos de barra</h3>
+            <p>Selecciona productos y presiona <kbd>I</kbd> para imprimir etiquetas con el codigo de barras.</p>
+        </div>
+
+        <!-- 5. Proveedores -->
+        <div class="section" id="proveedores">
+            <h2>5. Proveedores</h2>
+            <p>Accede con <kbd>F2</kbd>. Aqui gestionas la informacion de tus proveedores.</p>
+            <ul>
+                <li><strong>Agregar proveedor</strong>: Nombre, telefono, numero de cuenta, CBU.</li>
+                <li><strong>Editar</strong>: Doble clic en la tabla para modificar datos.</li>
+                <li><strong>Eliminar</strong>: Selecciona y elimina proveedores.</li>
+                <li><strong>Registrar pago</strong>: Desde la pestana de Ventas, boton "Pagos" para registrar pagos a proveedores.</li>
+            </ul>
+        </div>
+
+        <!-- 6. Historial -->
+        <div class="section" id="historial">
+            <h2>6. Historial y reportes</h2>
+            <p>Accede con <kbd>F4</kbd>. Aqui ves estadisticas y reportes de ventas.</p>
+            <ul>
+                <li><strong>KPIs</strong>: Total de ventas, productos mas vendidos, comparacion por sucursal.</li>
+                <li><strong>Grafico de ventas diarias</strong>: Tendencia visual de las ventas.</li>
+                <li><strong>Ranking de productos</strong>: Los productos mas vendidos por cantidad o ingreso.</li>
+                <li><strong>Filtros</strong>: Filtra por rango de fechas, sucursal o forma de pago.</li>
+                <li><strong>Exportar a Excel</strong>: Descarga los datos filtrados.</li>
+            </ul>
+        </div>
+
+        <!-- 7. Configuracion -->
+        <div class="section" id="config">
+            <h2>7. Configuracion</h2>
+            <p>Accede con <kbd>F5</kbd>. Las opciones mas importantes son:</p>
+
+            <h3>Datos del negocio</h3>
+            <p>Nombre, CUIT, tipo de IVA, telefono y sucursales.</p>
+
+            <h3>Impresora</h3>
+            <p>Selecciona la impresora de tickets (termica) y la impresora de codigos de barras.</p>
+
+            <h3>Tickets</h3>
+            <p>Personaliza las plantillas de tickets. Hay 4 plantillas predefinidas (efectivo clasica, efectivo minimalista, tarjeta clasica, tarjeta minimalista). Podes modificarlas o crear las tuyas.</p>
+
+            <h3>Apariencia</h3>
+            <p>Activa/desactiva el <strong>modo oscuro</strong>, elige la variante (suave, medio, alto contraste) y personaliza colores.</p>
+
+            <h3>AFIP / Facturacion electronica</h3>
+            <p>Configura la integracion con AFIP para emitir facturas electronicas:</p>
+            <ul>
+                <li>Habilitar/deshabilitar facturacion.</li>
+                <li>Modo: prueba o produccion.</li>
+                <li>CUIT del negocio y punto de venta.</li>
+                <li>Configuracion del SDK de AFIP (API key, URLs).</li>
+            </ul>
+            <div class="warning">
+                <strong>Importante:</strong> Antes de usar en produccion, probalo en modo "test" para verificar que todo funcione correctamente.
+            </div>
+
+            <h3>Sincronizacion entre sucursales</h3>
+            <p>Permite sincronizar productos, ventas y proveedores entre sucursales usando Firebase:</p>
+            <ul>
+                <li>Ingresa la <strong>URL de Firebase</strong> y el <strong>token de autenticacion</strong>.</li>
+                <li>Activa la sincronizacion automatica (cada X minutos).</li>
+                <li>Elige que sincronizar: productos, proveedores.</li>
+                <li>Las ventas se sincronizan siempre automaticamente.</li>
+            </ul>
+
+            <h3>Backups</h3>
+            <p>Configura copias de seguridad automaticas diarias y semanales. Podes hacer backup manual en cualquier momento y restaurar desde una copia anterior.</p>
+
+            <h3>Atajos de teclado</h3>
+            <p>Personaliza todas las teclas de acceso rapido a tu gusto.</p>
+        </div>
+
+        <!-- 8. Dashboard web -->
+        <div class="section" id="dashboard">
+            <h2>8. Dashboard web (acceso remoto)</h2>
+            <p>El dashboard web te permite ver las ventas y editar precios desde cualquier dispositivo (celular, tablet, otra PC).</p>
+
+            <h3>Como acceder</h3>
+            <ol class="steps">
+                <li>Abre el archivo <strong>dashboard/index.html</strong> en un navegador.</li>
+                <li>Ingresa la <strong>URL de Firebase</strong> y el <strong>token</strong> (los mismos de Configuracion > Sincronizacion).</li>
+                <li>Haz clic en <strong>Conectar</strong>.</li>
+            </ol>
+
+            <h3>Pestana Ventas</h3>
+            <p>Ve las ventas del dia en tiempo real: total, efectivo vs tarjeta, cantidad de ventas, detalle por sucursal. Se actualiza automaticamente cada 30 segundos.</p>
+
+            <h3>Pestana Precios</h3>
+            <ol class="steps">
+                <li>Haz clic en la pestana <strong>Precios</strong>.</li>
+                <li>Busca un producto por codigo o nombre.</li>
+                <li>Haz clic en el boton de <strong>editar</strong> (lapiz) del producto.</li>
+                <li>Ingresa el nuevo precio y haz clic en <strong>Guardar</strong>.</li>
+                <li>El cambio se sincroniza automaticamente con todas las sucursales.</li>
+            </ol>
+            <div class="tip">
+                <strong>Consejo:</strong> Los cambios de precios desde el dashboard se aplican en las sucursales en el proximo ciclo de sincronizacion (cada 5 minutos por defecto, o al sincronizar manualmente).
+            </div>
+        </div>
+
+        <!-- 9. Atajos de teclado -->
+        <div class="section" id="atajos">
+            <h2>9. Atajos de teclado</h2>
+
+            <h3>Navegacion global</h3>
+            <table>
+                <tr><th>Tecla</th><th>Accion</th></tr>
+                <tr><td><kbd>F1</kbd></td><td>Ir a Productos</td></tr>
+                <tr><td><kbd>F2</kbd></td><td>Ir a Proveedores</td></tr>
+                <tr><td><kbd>F3</kbd></td><td>Ir a Ventas</td></tr>
+                <tr><td><kbd>F4</kbd></td><td>Ir a Historial</td></tr>
+                <tr><td><kbd>F5</kbd></td><td>Ir a Configuracion</td></tr>
+                <tr><td><kbd>F6</kbd></td><td>Ir a Usuarios</td></tr>
+            </table>
+
+            <h3>En Productos (F1)</h3>
+            <table>
+                <tr><th>Tecla</th><th>Accion</th></tr>
+                <tr><td><kbd>A</kbd></td><td>Agregar producto</td></tr>
+                <tr><td><kbd>E</kbd></td><td>Editar producto</td></tr>
+                <tr><td><kbd>Delete</kbd></td><td>Eliminar seleccionados</td></tr>
+                <tr><td><kbd>I</kbd></td><td>Imprimir codigos de barras</td></tr>
+            </table>
+
+            <h3>En Ventas (F3)</h3>
+            <table>
+                <tr><th>Tecla</th><th>Accion</th></tr>
+                <tr><td><kbd>V</kbd></td><td>Finalizar venta</td></tr>
+                <tr><td><kbd>P</kbd></td><td>Consultar precio</td></tr>
+                <tr><td><kbd>D</kbd></td><td>Devolucion</td></tr>
+                <tr><td><kbd>W</kbd></td><td>Enviar por WhatsApp</td></tr>
+                <tr><td><kbd>F</kbd></td><td>Reimprimir ticket</td></tr>
+                <tr><td><kbd>G</kbd></td><td>Guardar borrador</td></tr>
+                <tr><td><kbd>B</kbd></td><td>Cargar borrador</td></tr>
+            </table>
+
+            <h3>En la cesta de ventas</h3>
+            <table>
+                <tr><th>Tecla</th><th>Accion</th></tr>
+                <tr><td><kbd>+</kbd></td><td>Sumar 1 unidad</td></tr>
+                <tr><td><kbd>-</kbd></td><td>Restar 1 unidad</td></tr>
+                <tr><td><kbd>C</kbd></td><td>Editar cantidad</td></tr>
+                <tr><td><kbd>X</kbd></td><td>Descuento por item</td></tr>
+                <tr><td><kbd>Z</kbd></td><td>Vaciar cesta</td></tr>
+            </table>
+        </div>
+
+        <!-- 10. Tips -->
+        <div class="section" id="tips">
+            <h2>10. Consejos utiles</h2>
+            <div class="tip">
+                <strong>Lector de codigos:</strong> Al escanear un producto, se agrega automaticamente a la cesta sin necesidad de presionar Enter.
+            </div>
+            <div class="tip">
+                <strong>Sincronizacion:</strong> Si no tenes internet en el momento, los cambios se guardan en una cola y se envian automaticamente cuando se recupera la conexion.
+            </div>
+            <div class="tip">
+                <strong>Backups:</strong> Configura backups automaticos diarios para no perder datos. Podes restaurar en cualquier momento desde Configuracion.
+            </div>
+            <div class="tip">
+                <strong>Producto nuevo al vuelo:</strong> Si durante una venta buscas un producto que no existe, la app te ofrece crearlo en el momento sin salir de la seccion de ventas.
+            </div>
+            <div class="tip">
+                <strong>Precios desde el celular:</strong> Usa el Dashboard web para actualizar precios desde cualquier dispositivo con internet. Los cambios llegan a todas las sucursales.
+            </div>
+            <div class="tip">
+                <strong>Atajos personalizables:</strong> Todos los atajos de teclado se pueden cambiar desde Configuracion > Acceso Rapido.
+            </div>
+        </div>
+
+    </div>
+
+    <div class="footer">
+        Tu Local 2025 - Manual de Uso v1.0
+    </div>
+</body>
+</html>

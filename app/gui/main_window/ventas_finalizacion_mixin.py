@@ -87,7 +87,7 @@ class VentasFinalizacionMixin:
 
     #----Finalizar venta e impresion
 
-    def finalizar_venta(self):
+    def finalizar_venta(self, modo_pago=None):
         # Recalcula totales / interes antes de cualquier cosa
         self.actualizar_total()
 
@@ -95,19 +95,23 @@ class VentasFinalizacionMixin:
             QMessageBox.warning(self, 'Cesta vacia', 'Agrega al menos un producto.')
             return
 
-        # Preguntar método de pago
-        msg = QMessageBox(self)
-        msg.setWindowTitle("Método de pago")
-        msg.setText("¿Cómo paga el cliente?")
-        msg.setIcon(QMessageBox.Question)
-        btn_efect = msg.addButton("Efectivo", QMessageBox.AcceptRole)
-        btn_tarj = msg.addButton("Tarjeta", QMessageBox.AcceptRole)
-        btn_cancel = msg.addButton("Cancelar", QMessageBox.RejectRole)
-        msg.exec_()
+        if modo_pago is not None:
+            # Ya se eligió método de pago (viene de _shortcut_finalizar_venta_dialog)
+            is_efectivo = (modo_pago == "efectivo")
+        else:
+            # Preguntar método de pago
+            msg = QMessageBox(self)
+            msg.setWindowTitle("Método de pago")
+            msg.setText("¿Cómo paga el cliente?")
+            msg.setIcon(QMessageBox.Question)
+            btn_efect = msg.addButton("Efectivo", QMessageBox.AcceptRole)
+            btn_tarj = msg.addButton("Tarjeta", QMessageBox.AcceptRole)
+            btn_cancel = msg.addButton("Cancelar", QMessageBox.RejectRole)
+            msg.exec_()
 
-        if msg.clickedButton() == btn_cancel:
-            return
-        is_efectivo = (msg.clickedButton() == btn_efect)
+            if msg.clickedButton() == btn_cancel:
+                return
+            is_efectivo = (msg.clickedButton() == btn_efect)
 
         pagado = None
         vuelto = None

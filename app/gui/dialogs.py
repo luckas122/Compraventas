@@ -1209,7 +1209,7 @@ class PagoTarjetaDialog(QDialog):
 
         # Enter navega al siguiente campo (event filter)
         for w in (self.spin_cuotas, self.spin_interes, self.spin_descuento_pct,
-                  self.spin_descuento_monto, self.edt_cuit):
+                  self.spin_descuento_monto, self.cmb_tipo_cbte, self.edt_cuit):
             w.installEventFilter(self)
 
         # Inicializar

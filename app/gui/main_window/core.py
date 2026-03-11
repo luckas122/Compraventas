@@ -1522,7 +1522,7 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
         try:
             # Si ya se configuró con el diálogo unificado, finalizar directamente
             if hasattr(self, '_datos_tarjeta') and self._datos_tarjeta:
-                self.finalizar_venta()
+                self.finalizar_venta(modo_pago="tarjeta")
                 return
 
             from PyQt5.QtWidgets import (
@@ -1631,7 +1631,7 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
                             return  # canceló cuotas/interés
 
             # 6) Ahora sí, flujo normal de cierre
-            self.finalizar_venta()
+            self.finalizar_venta(modo_pago=elegido["modo"])
 
         except Exception as e:
             logger.error("[VENTAS] Error en _shortcut_finalizar_venta_dialog: %s", e, exc_info=True)
