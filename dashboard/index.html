@@ -1,0 +1,1170 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Tu Local 2025</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f0f2f5;
+            color: #333;
+            min-height: 100vh;
+        }
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, #1a237e 0%, #283593 100%);
+            color: white;
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+        .header h1 { font-size: 22px; font-weight: 600; }
+        .header .status {
+            font-size: 13px;
+            opacity: 0.85;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .header .status .dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: #4caf50;
+            display: inline-block;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            background: #fff;
+            margin: 0;
+            border-bottom: 2px solid #e0e0e0;
+            padding: 0 16px;
+        }
+        .tab {
+            padding: 14px 28px;
+            font-size: 15px;
+            font-weight: 500;
+            color: #666;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            margin-bottom: -2px;
+            transition: all 0.2s;
+            user-select: none;
+        }
+        .tab:hover { color: #1a237e; background: #f5f5ff; }
+        .tab.active {
+            color: #1a237e;
+            border-bottom-color: #1a237e;
+            font-weight: 600;
+        }
+
+        /* Config panel */
+        .config-panel {
+            background: #fff;
+            margin: 16px;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+        }
+        .config-panel h2 { font-size: 16px; margin-bottom: 12px; color: #1a237e; }
+        .config-row {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            align-items: flex-end;
+        }
+        .config-row label {
+            display: block;
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 4px;
+        }
+        .config-row input, .config-row select {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            min-width: 200px;
+        }
+        .config-row input:focus, .config-row select:focus {
+            outline: none;
+            border-color: #1a237e;
+            box-shadow: 0 0 0 2px rgba(26,35,126,0.1);
+        }
+        .btn {
+            padding: 8px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        .btn-primary {
+            background: #1a237e;
+            color: white;
+        }
+        .btn-primary:hover { background: #283593; }
+        .btn-success {
+            background: #2e7d32;
+            color: white;
+        }
+        .btn-success:hover { background: #388e3c; }
+        .btn-outline {
+            background: transparent;
+            border: 1px solid #1a237e;
+            color: #1a237e;
+        }
+        .btn-outline:hover { background: #e8eaf6; }
+        .btn-sm { padding: 6px 14px; font-size: 12px; }
+        .btn-danger { background: #c62828; color: white; }
+        .btn-danger:hover { background: #d32f2f; }
+
+        /* Cards */
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 16px;
+            margin: 16px;
+        }
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+        }
+        .card .label {
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #888;
+            margin-bottom: 4px;
+        }
+        .card .value {
+            font-size: 28px;
+            font-weight: 700;
+            color: #1a237e;
+        }
+        .card .sub { font-size: 13px; color: #666; margin-top: 4px; }
+        .card.sarmiento { border-left: 4px solid #1565c0; }
+        .card.salta { border-left: 4px solid #e65100; }
+        .card.total { border-left: 4px solid #2e7d32; }
+        .card.efectivo { border-left: 4px solid #4caf50; }
+        .card.tarjeta { border-left: 4px solid #ff9800; }
+        .card.cantidad { border-left: 4px solid #7b1fa2; }
+
+        /* Filters */
+        .filters {
+            display: flex;
+            gap: 12px;
+            margin: 0 16px 8px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .filters label { font-size: 13px; color: #666; }
+        .filters input, .filters select {
+            padding: 6px 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 13px;
+        }
+
+        /* Table */
+        .table-container {
+            margin: 0 16px 16px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+            overflow: auto;
+        }
+        .table-container h3 {
+            padding: 16px 20px 8px;
+            font-size: 15px;
+            color: #1a237e;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th {
+            background: #f5f5f5;
+            padding: 10px 14px;
+            text-align: left;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #666;
+            border-bottom: 2px solid #e0e0e0;
+            position: sticky;
+            top: 0;
+        }
+        td {
+            padding: 10px 14px;
+            font-size: 14px;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        tr:hover td { background: #fafafa; }
+        .suc-sarmiento { color: #1565c0; font-weight: 500; }
+        .suc-salta { color: #e65100; font-weight: 500; }
+        .pago-efectivo { color: #2e7d32; }
+        .pago-tarjeta { color: #e65100; }
+        .monto { font-weight: 600; font-family: 'Consolas', monospace; }
+        .no-data {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+            font-size: 15px;
+        }
+
+        /* Footer */
+        .footer {
+            text-align: center;
+            padding: 16px;
+            color: #999;
+            font-size: 12px;
+        }
+
+        /* Hidden */
+        .hidden { display: none !important; }
+
+        /* Loading */
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+        .loading .spinner {
+            display: inline-block;
+            width: 30px; height: 30px;
+            border: 3px solid #e0e0e0;
+            border-top-color: #1a237e;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-bottom: 12px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ==================== Precios Tab ==================== */
+        .precios-search {
+            display: flex;
+            gap: 12px;
+            margin: 16px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .precios-search input {
+            flex: 1;
+            min-width: 250px;
+            padding: 10px 16px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 15px;
+            transition: border-color 0.2s;
+        }
+        .precios-search input:focus {
+            outline: none;
+            border-color: #1a237e;
+            box-shadow: 0 0 0 3px rgba(26,35,126,0.1);
+        }
+        .precios-count {
+            margin: 0 16px 8px;
+            font-size: 13px;
+            color: #666;
+        }
+        .btn-edit {
+            background: none;
+            border: 1px solid #1a237e;
+            color: #1a237e;
+            padding: 6px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            min-width: 44px;
+            min-height: 44px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+        .btn-edit:hover { background: #e8eaf6; }
+
+        /* Inline editor */
+        .precio-editor {
+            background: #e8eaf6;
+            border: 2px solid #1a237e;
+            border-radius: 10px;
+            padding: 16px 20px;
+            margin: 8px 16px 16px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            align-items: center;
+        }
+        .precio-editor .editor-title {
+            width: 100%;
+            font-weight: 600;
+            color: #1a237e;
+            font-size: 15px;
+            margin-bottom: 4px;
+        }
+        .precio-editor .editor-field {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .precio-editor label {
+            font-size: 14px;
+            color: #333;
+            white-space: nowrap;
+        }
+        .precio-editor input[type="number"] {
+            padding: 10px 14px;
+            border: 2px solid #1a237e;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            width: 160px;
+            font-family: 'Consolas', monospace;
+        }
+        .precio-editor input[type="number"]:focus {
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(26,35,126,0.2);
+        }
+        .precio-editor .editor-actions {
+            display: flex;
+            gap: 8px;
+            margin-left: auto;
+        }
+        .precio-actual {
+            font-size: 14px;
+            color: #666;
+            font-family: 'Consolas', monospace;
+        }
+
+        /* Toast notification */
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            background: #2e7d32;
+            color: white;
+            padding: 14px 24px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            z-index: 9999;
+            transform: translateY(100px);
+            opacity: 0;
+            transition: all 0.3s ease;
+        }
+        .toast.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+        .toast.error { background: #c62828; }
+
+        /* Responsive */
+        @media (max-width: 600px) {
+            .header h1 { font-size: 18px; }
+            .card .value { font-size: 22px; }
+            .config-row input { min-width: 160px; }
+            td, th { padding: 8px 10px; font-size: 13px; }
+            .tab { padding: 12px 16px; font-size: 14px; }
+            .precios-search input { min-width: 180px; }
+            .precio-editor { flex-direction: column; align-items: stretch; }
+            .precio-editor .editor-actions { margin-left: 0; justify-content: flex-end; }
+            .precio-editor input[type="number"] { width: 100%; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Header -->
+    <div class="header">
+        <h1>Tu Local 2025 - Dashboard</h1>
+        <div class="status">
+            <span class="dot" id="statusDot"></span>
+            <span id="statusText">Conectando...</span>
+        </div>
+    </div>
+
+    <!-- Config Firebase (shown initially) -->
+    <div class="config-panel" id="configPanel">
+        <h2>Configurar conexion Firebase</h2>
+        <p style="font-size:13px; color:#666; margin-bottom:12px;">
+            Ingresa las credenciales de Firebase (las mismas que usa la app en Configuracion > Sincronizacion).
+        </p>
+        <div class="config-row">
+            <div>
+                <label>URL de la Base de Datos</label>
+                <input type="text" id="cfgUrl" placeholder="https://tu-proyecto.firebaseio.com" style="min-width:350px;">
+            </div>
+            <div>
+                <label>Token de autenticacion</label>
+                <input type="password" id="cfgToken" placeholder="Token secreto de Firebase">
+            </div>
+            <button class="btn btn-primary" onclick="conectar()">Conectar</button>
+        </div>
+        <p id="cfgError" style="color:#c62828; font-size:13px; margin-top:8px;" class="hidden"></p>
+    </div>
+
+    <!-- Dashboard (hidden until connected) -->
+    <div id="dashboard" class="hidden">
+
+        <!-- Tabs -->
+        <div class="tabs">
+            <div class="tab active" onclick="cambiarTab('ventas')" id="tabVentas">Ventas</div>
+            <div class="tab" onclick="cambiarTab('precios')" id="tabPrecios">Precios</div>
+        </div>
+
+        <!-- ==================== TAB VENTAS ==================== -->
+        <div id="tabContentVentas">
+            <!-- Filters -->
+            <div class="filters" style="margin-top:16px;">
+                <label>Fecha:</label>
+                <input type="date" id="filterDate">
+                <label>Sucursal:</label>
+                <select id="filterSuc">
+                    <option value="">Todas</option>
+                </select>
+                <button class="btn btn-outline btn-sm" onclick="cargarDatos()">Actualizar</button>
+                <label style="margin-left: auto;">
+                    <input type="checkbox" id="autoRefresh" checked>
+                    Auto-refresh (30s)
+                </label>
+            </div>
+
+            <!-- Cards -->
+            <div class="cards" id="cardsContainer">
+                <div class="card total">
+                    <div class="label">Total del dia</div>
+                    <div class="value" id="totalDia">$0.00</div>
+                    <div class="sub" id="totalCantidad">0 ventas</div>
+                </div>
+                <div class="card efectivo">
+                    <div class="label">Efectivo</div>
+                    <div class="value" id="totalEfectivo">$0.00</div>
+                    <div class="sub" id="cantEfectivo">0 ventas</div>
+                </div>
+                <div class="card tarjeta">
+                    <div class="label">Tarjeta</div>
+                    <div class="value" id="totalTarjeta">$0.00</div>
+                    <div class="sub" id="cantTarjeta">0 ventas</div>
+                </div>
+                <div class="card cantidad">
+                    <div class="label">Cantidad de ventas</div>
+                    <div class="value" id="cantTotal">0</div>
+                    <div class="sub" id="cantConCAE">0 con CAE</div>
+                </div>
+            </div>
+
+            <!-- Cards por sucursal -->
+            <div class="cards" id="sucursalCards"></div>
+
+            <!-- Table -->
+            <div class="table-container">
+                <h3>Detalle de ventas</h3>
+                <div id="tableLoading" class="loading hidden">
+                    <div class="spinner"></div>
+                    <div>Cargando ventas...</div>
+                </div>
+                <table id="ventasTable" class="hidden">
+                    <thead>
+                        <tr>
+                            <th>Ticket</th>
+                            <th>Hora</th>
+                            <th>Sucursal</th>
+                            <th>Total</th>
+                            <th>Pago</th>
+                            <th>Cuotas</th>
+                            <th>CAE</th>
+                            <th>Items</th>
+                        </tr>
+                    </thead>
+                    <tbody id="ventasBody"></tbody>
+                </table>
+                <div id="noData" class="no-data hidden">No hay ventas para la fecha seleccionada.</div>
+            </div>
+        </div>
+
+        <!-- ==================== TAB PRECIOS ==================== -->
+        <div id="tabContentPrecios" class="hidden">
+            <!-- Search bar -->
+            <div class="precios-search">
+                <input type="text" id="preciosBuscar" placeholder="Buscar por codigo o nombre de producto..."
+                       onkeydown="if(event.key==='Enter')buscarProductos()">
+                <button class="btn btn-primary" onclick="buscarProductos()">Buscar</button>
+                <button class="btn btn-outline btn-sm" onclick="recargarProductos()">Recargar productos</button>
+            </div>
+
+            <!-- Loading productos -->
+            <div id="preciosLoading" class="loading hidden">
+                <div class="spinner"></div>
+                <div>Cargando productos desde Firebase...</div>
+            </div>
+
+            <!-- Info -->
+            <div class="precios-count" id="preciosCount"></div>
+
+            <!-- Editor inline -->
+            <div id="precioEditor" class="precio-editor hidden">
+                <div class="editor-title" id="editorTitle">Editando producto</div>
+                <div class="editor-field">
+                    <label>Precio actual:</label>
+                    <span class="precio-actual" id="editorPrecioActual">$0.00</span>
+                </div>
+                <div class="editor-field">
+                    <label>Nuevo precio: $</label>
+                    <input type="number" id="editorNuevoPrecio" min="0" step="0.01"
+                           onkeydown="if(event.key==='Enter')guardarPrecio()">
+                </div>
+                <div class="editor-actions">
+                    <button class="btn btn-outline btn-sm" onclick="cancelarEdicion()">Cancelar</button>
+                    <button class="btn btn-success" onclick="guardarPrecio()">Guardar</button>
+                </div>
+            </div>
+
+            <!-- Table productos -->
+            <div class="table-container">
+                <table id="productosTable" class="hidden">
+                    <thead>
+                        <tr>
+                            <th>Codigo</th>
+                            <th>Nombre</th>
+                            <th>Categoria</th>
+                            <th>Precio</th>
+                            <th>Accion</th>
+                        </tr>
+                    </thead>
+                    <tbody id="productosBody"></tbody>
+                </table>
+                <div id="noProductos" class="no-data">Busca un producto por codigo o nombre para ver resultados.</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast notification -->
+    <div class="toast" id="toast"></div>
+
+    <div class="footer">
+        Tu Local 2025 - Dashboard v2.0
+    </div>
+
+    <script>
+    // ==================== Estado ====================
+    let FB_URL = '';
+    let FB_TOKEN = '';
+    let refreshInterval = null;
+    let ventasCache = [];
+
+    // Productos
+    let productosCache = {};      // Map codigo_barra -> {nombre, precio, categoria, ...}
+    let productosCargados = false;
+    let editandoCodigo = null;     // codigo_barra del producto en edicion
+
+    // ==================== Persistencia en localStorage ====================
+    function guardarCredenciales() {
+        try {
+            localStorage.setItem('fb_dashboard_url', FB_URL);
+            localStorage.setItem('fb_dashboard_token', FB_TOKEN);
+        } catch(e) {}
+    }
+    function cargarCredenciales() {
+        try {
+            const url = localStorage.getItem('fb_dashboard_url');
+            const token = localStorage.getItem('fb_dashboard_token');
+            if (url && token) {
+                document.getElementById('cfgUrl').value = url;
+                document.getElementById('cfgToken').value = token;
+                return true;
+            }
+        } catch(e) {}
+        return false;
+    }
+
+    // ==================== Tabs ====================
+    function cambiarTab(tab) {
+        // Update tab buttons
+        document.getElementById('tabVentas').classList.toggle('active', tab === 'ventas');
+        document.getElementById('tabPrecios').classList.toggle('active', tab === 'precios');
+
+        // Show/hide content
+        document.getElementById('tabContentVentas').classList.toggle('hidden', tab !== 'ventas');
+        document.getElementById('tabContentPrecios').classList.toggle('hidden', tab !== 'precios');
+
+        // Lazy-load productos on first visit
+        if (tab === 'precios' && !productosCargados) {
+            cargarProductos();
+        }
+    }
+
+    // ==================== Conexion ====================
+    async function conectar() {
+        const url = document.getElementById('cfgUrl').value.trim().replace(/\/+$/, '');
+        const token = document.getElementById('cfgToken').value.trim();
+        const errEl = document.getElementById('cfgError');
+
+        if (!url || !token) {
+            errEl.textContent = 'Completa ambos campos.';
+            errEl.classList.remove('hidden');
+            return;
+        }
+
+        errEl.classList.add('hidden');
+
+        // Test de conexion
+        try {
+            const resp = await fetch(`${url}/cambios/ventas.json?auth=${token}&shallow=true&limitToFirst=1`);
+            if (!resp.ok) {
+                const t = await resp.text();
+                throw new Error(`HTTP ${resp.status}: ${t}`);
+            }
+            // Conexion OK
+            FB_URL = url;
+            FB_TOKEN = token;
+            guardarCredenciales();
+
+            document.getElementById('configPanel').classList.add('hidden');
+            document.getElementById('dashboard').classList.remove('hidden');
+            actualizarStatus('Conectado', true);
+
+            // Setear fecha de hoy
+            document.getElementById('filterDate').value = hoy();
+
+            // Descubrir sucursales y cargar datos
+            await cargarDatos();
+            iniciarAutoRefresh();
+
+        } catch(e) {
+            errEl.textContent = `Error de conexion: ${e.message}`;
+            errEl.classList.remove('hidden');
+            actualizarStatus('Error', false);
+        }
+    }
+
+    // ==================== Firebase REST ====================
+    async function firebaseGet(path, params = '') {
+        const url = `${FB_URL}/${path}.json?auth=${FB_TOKEN}${params}`;
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        return await resp.json();
+    }
+
+    async function firebasePost(path, data) {
+        const url = `${FB_URL}/${path}.json?auth=${FB_TOKEN}`;
+        const resp = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        return await resp.json();
+    }
+
+    // ==================== Cargar datos (Ventas) ====================
+    async function cargarDatos() {
+        const fecha = document.getElementById('filterDate').value;
+        const sucFiltro = document.getElementById('filterSuc').value;
+
+        document.getElementById('tableLoading').classList.remove('hidden');
+        document.getElementById('ventasTable').classList.add('hidden');
+        document.getElementById('noData').classList.add('hidden');
+
+        try {
+            // Obtener TODAS las ventas de Firebase
+            const data = await firebaseGet('cambios/ventas');
+            actualizarStatus('Conectado', true);
+
+            if (!data) {
+                mostrarVacio();
+                return;
+            }
+
+            // Parsear y filtrar
+            let ventas = [];
+            for (const [key, entry] of Object.entries(data)) {
+                if (!entry || !entry.data) continue;
+                if (entry.accion !== 'create') continue;
+
+                const v = entry.data;
+                const vFecha = (v.fecha || '').substring(0, 10);
+
+                // Filtro por fecha
+                if (fecha && vFecha !== fecha) continue;
+
+                // Filtro por sucursal
+                if (sucFiltro && v.sucursal !== sucFiltro) continue;
+
+                ventas.push({
+                    key: key,
+                    ticket: v.numero_ticket || '-',
+                    fecha: v.fecha || '',
+                    sucursal: v.sucursal || '',
+                    total: parseFloat(v.total || 0),
+                    modo_pago: v.modo_pago || 'Efectivo',
+                    cuotas: parseInt(v.cuotas || 0),
+                    cae: v.afip_cae || '',
+                    items: v.items || [],
+                    pagado: parseFloat(v.pagado || 0),
+                    vuelto: parseFloat(v.vuelto || 0),
+                    interes: parseFloat(v.interes_monto || 0),
+                    descuento: parseFloat(v.descuento_monto || 0),
+                    timestamp: entry.timestamp || 0
+                });
+            }
+
+            // Ordenar por timestamp (mas reciente primero)
+            ventas.sort((a, b) => b.timestamp - a.timestamp);
+            ventasCache = ventas;
+
+            // Descubrir sucursales
+            actualizarSucursales(ventas);
+
+            // Actualizar UI
+            actualizarCards(ventas);
+            actualizarTabla(ventas);
+
+        } catch(e) {
+            console.error('Error cargando datos:', e);
+            actualizarStatus('Error: ' + e.message, false);
+        }
+    }
+
+    // ==================== UI Updates (Ventas) ====================
+    function actualizarCards(ventas) {
+        let totalDia = 0, totalEfectivo = 0, totalTarjeta = 0;
+        let cantEf = 0, cantTar = 0, cantCAE = 0;
+        const porSucursal = {};
+
+        for (const v of ventas) {
+            totalDia += v.total;
+            const esTarjeta = v.modo_pago.toLowerCase().startsWith('tarj');
+            if (esTarjeta) {
+                totalTarjeta += v.total;
+                cantTar++;
+            } else {
+                totalEfectivo += v.total;
+                cantEf++;
+            }
+            if (v.cae) cantCAE++;
+
+            // Por sucursal
+            const suc = v.sucursal || '(sin sucursal)';
+            if (!porSucursal[suc]) {
+                porSucursal[suc] = { total: 0, efectivo: 0, tarjeta: 0, cantidad: 0, cae: 0 };
+            }
+            porSucursal[suc].total += v.total;
+            porSucursal[suc].cantidad++;
+            if (esTarjeta) porSucursal[suc].tarjeta += v.total;
+            else porSucursal[suc].efectivo += v.total;
+            if (v.cae) porSucursal[suc].cae++;
+        }
+
+        document.getElementById('totalDia').textContent = `$${totalDia.toFixed(2)}`;
+        document.getElementById('totalCantidad').textContent = `${ventas.length} ventas`;
+        document.getElementById('totalEfectivo').textContent = `$${totalEfectivo.toFixed(2)}`;
+        document.getElementById('cantEfectivo').textContent = `${cantEf} ventas`;
+        document.getElementById('totalTarjeta').textContent = `$${totalTarjeta.toFixed(2)}`;
+        document.getElementById('cantTarjeta').textContent = `${cantTar} ventas`;
+        document.getElementById('cantTotal').textContent = ventas.length;
+        document.getElementById('cantConCAE').textContent = `${cantCAE} con CAE`;
+
+        // Cards por sucursal
+        const container = document.getElementById('sucursalCards');
+        container.innerHTML = '';
+        const sucClasses = ['sarmiento', 'salta'];
+        let i = 0;
+        for (const [suc, datos] of Object.entries(porSucursal)) {
+            const cls = sucClasses[i % sucClasses.length];
+            container.innerHTML += `
+                <div class="card ${cls}">
+                    <div class="label">${suc}</div>
+                    <div class="value">$${datos.total.toFixed(2)}</div>
+                    <div class="sub">${datos.cantidad} ventas | Ef: $${datos.efectivo.toFixed(2)} | Tar: $${datos.tarjeta.toFixed(2)}</div>
+                </div>
+            `;
+            i++;
+        }
+    }
+
+    function actualizarTabla(ventas) {
+        const body = document.getElementById('ventasBody');
+        const table = document.getElementById('ventasTable');
+        const loading = document.getElementById('tableLoading');
+        const noData = document.getElementById('noData');
+
+        loading.classList.add('hidden');
+
+        if (ventas.length === 0) {
+            table.classList.add('hidden');
+            noData.classList.remove('hidden');
+            return;
+        }
+
+        table.classList.remove('hidden');
+        noData.classList.add('hidden');
+
+        body.innerHTML = '';
+        for (const v of ventas) {
+            const hora = v.fecha ? v.fecha.substring(11, 16) : '-';
+            const sucClass = v.sucursal.toLowerCase().includes('sarmiento') ? 'suc-sarmiento' : 'suc-salta';
+            const pagoClass = v.modo_pago.toLowerCase().startsWith('tarj') ? 'pago-tarjeta' : 'pago-efectivo';
+            const itemsCount = Array.isArray(v.items) ? v.items.length : 0;
+            const itemsTooltip = Array.isArray(v.items)
+                ? v.items.map(it => `${it.cantidad}x ${it.nombre} ($${parseFloat(it.precio_unit||0).toFixed(2)})`).join('\n')
+                : '';
+
+            body.innerHTML += `
+                <tr>
+                    <td><strong>#${v.ticket}</strong></td>
+                    <td>${hora}</td>
+                    <td class="${sucClass}">${v.sucursal}</td>
+                    <td class="monto">$${v.total.toFixed(2)}</td>
+                    <td class="${pagoClass}">${v.modo_pago}${v.cuotas > 1 ? ` (${v.cuotas}c)` : ''}</td>
+                    <td>${v.cuotas || '-'}</td>
+                    <td>${v.cae ? '&#10004;' : '-'}</td>
+                    <td title="${itemsTooltip.replace(/"/g, '&quot;')}">${itemsCount} items</td>
+                </tr>
+            `;
+        }
+    }
+
+    function mostrarVacio() {
+        document.getElementById('tableLoading').classList.add('hidden');
+        document.getElementById('ventasTable').classList.add('hidden');
+        document.getElementById('noData').classList.remove('hidden');
+        actualizarCards([]);
+    }
+
+    function actualizarSucursales(ventas) {
+        const select = document.getElementById('filterSuc');
+        const current = select.value;
+        const sucursales = new Set();
+        for (const v of ventas) {
+            if (v.sucursal) sucursales.add(v.sucursal);
+        }
+
+        // Mantener opciones existentes y agregar nuevas
+        const existentes = new Set();
+        for (const opt of select.options) existentes.add(opt.value);
+
+        for (const suc of sucursales) {
+            if (!existentes.has(suc)) {
+                const opt = document.createElement('option');
+                opt.value = suc;
+                opt.textContent = suc;
+                select.appendChild(opt);
+            }
+        }
+        select.value = current;
+    }
+
+    function actualizarStatus(text, ok) {
+        document.getElementById('statusText').textContent = text;
+        const dot = document.getElementById('statusDot');
+        dot.style.background = ok ? '#4caf50' : '#f44336';
+        dot.style.animation = ok ? 'pulse 2s infinite' : 'none';
+    }
+
+    // ==================== Auto Refresh ====================
+    function iniciarAutoRefresh() {
+        if (refreshInterval) clearInterval(refreshInterval);
+        refreshInterval = setInterval(() => {
+            if (document.getElementById('autoRefresh').checked) {
+                cargarDatos();
+            }
+        }, 30000);
+    }
+
+    // ==================== PRECIOS: Cargar productos ====================
+    async function cargarProductos() {
+        document.getElementById('preciosLoading').classList.remove('hidden');
+        document.getElementById('productosTable').classList.add('hidden');
+        document.getElementById('noProductos').classList.add('hidden');
+        document.getElementById('preciosCount').textContent = '';
+
+        try {
+            const data = await firebaseGet('cambios/productos');
+            actualizarStatus('Conectado', true);
+
+            productosCache = {};
+
+            if (data) {
+                // Reconstruir estado actual: para cada codigo, quedarse con el de mayor timestamp
+                for (const [key, entry] of Object.entries(data)) {
+                    if (!entry || !entry.data) continue;
+                    const codigo = entry.data.codigo_barra;
+                    if (!codigo) continue;
+
+                    const ts = entry.timestamp || 0;
+                    const existing = productosCache[codigo];
+
+                    if (!existing || ts > existing._timestamp) {
+                        if (entry.accion === 'delete') {
+                            // Producto eliminado: remover del cache
+                            delete productosCache[codigo];
+                        } else {
+                            productosCache[codigo] = {
+                                codigo_barra: codigo,
+                                nombre: entry.data.nombre || '',
+                                precio: parseFloat(entry.data.precio || 0),
+                                categoria: entry.data.categoria || '',
+                                telefono: entry.data.telefono || null,
+                                numero_cuenta: entry.data.numero_cuenta || null,
+                                cbu: entry.data.cbu || null,
+                                _timestamp: ts
+                            };
+                        }
+                    }
+                }
+            }
+
+            productosCargados = true;
+            const total = Object.keys(productosCache).length;
+            document.getElementById('preciosLoading').classList.add('hidden');
+            document.getElementById('preciosCount').textContent =
+                `${total} productos cargados. Busca por codigo o nombre.`;
+            document.getElementById('noProductos').classList.remove('hidden');
+            document.getElementById('noProductos').textContent =
+                'Busca un producto por codigo o nombre para ver resultados.';
+
+            mostrarToast(`${total} productos cargados`);
+
+        } catch(e) {
+            console.error('Error cargando productos:', e);
+            document.getElementById('preciosLoading').classList.add('hidden');
+            document.getElementById('noProductos').classList.remove('hidden');
+            document.getElementById('noProductos').textContent = 'Error al cargar productos: ' + e.message;
+            mostrarToast('Error al cargar productos', true);
+        }
+    }
+
+    async function recargarProductos() {
+        productosCargados = false;
+        await cargarProductos();
+    }
+
+    // ==================== PRECIOS: Buscar ====================
+    function buscarProductos() {
+        const texto = document.getElementById('preciosBuscar').value.trim().toLowerCase();
+
+        if (!productosCargados) {
+            mostrarToast('Espera a que se carguen los productos', true);
+            return;
+        }
+
+        if (!texto) {
+            // Mostrar todos (hasta 200)
+            const todos = Object.values(productosCache);
+            todos.sort((a, b) => a.nombre.localeCompare(b.nombre));
+            mostrarProductos(todos.slice(0, 200));
+            document.getElementById('preciosCount').textContent =
+                `Mostrando ${Math.min(todos.length, 200)} de ${todos.length} productos.`;
+            return;
+        }
+
+        // Filtrar por codigo o nombre
+        const resultados = [];
+        for (const prod of Object.values(productosCache)) {
+            if (prod.codigo_barra.toLowerCase().includes(texto) ||
+                prod.nombre.toLowerCase().includes(texto)) {
+                resultados.push(prod);
+            }
+        }
+
+        resultados.sort((a, b) => a.nombre.localeCompare(b.nombre));
+        document.getElementById('preciosCount').textContent =
+            `${resultados.length} producto(s) encontrado(s).`;
+        mostrarProductos(resultados.slice(0, 200));
+    }
+
+    // ==================== PRECIOS: Mostrar tabla ====================
+    function mostrarProductos(productos) {
+        const body = document.getElementById('productosBody');
+        const table = document.getElementById('productosTable');
+        const noData = document.getElementById('noProductos');
+
+        if (productos.length === 0) {
+            table.classList.add('hidden');
+            noData.classList.remove('hidden');
+            noData.textContent = 'No se encontraron productos.';
+            return;
+        }
+
+        table.classList.remove('hidden');
+        noData.classList.add('hidden');
+
+        body.innerHTML = '';
+        for (const p of productos) {
+            const escapedCodigo = p.codigo_barra.replace(/'/g, "\\'");
+            body.innerHTML += `
+                <tr id="row-${p.codigo_barra}">
+                    <td><strong>${esc(p.codigo_barra)}</strong></td>
+                    <td>${esc(p.nombre)}</td>
+                    <td>${esc(p.categoria)}</td>
+                    <td class="monto">$${p.precio.toFixed(2)}</td>
+                    <td>
+                        <button class="btn-edit" onclick="editarPrecio('${escapedCodigo}')"
+                                title="Editar precio">&#9998;</button>
+                    </td>
+                </tr>
+            `;
+        }
+    }
+
+    // ==================== PRECIOS: Editar ====================
+    function editarPrecio(codigo) {
+        const prod = productosCache[codigo];
+        if (!prod) return;
+
+        editandoCodigo = codigo;
+        const editor = document.getElementById('precioEditor');
+        document.getElementById('editorTitle').textContent =
+            `Editando: ${prod.nombre} (${prod.codigo_barra})`;
+        document.getElementById('editorPrecioActual').textContent =
+            `$${prod.precio.toFixed(2)}`;
+
+        const input = document.getElementById('editorNuevoPrecio');
+        input.value = prod.precio.toFixed(2);
+        editor.classList.remove('hidden');
+
+        // Scroll to editor and focus
+        editor.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setTimeout(() => { input.focus(); input.select(); }, 200);
+
+        // Highlight the row
+        document.querySelectorAll('#productosBody tr').forEach(tr => {
+            tr.style.background = '';
+        });
+        const row = document.getElementById(`row-${codigo}`);
+        if (row) row.style.background = '#e8eaf6';
+    }
+
+    function cancelarEdicion() {
+        editandoCodigo = null;
+        document.getElementById('precioEditor').classList.add('hidden');
+        document.querySelectorAll('#productosBody tr').forEach(tr => {
+            tr.style.background = '';
+        });
+    }
+
+    async function guardarPrecio() {
+        if (!editandoCodigo) return;
+
+        const prod = productosCache[editandoCodigo];
+        if (!prod) return;
+
+        const nuevoPrecio = parseFloat(document.getElementById('editorNuevoPrecio').value);
+        if (isNaN(nuevoPrecio) || nuevoPrecio < 0) {
+            mostrarToast('Ingresa un precio valido', true);
+            return;
+        }
+
+        if (Math.abs(nuevoPrecio - prod.precio) < 0.01) {
+            mostrarToast('El precio no cambio');
+            cancelarEdicion();
+            return;
+        }
+
+        // Confirmar
+        const precioAnterior = prod.precio;
+        const diff = nuevoPrecio - precioAnterior;
+        const diffStr = diff > 0 ? `+$${diff.toFixed(2)}` : `-$${Math.abs(diff).toFixed(2)}`;
+
+        if (!confirm(`Cambiar precio de "${prod.nombre}":\n\nAnterior: $${precioAnterior.toFixed(2)}\nNuevo: $${nuevoPrecio.toFixed(2)} (${diffStr})\n\nEsto se sincronizara con todas las sucursales.`)) {
+            return;
+        }
+
+        try {
+            // POST to Firebase (same format as push_producto in firebase_sync.py)
+            const data = {
+                sucursal_origen: "Dashboard Web",
+                timestamp: Date.now(),
+                accion: "upsert",
+                data: {
+                    codigo_barra: prod.codigo_barra,
+                    nombre: prod.nombre,
+                    precio: nuevoPrecio,
+                    categoria: prod.categoria || null,
+                    telefono: prod.telefono || null,
+                    numero_cuenta: prod.numero_cuenta || null,
+                    cbu: prod.cbu || null
+                }
+            };
+
+            await firebasePost('cambios/productos', data);
+
+            // Update local cache
+            prod.precio = nuevoPrecio;
+            prod._timestamp = Date.now();
+
+            // Update table row
+            const row = document.getElementById(`row-${editandoCodigo}`);
+            if (row) {
+                const tds = row.querySelectorAll('td');
+                if (tds[3]) tds[3].innerHTML = `$${nuevoPrecio.toFixed(2)}`;
+            }
+
+            mostrarToast(`Precio de "${prod.nombre}" actualizado a $${nuevoPrecio.toFixed(2)}`);
+            cancelarEdicion();
+
+        } catch(e) {
+            console.error('Error guardando precio:', e);
+            mostrarToast('Error al guardar: ' + e.message, true);
+        }
+    }
+
+    // ==================== Toast ====================
+    function mostrarToast(msg, isError = false) {
+        const toast = document.getElementById('toast');
+        toast.textContent = msg;
+        toast.className = 'toast' + (isError ? ' error' : '');
+        // Trigger reflow for animation
+        toast.offsetHeight;
+        toast.classList.add('show');
+        setTimeout(() => { toast.classList.remove('show'); }, 3000);
+    }
+
+    // ==================== Utilidades ====================
+    function hoy() {
+        const d = new Date();
+        return d.getFullYear() + '-' +
+            String(d.getMonth() + 1).padStart(2, '0') + '-' +
+            String(d.getDate()).padStart(2, '0');
+    }
+
+    function esc(str) {
+        if (!str) return '';
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+
+    // ==================== Eventos ====================
+    document.getElementById('filterDate').addEventListener('change', cargarDatos);
+    document.getElementById('filterSuc').addEventListener('change', cargarDatos);
+
+    // ==================== Init ====================
+    window.addEventListener('DOMContentLoaded', () => {
+        document.getElementById('filterDate').value = hoy();
+        // Intentar auto-conectar con credenciales guardadas
+        if (cargarCredenciales()) {
+            conectar();
+        }
+    });
+    </script>
+</body>
+</html>
