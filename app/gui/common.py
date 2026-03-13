@@ -140,11 +140,6 @@ QPushButton[role="success"]:hover {
     background-color: #1b5e20;
 }
 
-/* Hover genérico para botones sin role */
-QPushButton:hover {
-    background-color: rgba(0, 0, 0, 0.05);
-}
-
 /* Botón inline (pequeño, para dentro de formularios) */
 QPushButton[role="inline"] {
     border: 1px solid rgba(120,120,140,0.3);
@@ -152,7 +147,5 @@ QPushButton[role="inline"] {
     padding: 2px 8px;
     background: transparent;
 }
-QPushButton[role="inline"]:hover {
-    background: #e3f2fd;
-}
+/* hover inline se maneja desde _apply_theme_stylesheet() con colores de config */
 """

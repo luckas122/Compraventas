@@ -1150,7 +1150,16 @@ class PagoTarjetaDialog(QDialog):
         self.cmb_tipo_cbte.addItem("Factura B - Consumidor Final", "FACTURA_B")
         self.cmb_tipo_cbte.addItem("Factura C - Sin IVA discriminado", "FACTURA_C")
         self.cmb_tipo_cbte.addItem("Ticket Factura B", "TICKET_B")
-        self.cmb_tipo_cbte.setCurrentIndex(0)
+        # Leer default de config (fiscal.tipo_cbte)
+        from app.config import load as _load_cfg
+        _fiscal_cfg = _load_cfg().get("fiscal", {})
+        _tipo_default = (_fiscal_cfg.get("tipo_cbte", "FACTURA_B") or "FACTURA_B").strip()
+        _idx_default = 1  # fallback Factura B
+        for _i in range(self.cmb_tipo_cbte.count()):
+            if self.cmb_tipo_cbte.itemData(_i) == _tipo_default:
+                _idx_default = _i
+                break
+        self.cmb_tipo_cbte.setCurrentIndex(_idx_default)
         self.cmb_tipo_cbte.currentIndexChanged.connect(self._on_tipo_cbte_changed)
         form.addRow("Tipo de comprobante:", self.cmb_tipo_cbte)
 
@@ -1159,7 +1168,6 @@ class PagoTarjetaDialog(QDialog):
         self.edt_cuit = QLineEdit()
         self.edt_cuit.setPlaceholderText("Ej: 20123456789 (solo números)")
         self.edt_cuit.setMaxLength(11)
-        from app.config import load as _load_cfg
         _cuit_default = (_load_cfg().get("fiscal", {}).get("cuit_predefinido", "20000000001") or "").strip()
         self.edt_cuit.setText(_cuit_default)
 
@@ -1431,7 +1439,16 @@ class PagoEfectivoDialog(QDialog):
         self.cmb_tipo_cbte.addItem("Factura B - Consumidor Final", "FACTURA_B")
         self.cmb_tipo_cbte.addItem("Factura C - Sin IVA discriminado", "FACTURA_C")
         self.cmb_tipo_cbte.addItem("Ticket Factura B", "TICKET_B")
-        self.cmb_tipo_cbte.setCurrentIndex(1)  # Por defecto Factura B para efectivo
+        # Leer default de config (fiscal.tipo_cbte)
+        from app.config import load as _load_cfg2
+        _fiscal_cfg2 = _load_cfg2().get("fiscal", {})
+        _tipo_default2 = (_fiscal_cfg2.get("tipo_cbte", "FACTURA_B") or "FACTURA_B").strip()
+        _idx_default2 = 1  # fallback Factura B
+        for _i in range(self.cmb_tipo_cbte.count()):
+            if self.cmb_tipo_cbte.itemData(_i) == _tipo_default2:
+                _idx_default2 = _i
+                break
+        self.cmb_tipo_cbte.setCurrentIndex(_idx_default2)
         self.cmb_tipo_cbte.currentIndexChanged.connect(self._on_tipo_cbte_changed)
         afip_layout.addRow("Tipo de comprobante:", self.cmb_tipo_cbte)
 
@@ -1440,8 +1457,7 @@ class PagoEfectivoDialog(QDialog):
         self.edt_cuit = QLineEdit()
         self.edt_cuit.setPlaceholderText("Ej: 20123456789 (solo números)")
         self.edt_cuit.setMaxLength(11)
-        from app.config import load as _load_cfg2
-        _cuit_default2 = (_load_cfg2().get("fiscal", {}).get("cuit_predefinido", "20000000001") or "").strip()
+        _cuit_default2 = (_fiscal_cfg2.get("cuit_predefinido", "20000000001") or "").strip()
         self.edt_cuit.setText(_cuit_default2)
 
         from PyQt5.QtGui import QRegExpValidator
@@ -1745,3 +1761,101 @@ class PagoProveedorDialog(QDialog):
 
     def get_datos(self):
         return self._result
+
+
+# ───────────────────────────────────────────────
+# Función compartida: agregar producto rápido
+# ───────────────────────────────────────────────
+
+def agregar_producto_rapido_dialog(session, parent, term="",
+                                   sync_push_fn=None,
+                                   completer_refresh_fn=None):
+    """Diálogo para agregar un producto nuevo al vuelo.
+
+    Usado desde Ventas y Productos.
+    Retorna el Producto creado, uno existente, o None si cancela.
+    """
+    from PyQt5.QtWidgets import (QDialog, QFormLayout, QLineEdit,
+                                 QDoubleSpinBox, QPushButton, QHBoxLayout,
+                                 QVBoxLayout, QMessageBox as _QMB)
+    from app.models import Producto
+
+    dlg = QDialog(parent)
+    dlg.setWindowTitle("Agregar producto nuevo")
+    dlg.setMinimumWidth(380)
+    lay = QVBoxLayout(dlg)
+
+    form = QFormLayout()
+    edt_codigo = QLineEdit(term if term.replace("-", "").isdigit() else "")
+    edt_codigo.setPlaceholderText("Codigo de barras")
+    edt_nombre = QLineEdit("" if term.replace("-", "").isdigit() else term.upper())
+    edt_nombre.setPlaceholderText("Nombre del producto")
+    spin_precio = QDoubleSpinBox()
+    spin_precio.setRange(0, 99999999)
+    spin_precio.setDecimals(2)
+    spin_precio.setPrefix("$ ")
+    spin_precio.setValue(0)
+    edt_categoria = QLineEdit()
+    edt_categoria.setPlaceholderText("(Opcional)")
+
+    form.addRow("Codigo:", edt_codigo)
+    form.addRow("Nombre:", edt_nombre)
+    form.addRow("Precio:", spin_precio)
+    form.addRow("Categoria:", edt_categoria)
+    lay.addLayout(form)
+
+    btns = QHBoxLayout()
+    btn_cancel = QPushButton("Cancelar")
+    btn_cancel.setAutoDefault(False)
+    btn_ok = QPushButton("Guardar")
+    btn_ok.setDefault(True)
+    btn_ok.setAutoDefault(True)
+    btn_ok.setStyleSheet("font-weight:bold;")
+    btns.addWidget(btn_cancel)
+    btns.addWidget(btn_ok)
+    lay.addLayout(btns)
+
+    btn_cancel.clicked.connect(dlg.reject)
+    btn_ok.clicked.connect(dlg.accept)
+
+    if edt_codigo.text():
+        edt_nombre.setFocus()
+    else:
+        edt_codigo.setFocus()
+
+    if dlg.exec_() != QDialog.Accepted:
+        return None
+
+    codigo = edt_codigo.text().strip()
+    nombre = edt_nombre.text().strip().upper()
+    precio = spin_precio.value()
+    categoria = edt_categoria.text().strip().upper() or None
+
+    if not codigo or not nombre:
+        _QMB.warning(parent, "Datos incompletos", "Codigo y nombre son obligatorios.")
+        return None
+    if precio <= 0:
+        _QMB.warning(parent, "Precio invalido", "El precio debe ser mayor a 0.")
+        return None
+
+    from app.repository import prod_repo
+    repo = prod_repo(session)
+    existe = repo.buscar_por_codigo(codigo)
+    if existe:
+        _QMB.information(parent, "Ya existe",
+            f'Producto con codigo "{codigo}" ya existe:\n{existe.nombre} - ${existe.precio:.2f}')
+        return existe
+
+    try:
+        nuevo = Producto(codigo_barra=codigo, nombre=nombre, precio=precio, categoria=categoria)
+        session.add(nuevo)
+        session.commit()
+        if sync_push_fn:
+            sync_push_fn("producto", nuevo)
+        if completer_refresh_fn:
+            completer_refresh_fn()
+        return nuevo
+    except Exception as e:
+        session.rollback()
+        _QMB.critical(parent, "Error", f"No se pudo crear el producto:\n{e}")
+        return None

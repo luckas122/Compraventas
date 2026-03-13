@@ -60,6 +60,7 @@ class ShortcutManager(QObject):
         self._global_map = dict(sc.get("global", {}))
         self._section_map = dict(sc.get("section", {}))
         self._section_mode_enabled = bool(sc.get("section_mode_enabled", True))
+        self._autofocus_map = dict(sc.get("autofocus", {}))
 
         # Icono ON/OFF en StatusBar
         self._ensure_status_icon()
@@ -202,6 +203,10 @@ class ShortcutManager(QObject):
                 # Mutea global que use esta misma F-key
                 self._mute_global_key(keyseq)
 
+            # Simbolos no-alfa (!, @, #, etc.) → siempre literal
+            elif len(kt) == 1 and not kt.isalpha():
+                keyseq = kt
+
             else:
                 # Letras: Toggle ON → letra sola; Toggle OFF → Ctrl+Shift+letra
                 keyseq = kt if self._section_mode_enabled else f"Ctrl+Shift+{kt}"
@@ -241,6 +246,7 @@ class ShortcutManager(QObject):
             self._global_map = dict(sc.get("global", {}))
             self._section_map = dict(sc.get("section", {}))
             self._section_mode_enabled = bool(sc.get("section_mode_enabled", True))
+            self._autofocus_map = dict(sc.get("autofocus", {}))
         except Exception:
             pass
 
@@ -327,6 +333,9 @@ class ShortcutManager(QObject):
                 kt_stripped = (kt or "").strip()
                 if kt_stripped in ("+", "-"):
                     intercept_keys[kt_stripped] = action
+                elif len(kt_stripped) == 1 and not kt_stripped.isalpha():
+                    # Simbolos no-alfa (!, @, #, etc.)
+                    intercept_keys[kt_stripped] = action
                 elif action in ("editar_cantidad", "descuento_item", "vaciar_cesta"):
                     # Single letter keys for cart actions
                     intercept_keys[kt_stripped.lower()] = action
@@ -350,30 +359,23 @@ class ShortcutManager(QObject):
 
         - Si el modo por sección está activo, evitamos que las letras "roben"
           teclas mientras el usuario escribe en un input.
-        - PERO dejamos pasar siempre los atajos globales nav.* (F1..F6),
-          aunque el foco esté en el buscador.
-        - También permitimos ciertos atajos específicos (borradores) que son útiles
-          incluso cuando se está editando.
+        - Los atajos nav.* (F1..F6) siempre funcionan.
+        - Para atajos de sección, se revisa el flag "autofocus" en config:
+          si es True → funciona incluso con foco en input (global).
+          si es False → se bloquea cuando el foco está en un input.
+          Default (no definido en config) → autofocus=True para mantener
+          retrocompatibilidad con el comportamiento anterior.
         """
-        # Lista blanca de atajos que siempre funcionan, incluso con foco en input
-        ALWAYS_ALLOWED = [
-            "ventas.finalizar",
-            "ventas.consultar_precio",
-            "ventas.guardar_borrador",
-            "ventas.abrir_borradores",
-            "ventas.sumar",
-            "ventas.restar",
-            "ventas.editar_cantidad",
-            "ventas.descuento_item",
-            "ventas.vaciar_cesta",
-        ]
-
         try:
-            if self._section_mode_enabled and not key.startswith("nav.") and key not in ALWAYS_ALLOWED:
-                from PyQt5.QtWidgets import QLineEdit, QTextEdit, QPlainTextEdit
-                fw = QApplication.focusWidget()
-                if isinstance(fw, (QLineEdit, QTextEdit, QPlainTextEdit)):
-                    return
+            if self._section_mode_enabled and not key.startswith("nav."):
+                # Revisar autofocus: si está en config, respetar; si no, default True
+                autofocus_map = getattr(self, '_autofocus_map', {})
+                is_autofocus = autofocus_map.get(key, True)  # default True
+                if not is_autofocus:
+                    from PyQt5.QtWidgets import QLineEdit, QTextEdit, QPlainTextEdit
+                    fw = QApplication.focusWidget()
+                    if isinstance(fw, (QLineEdit, QTextEdit, QPlainTextEdit)):
+                        return
         except Exception:
             pass
 

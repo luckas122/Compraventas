@@ -240,6 +240,46 @@ class VentasTicketMixin:
 
 
 
+    def _write_ticket_image(self, venta_id, path_image):
+        """Escribe el ticket como imagen PNG (ancho 75 mm, alto dinámico, 300 DPI)."""
+        from PyQt5.QtGui import QImage, QPainter
+        from PyQt5.QtCore import QRect, Qt
+        from app.gui.ventas_helpers import _draw_ticket, _compute_ticket_height_mm
+
+        v = self.venta_repo.obtener(venta_id)
+        v._ticket_items = self._items_para_ticket(venta_id)
+        v.subtotal_base = getattr(self, "_subtotal_base", None)
+        v.interes_monto = getattr(self, "_interes_monto", None)
+        v.pagado        = getattr(self, "_ultimo_pagado", None)
+        v.vuelto        = getattr(self, "_ultimo_vuelto", None)
+
+        dpi = 300
+        width_mm = 75.0
+        # prn=None → _compute_ticket_height_mm usa 300 DPI por defecto
+        height_mm = _compute_ticket_height_mm(v, None, width_mm=width_mm)
+        height_mm += 10.0  # margen inferior
+
+        # Convertir mm a px: px = mm * dpi / 25.4
+        width_px = int(round(width_mm * dpi / 25.4))
+        height_px = int(round(height_mm * dpi / 25.4))
+
+        img = QImage(width_px, height_px, QImage.Format_RGB32)
+        img.fill(Qt.white)
+        # Establecer DPI en metadata (300 DPI = 11811.02 dots/meter)
+        dpm = int(round(dpi / 25.4 * 1000))
+        img.setDotsPerMeterX(dpm)
+        img.setDotsPerMeterY(dpm)
+
+        p = QPainter(img)
+        try:
+            _draw_ticket(p, QRect(0, 0, width_px, height_px), None,
+                        v, self.sucursal, self.direcciones, width_mm=width_mm)
+        finally:
+            p.end()
+
+        if not img.save(path_image, "PNG"):
+            raise IOError(f"No se pudo guardar la imagen en {path_image}")
+
     def exportar_ticket_pdf(self):
         """Dialogo de guardado + escritura PDF 80 mm."""
         from PyQt5.QtWidgets import QFileDialog, QMessageBox
@@ -259,53 +299,95 @@ class VentasTicketMixin:
 
     def enviar_ticket_whatsapp(self):
         """
-        Abre WhatsApp Web con un texto prellenado y abre el Explorador
-        con el PDF del ticket SELECCIONADO para arrastrarlo al chat.
+        Genera imagen PNG del ticket, opcionalmente pide teléfono, abre WhatsApp
+        y copia la imagen al portapapeles para pegar con Ctrl+V.
         """
-        import tempfile, os, webbrowser, urllib.parse, sys, subprocess
-        from PyQt5.QtWidgets import QMessageBox
+        import os, webbrowser, urllib.parse, sys, subprocess
+        from datetime import datetime
+        from PyQt5.QtWidgets import QMessageBox, QInputDialog
+        from app.config import load as _load_cfg
 
         vid = getattr(self, "_last_venta_id", None)
         if not vid:
             QMessageBox.information(self, "WhatsApp", "No hay una venta reciente.")
             return
 
-        # 1) Generar un PDF temporal (80 mm) reutilizando el writer robusto
-        fd, tmp_path = tempfile.mkstemp(prefix="ticket_", suffix=".pdf")
-        os.close(fd)
-        self._write_ticket_pdf(vid, tmp_path)         # <- genera el PDF
-        self._last_ticket_pdf_path = tmp_path         # <- guardamos por si hace falta de nuevo
+        # 1) Determinar carpeta de tickets desde config
+        cfg = _load_cfg()
+        wa_cfg = cfg.get("whatsapp", {})
+        save_dir = wa_cfg.get("ticket_save_dir") or None
+        if not save_dir:
+            appdata = os.environ.get("APPDATA", os.path.expanduser("~"))
+            save_dir = os.path.join(appdata, "CompraventasV2", "Tickets")
+        os.makedirs(save_dir, exist_ok=True)
 
-        # 2) Abrir WhatsApp Web con mensaje prellenado
-        msg = urllib.parse.quote("Te envio el ticket de tu compra. Adjuntare el PDF en el chat.")
-        webbrowser.open(f"https://web.whatsapp.com/send?text={msg}")
+        # 2) Generar imagen PNG con nombre descriptivo
+        nro = vid
+        try:
+            venta = self.venta_repo.obtener(vid)
+            if venta and getattr(venta, 'numero_ticket', None):
+                nro = venta.numero_ticket
+        except Exception:
+            pass
+        fecha_str = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"ticket_{nro}_{fecha_str}.png"
+        img_path = os.path.join(save_dir, filename)
+        self._write_ticket_image(vid, img_path)
 
-        # 3) Abrir EXPLORER seleccionando el archivo (Windows)
+        # 3) Opcionalmente pedir teléfono (según config)
+        phone = ""
+        if wa_cfg.get("pedir_telefono", True):
+            phone, ok = QInputDialog.getText(
+                self, "WhatsApp",
+                "Numero del cliente (con codigo de pais, ej: 5491112345678).\n"
+                "Dejar vacio para elegir contacto manualmente:")
+            if not ok:
+                return
+            phone = (phone or "").strip().replace(" ", "").replace("-", "").replace("+", "")
+
+        # 4) Abrir WhatsApp
+        msg = urllib.parse.quote("Te envio el ticket de tu compra. Adjuntare la imagen en el chat.")
+        if phone:
+            webbrowser.open(f"https://wa.me/{phone}?text={msg}")
+        else:
+            webbrowser.open(f"https://web.whatsapp.com/send?text={msg}")
+
+        # 5) Copiar imagen al portapapeles para pegar en WhatsApp Web con Ctrl+V
+        try:
+            from PyQt5.QtCore import QUrl, QMimeData
+            from PyQt5.QtWidgets import QApplication
+            mime = QMimeData()
+            mime.setUrls([QUrl.fromLocalFile(img_path)])
+            QApplication.clipboard().setMimeData(mime)
+            clipboard_ok = True
+        except Exception:
+            clipboard_ok = False
+
+        # 6) Abrir Explorer con el archivo seleccionado (fallback)
         try:
             if sys.platform.startswith("win"):
-                # Explorer con el archivo resaltado
-                subprocess.run(['explorer', f'/select,"{tmp_path}"'], shell=True)
+                subprocess.Popen(f'explorer /select,"{img_path}"')
+            elif sys.platform == "darwin":
+                subprocess.run(["open", "-R", img_path])
             else:
-                # Linux/Mac: abrir carpeta
-                folder = os.path.dirname(tmp_path)
-                if sys.platform == "darwin":
-                    subprocess.run(["open", folder])
-                else:
-                    subprocess.run(["xdg-open", folder])
+                subprocess.run(["xdg-open", os.path.dirname(img_path)])
         except Exception:
-            # Fallback: al menos abrir la carpeta
             try:
-                os.startfile(os.path.dirname(tmp_path))
+                os.startfile(os.path.dirname(img_path))
             except Exception:
                 pass
 
-        # (Opcional) Avisar la ruta exacta por si el usuario la quiere copiar
-        try:
+        if clipboard_ok:
             QMessageBox.information(self, "WhatsApp",
-                f"Ticket generado en:\n{tmp_path}\n\n"
-                "Se abrio el Explorador con el archivo seleccionado.")
-        except Exception:
-            pass
+                f"Ticket guardado en:\n{img_path}\n\n"
+                "La imagen se copio al portapapeles.\n"
+                "Pega con Ctrl+V en el chat de WhatsApp Web.\n\n"
+                "Tambien se abrio el Explorador por si preferis arrastrarlo.")
+        else:
+            QMessageBox.information(self, "WhatsApp",
+                f"Ticket guardado en:\n{img_path}\n\n"
+                "Se abrio el Explorador con el archivo seleccionado.\n"
+                "Arrastra la imagen al chat de WhatsApp.")
 
 
     #--- Ventas del dia / Acciones por ID
@@ -500,24 +582,6 @@ class VentasTicketMixin:
             finally:
                 tbl.setUpdatesEnabled(True)
 
-            # 6) Actualizar resumen diario
-            try:
-                if hasattr(self, 'lbl_resumen_dia') and self.lbl_resumen_dia:
-                    total_ventas = sum(float(getattr(v, 'total', 0) or 0) for v in ventas)
-                    total_efectivo = sum(
-                        float(getattr(v, 'total', 0) or 0) for v in ventas
-                        if (getattr(v, 'modo_pago', '') or '').lower().startswith('efe')
-                    )
-                    total_tarjeta = total_ventas - total_efectivo
-                    total_pagos_caja = sum(p.monto for p in pagos_hoy if p.pago_de_caja)
-                    caja_real = total_efectivo - total_pagos_caja
-                    self.lbl_resumen_dia.setText(
-                        f"Ventas: {len(ventas)} | Total: ${total_ventas:.2f} | "
-                        f"Efectivo: ${total_efectivo:.2f} | Tarjeta: ${total_tarjeta:.2f} | "
-                        f"Pagos caja: -${total_pagos_caja:.2f} | Caja real: ${caja_real:.2f}"
-                    )
-            except Exception:
-                pass
 
         except Exception as e:
             logger.warning(f"[WARN] recargar_ventas_dia: {e}")

@@ -456,12 +456,24 @@ class ProductosMixin:
     def buscar_productos(self, txt):
             self.refrescar_productos()
 
-            # Autoseleccionar primer resultado y cargarlo al formulario
-            tbl = self.table_productos
-            if tbl.rowCount() > 0:
-                tbl.selectRow(0)
-                # col 3 = Nombre; el slot no usa 'col' realmente para cargar
-                self.cargar_producto(0, 3)
+            # Si hay búsqueda pero 0 resultados, ofrecer agregar
+            if txt and txt.strip() and self.table_productos.rowCount() == 0:
+                from PyQt5.QtWidgets import QMessageBox
+                resp = QMessageBox.question(
+                    self, "Producto no encontrado",
+                    f'No se encontro "{txt.strip()}".\n¿Desea agregarlo?',
+                    QMessageBox.Yes | QMessageBox.No, QMessageBox.Yes)
+                if resp == QMessageBox.Yes:
+                    from app.gui.dialogs import agregar_producto_rapido_dialog
+                    nuevo = agregar_producto_rapido_dialog(
+                        self.session, self, term=txt.strip(),
+                        sync_push_fn=self._sync_push,
+                        completer_refresh_fn=getattr(self, 'refrescar_completer', None),
+                    )
+                    if nuevo:
+                        self.input_buscar.clear()
+                        self.refrescar_productos()
+                        self.statusBar().showMessage(f'Producto "{nuevo.nombre}" creado', 3000)
 
     def cargar_producto(self,row,col):
         tbl = self.table_productos

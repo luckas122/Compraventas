@@ -275,11 +275,6 @@ class VentasMixin:
 
         layout.addWidget(self.table_ventas_dia)
 
-        # Resumen diario (ventas + pagos caja)
-        self.lbl_resumen_dia = QLabel("")
-        self.lbl_resumen_dia.setAlignment(Qt.AlignCenter)
-        self.lbl_resumen_dia.setStyleSheet("font-weight: bold; padding: 4px; font-size: 12px;")
-        layout.addWidget(self.lbl_resumen_dia)
 
         # Final
         w.setLayout(layout)
@@ -427,87 +422,15 @@ class VentasMixin:
 
     def _agregar_producto_rapido(self, term):
         """Abre un diálogo para agregar un producto nuevo al vuelo desde ventas."""
-        from PyQt5.QtWidgets import (QDialog, QFormLayout, QLineEdit,
-                                     QDoubleSpinBox, QPushButton, QHBoxLayout,
-                                     QVBoxLayout, QMessageBox as _QMB)
-        from app.models import Producto
-
-        dlg = QDialog(self)
-        dlg.setWindowTitle("Agregar producto nuevo")
-        dlg.setMinimumWidth(380)
-        lay = QVBoxLayout(dlg)
-
-        form = QFormLayout()
-        edt_codigo = QLineEdit(term if term.replace("-", "").isdigit() else "")
-        edt_codigo.setPlaceholderText("Codigo de barras")
-        edt_nombre = QLineEdit("" if term.replace("-", "").isdigit() else term.upper())
-        edt_nombre.setPlaceholderText("Nombre del producto")
-        spin_precio = QDoubleSpinBox()
-        spin_precio.setRange(0, 99999999)
-        spin_precio.setDecimals(2)
-        spin_precio.setPrefix("$ ")
-        spin_precio.setValue(0)
-        edt_categoria = QLineEdit()
-        edt_categoria.setPlaceholderText("(Opcional)")
-
-        form.addRow("Codigo:", edt_codigo)
-        form.addRow("Nombre:", edt_nombre)
-        form.addRow("Precio:", spin_precio)
-        form.addRow("Categoria:", edt_categoria)
-        lay.addLayout(form)
-
-        btns = QHBoxLayout()
-        btn_cancel = QPushButton("Cancelar")
-        btn_ok = QPushButton("Guardar y agregar a cesta")
-        btn_ok.setDefault(True)
-        btn_ok.setStyleSheet("font-weight:bold;")
-        btns.addWidget(btn_cancel)
-        btns.addWidget(btn_ok)
-        lay.addLayout(btns)
-
-        btn_cancel.clicked.connect(dlg.reject)
-        btn_ok.clicked.connect(dlg.accept)
-
-        # Auto-focus en el campo vacío más relevante
-        if edt_codigo.text():
-            edt_nombre.setFocus()
-        else:
-            edt_codigo.setFocus()
-
-        if dlg.exec_() != QDialog.Accepted:
-            return None
-
-        codigo = edt_codigo.text().strip()
-        nombre = edt_nombre.text().strip().upper()
-        precio = spin_precio.value()
-        categoria = edt_categoria.text().strip().upper() or None
-
-        if not codigo or not nombre:
-            _QMB.warning(self, "Datos incompletos", "Codigo y nombre son obligatorios.")
-            return None
-        if precio <= 0:
-            _QMB.warning(self, "Precio invalido", "El precio debe ser mayor a 0.")
-            return None
-
-        # Verificar que no exista
-        existe = self.prod_repo.buscar_por_codigo(codigo)
-        if existe:
-            _QMB.information(self, "Ya existe",
-                f'Producto con codigo "{codigo}" ya existe:\n{existe.nombre} - ${existe.precio:.2f}')
-            return existe
-
-        try:
-            nuevo = Producto(codigo_barra=codigo, nombre=nombre, precio=precio, categoria=categoria)
-            self.session.add(nuevo)
-            self.session.commit()
-            self._sync_push("producto", nuevo)
-            self.refrescar_completer()
-            self.statusBar().showMessage(f'Producto "{nombre}" creado', 3000)
-            return nuevo
-        except Exception as e:
-            self.session.rollback()
-            _QMB.critical(self, "Error", f"No se pudo crear el producto:\n{e}")
-            return None
+        from app.gui.dialogs import agregar_producto_rapido_dialog
+        nuevo = agregar_producto_rapido_dialog(
+            self.session, self, term=term,
+            sync_push_fn=self._sync_push,
+            completer_refresh_fn=self.refrescar_completer,
+        )
+        if nuevo and not hasattr(nuevo, '_from_existing'):
+            self.statusBar().showMessage(f'Producto "{nuevo.nombre}" creado', 3000)
+        return nuevo
 
     def _buscar_producto_fuzzy(self, query):
         """

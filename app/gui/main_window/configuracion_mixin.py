@@ -120,6 +120,37 @@ class ConfiguracionMixin:
         lay_est.addRow("Fuente:", row_fuente)
 
         lay_gen.addWidget(gb_estilos)
+
+        # --- Colores de botones (hover) ---
+        gb_btn_colors = QGroupBox("Colores de botones (hover)", parent=page_general)
+        lay_btn_col = QFormLayout(gb_btn_colors)
+        lay_btn_col.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
+        self.cfg_btn_hover_bg = QPushButton("", gb_btn_colors)
+        self.cfg_btn_hover_bg.setFixedSize(60, 30)
+        _bhbg = th.get("btn_hover_bg", "#4CAF50")
+        self.cfg_btn_hover_bg.setStyleSheet(f"background-color: {_bhbg}; border: 1px solid #888; border-radius: 4px;")
+        self.cfg_btn_hover_bg.setProperty("color_val", _bhbg)
+        self.cfg_btn_hover_bg.clicked.connect(lambda: self._pick_color(self.cfg_btn_hover_bg))
+        lay_btn_col.addRow("Color fondo hover:", self.cfg_btn_hover_bg)
+
+        self.cfg_btn_hover_border = QPushButton("", gb_btn_colors)
+        self.cfg_btn_hover_border.setFixedSize(60, 30)
+        _bhbd = th.get("btn_hover_border", "#388E3C")
+        self.cfg_btn_hover_border.setStyleSheet(f"background-color: {_bhbd}; border: 1px solid #888; border-radius: 4px;")
+        self.cfg_btn_hover_border.setProperty("color_val", _bhbd)
+        self.cfg_btn_hover_border.clicked.connect(lambda: self._pick_color(self.cfg_btn_hover_border))
+        lay_btn_col.addRow("Color borde hover:", self.cfg_btn_hover_border)
+
+        lbl_btn_help = QLabel(
+            "Haz clic en el cuadrado de color para cambiar.\n"
+            "Se aplica al pasar el mouse sobre los botones (Aceptar, Cancelar, etc.)")
+        lbl_btn_help.setWordWrap(True)
+        lbl_btn_help.setStyleSheet("color: #888; font-size: 9pt;")
+        lay_btn_col.addRow("", lbl_btn_help)
+
+        lay_gen.addWidget(gb_btn_colors)
+
         # --- Comportamiento de la ventana ---
         gb_beh = QGroupBox("Comportamiento", parent=page_general)
         lay_beh = QFormLayout(gb_beh)
@@ -726,22 +757,54 @@ class ConfiguracionMixin:
         self.ed_sc_ven_Z = QLineEdit((_sec.get("ventas", {}) or {}).get("vaciar_cesta", "Z"))
         for w_ in (self.ed_sc_ven_V, self.ed_sc_ven_P, self.ed_sc_ven_D, self.ed_sc_ven_W, self.ed_sc_ven_F, self.ed_sc_ven_G, self.ed_sc_ven_B, self.ed_sc_ven_plus, self.ed_sc_ven_minus, self.ed_sc_ven_C, self.ed_sc_ven_X, self.ed_sc_ven_Z):
             w_.setMaxLength(10)
-            w_.setPlaceholderText("A–Z, F1–F12 o Delete")
-        lv.addWidget(QLabel("V = Finalizar"), 0, 0); lv.addWidget(self.ed_sc_ven_V, 0, 1)
-        lv.addWidget(QLabel("P = Consultar Precio"), 1, 0); lv.addWidget(self.ed_sc_ven_P, 1, 1)
-        lv.addWidget(QLabel("D = Devolución"), 2, 0);lv.addWidget(self.ed_sc_ven_D, 2, 1)
-        lv.addWidget(QLabel("W = WhatsApp"), 3, 0);  lv.addWidget(self.ed_sc_ven_W, 3, 1)
-        lv.addWidget(QLabel("F = Imprimir"), 4, 0);  lv.addWidget(self.ed_sc_ven_F, 4, 1)
-        lv.addWidget(QLabel("G = Guardar Borrador"), 5, 0); lv.addWidget(self.ed_sc_ven_G, 5, 1)
-        lv.addWidget(QLabel("B = Abrir Borradores"), 6, 0); lv.addWidget(self.ed_sc_ven_B, 6, 1)
+            w_.setPlaceholderText("Cualquier tecla")
+
+        # Autofocus checkboxes (funciona incluso con foco en buscador)
+        _af = (_sc.get("autofocus") or {})
+        self._af_checks = {}
+        _af_keys = [
+            ("ventas.finalizar", "V", 0), ("ventas.consultar_precio", "P", 1),
+            ("ventas.devolucion", "D", 2), ("ventas.whatsapp", "W", 3),
+            ("ventas.imprimir", "F", 4), ("ventas.guardar_borrador", "G", 5),
+            ("ventas.abrir_borradores", "B", 6),
+        ]
+        _af_keys_cesta = [
+            ("ventas.sumar", "+", 8), ("ventas.restar", "-", 9),
+            ("ventas.editar_cantidad", "C", 10), ("ventas.descuento_item", "X", 11),
+            ("ventas.vaciar_cesta", "Z", 12),
+        ]
+
+        lv.addWidget(QLabel("<b>Tecla</b>"), -1, 1) if False else None
+        lv.addWidget(QLabel("Finalizar"), 0, 0); lv.addWidget(self.ed_sc_ven_V, 0, 1)
+        lv.addWidget(QLabel("Consultar Precio"), 1, 0); lv.addWidget(self.ed_sc_ven_P, 1, 1)
+        lv.addWidget(QLabel("Devolucion"), 2, 0);lv.addWidget(self.ed_sc_ven_D, 2, 1)
+        lv.addWidget(QLabel("WhatsApp"), 3, 0);  lv.addWidget(self.ed_sc_ven_W, 3, 1)
+        lv.addWidget(QLabel("Imprimir"), 4, 0);  lv.addWidget(self.ed_sc_ven_F, 4, 1)
+        lv.addWidget(QLabel("Guardar Borrador"), 5, 0); lv.addWidget(self.ed_sc_ven_G, 5, 1)
+        lv.addWidget(QLabel("Abrir Borradores"), 6, 0); lv.addWidget(self.ed_sc_ven_B, 6, 1)
+
+        for af_key, _lbl, row in _af_keys:
+            chk = QCheckBox("Autofoco")
+            chk.setToolTip("Si activo, funciona incluso con el foco en el buscador")
+            chk.setChecked(bool(_af.get(af_key, True)))
+            self._af_checks[af_key] = chk
+            lv.addWidget(chk, row, 2)
 
         # Separador visual para atajos de cesta
-        lv.addWidget(QLabel("<b>— Cesta —</b>"), 7, 0, 1, 2)
-        lv.addWidget(QLabel("+ = Sumar cantidad"), 8, 0); lv.addWidget(self.ed_sc_ven_plus, 8, 1)
-        lv.addWidget(QLabel("- = Restar cantidad"), 9, 0); lv.addWidget(self.ed_sc_ven_minus, 9, 1)
-        lv.addWidget(QLabel("C = Editar cantidad"), 10, 0); lv.addWidget(self.ed_sc_ven_C, 10, 1)
-        lv.addWidget(QLabel("X = Descuento ítem"), 11, 0); lv.addWidget(self.ed_sc_ven_X, 11, 1)
-        lv.addWidget(QLabel("Z = Vaciar cesta"), 12, 0); lv.addWidget(self.ed_sc_ven_Z, 12, 1)
+        lv.addWidget(QLabel("<b>— Cesta —</b>"), 7, 0, 1, 3)
+        lv.addWidget(QLabel("Sumar cantidad"), 8, 0); lv.addWidget(self.ed_sc_ven_plus, 8, 1)
+        lv.addWidget(QLabel("Restar cantidad"), 9, 0); lv.addWidget(self.ed_sc_ven_minus, 9, 1)
+        lv.addWidget(QLabel("Editar cantidad"), 10, 0); lv.addWidget(self.ed_sc_ven_C, 10, 1)
+        lv.addWidget(QLabel("Descuento item"), 11, 0); lv.addWidget(self.ed_sc_ven_X, 11, 1)
+        lv.addWidget(QLabel("Vaciar cesta"), 12, 0); lv.addWidget(self.ed_sc_ven_Z, 12, 1)
+
+        for af_key, _lbl, row in _af_keys_cesta:
+            chk = QCheckBox("Autofoco")
+            chk.setToolTip("Si activo, funciona incluso con el foco en el buscador")
+            chk.setChecked(bool(_af.get(af_key, True)))
+            self._af_checks[af_key] = chk
+            lv.addWidget(chk, row, 2)
+
         lay_acc.addWidget(gb_ven)
         
         
@@ -769,7 +832,7 @@ class ConfiguracionMixin:
                     except Exception:
                         pass
 
-                # Escribir F1..F12 / Delete en el QLineEdit y consumir el evento
+                # Capturar teclas y escribirlas en el QLineEdit
                 if ev.type() == QEvent.KeyPress and isinstance(ev, QKeyEvent):
                     k = ev.key()
                     # Delete
@@ -784,6 +847,14 @@ class ConfiguracionMixin:
                         try:
                             n = k - Qt.Key_F1 + 1
                             obj.setText(f"F{n}")
+                            return True
+                        except Exception:
+                            return False
+                    # Cualquier caracter imprimible (letras, numeros, simbolos)
+                    text = ev.text()
+                    if text and text.isprintable() and len(text) == 1:
+                        try:
+                            obj.setText(text.upper() if text.isalpha() else text)
                             return True
                         except Exception:
                             return False
@@ -856,6 +927,12 @@ class ConfiguracionMixin:
                 "usuarios": _normalize(self.ed_glob_user.text(), "F6"),
             }
             sc["global"] = global_map
+
+            # Autofocus checkboxes
+            af_map = {}
+            for af_key, chk in self._af_checks.items():
+                af_map[af_key] = chk.isChecked()
+            sc["autofocus"] = af_map
 
             # Persistir + hot reload
             sc["section"] = section
@@ -965,6 +1042,12 @@ class ConfiguracionMixin:
             th["font_size"] = int(self.cfg_spn_size.currentData() or 12)
         except Exception:
             th["font_size"] = 12
+        # Colores hover de botones
+        try:
+            th["btn_hover_bg"] = self.cfg_btn_hover_bg.property("color_val") or "#4CAF50"
+            th["btn_hover_border"] = self.cfg_btn_hover_border.property("color_val") or "#388E3C"
+        except Exception:
+            pass
         cfg["theme"] = th
 
         # ---------- email (tolerante: no revienta si los widgets no están) ----------
@@ -1217,7 +1300,18 @@ class ConfiguracionMixin:
             except Exception:
                 pass       
                 #--------Tema / estilo / tz / preview:------------
-                
+
+    def _pick_color(self, btn):
+        """Abre selector de color y actualiza el botón con el color elegido."""
+        from PyQt5.QtWidgets import QColorDialog
+        from PyQt5.QtGui import QColor
+        current = btn.property("color_val") or "#4CAF50"
+        color = QColorDialog.getColor(QColor(current), self, "Elegir color")
+        if color.isValid():
+            hex_color = color.name()
+            btn.setStyleSheet(f"background-color: {hex_color}; border: 1px solid #888; border-radius: 4px;")
+            btn.setProperty("color_val", hex_color)
+
     def _apply_theme_stylesheet(self):
         from PyQt5.QtWidgets import QApplication
         from PyQt5.QtGui import QFont
@@ -1266,6 +1360,10 @@ class ConfiguracionMixin:
             border  = th.get("light_border",   "#D0D4DB")
             btn, btnhv = "#F0F2F5", "#E6E8EC"
 
+        # Hover personalizado desde config (sobreescribe el default del tema)
+        btn_hover_bg = th.get("btn_hover_bg") or btnhv
+        btn_hover_border = th.get("btn_hover_border") or border
+
         app = QApplication.instance()
         if not app: return
         # Limpieza previa para evitar restos del tema anterior
@@ -1287,7 +1385,8 @@ class ConfiguracionMixin:
                 min-height: {control_h}px;
             }}
             QPushButton:hover {{
-                background-color: {btnhv};
+                background-color: {btn_hover_bg};
+                border: 2px solid {btn_hover_border};
             }}
 
             /* —— Pestañas —— */
@@ -1306,12 +1405,13 @@ class ConfiguracionMixin:
             }}
             QTabBar::tab:hover,
             QTabWidget QTabBar::tab:hover {{
-                background: #e7f8eb;           /* verde muy claro al hover */
+                background: {btn_hover_bg};
+                border: 1px solid {btn_hover_border};
             }}
             QTabBar::tab:selected,
             QTabWidget QTabBar::tab:selected {{
-                background: #d6f1da;           /* queda seleccionado en verde suave */
-                border: 1px solid #666;
+                background: {btn_hover_bg};
+                border: 2px solid {btn_hover_border};
             }}
 
             QHeaderView::section {{ background-color: {"#252525" if dark else "#f5f5f5"}; color: {text}; }}
@@ -1323,8 +1423,8 @@ class ConfiguracionMixin:
                 min-height: {inline_h}px;
             }}
             QPushButton[role="inline"]:hover {{
-                background-color: #FFE3C2;
-                border: 1px solid #FFB86C;
+                background-color: {btn_hover_bg};
+                border: 1px solid {btn_hover_border};
             }}
 
             /* —— Spinboxes (flechas SIEMPRE visibles) —— */

@@ -151,17 +151,20 @@ class VentasFinalizacionMixin:
             self._ultimo_vuelto = vuelto
             self.vuelto = vuelto
         else:
-            # Tarjeta: abrir diálogo
-            from app.gui.dialogs import PagoTarjetaDialog
-            dlg_t = PagoTarjetaDialog(total_actual=total_actual, parent=self)
-            if dlg_t.exec_() != QDialog.Accepted:
-                return
+            # Tarjeta: reutilizar datos si ya se configuraron (desde shortcut)
+            if hasattr(self, '_datos_tarjeta') and self._datos_tarjeta:
+                datos_tarjeta = self._datos_tarjeta
+            else:
+                from app.gui.dialogs import PagoTarjetaDialog
+                dlg_t = PagoTarjetaDialog(total_actual=total_actual, parent=self)
+                if dlg_t.exec_() != QDialog.Accepted:
+                    return
 
-            datos_tarjeta = dlg_t.get_datos()
-            if not datos_tarjeta:
-                return
+                datos_tarjeta = dlg_t.get_datos()
+                if not datos_tarjeta:
+                    return
 
-            self._datos_tarjeta = datos_tarjeta
+                self._datos_tarjeta = datos_tarjeta
             # Aplicar interés del diálogo
             if datos_tarjeta.get("interes_pct", 0) > 0:
                 self._interes_pct = float(datos_tarjeta["interes_pct"])

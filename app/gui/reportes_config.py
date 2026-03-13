@@ -149,6 +149,37 @@ class ReportesCorreoConfig(QWidget):
         f_mail.addRow(btn_save_mail)
 
         root.addWidget(gb_mail)
+
+        # -------- WhatsApp --------
+        gb_wa = QGroupBox("WhatsApp")
+        f_wa = QFormLayout(gb_wa)
+
+        self.chk_wa_pedir_tel = QCheckBox("Pedir número de teléfono antes de enviar")
+        self.chk_wa_pedir_tel.setToolTip(
+            "Si está activo, al enviar ticket por WhatsApp se pedirá un número.\n"
+            "Útil cuando el contacto no está guardado en el teléfono."
+        )
+        f_wa.addRow(self.chk_wa_pedir_tel)
+
+        row_dir = QHBoxLayout()
+        self.ed_wa_ticket_dir = QLineEdit()
+        self.ed_wa_ticket_dir.setPlaceholderText("Carpeta para guardar tickets PDF...")
+        self.ed_wa_ticket_dir.setReadOnly(True)
+        btn_wa_browse = QPushButton("Examinar...")
+        btn_wa_browse.clicked.connect(self._browse_wa_ticket_dir)
+        btn_wa_clear = QPushButton("Por defecto")
+        btn_wa_clear.setToolTip("Usar carpeta por defecto (%APPDATA%/CompraventasV2/Tickets)")
+        btn_wa_clear.clicked.connect(lambda: self.ed_wa_ticket_dir.clear())
+        row_dir.addWidget(self.ed_wa_ticket_dir, 1)
+        row_dir.addWidget(btn_wa_browse)
+        row_dir.addWidget(btn_wa_clear)
+        f_wa.addRow("Guardar tickets en:", row_dir)
+
+        btn_save_wa = QPushButton("Guardar WhatsApp")
+        btn_save_wa.clicked.connect(self._save_whatsapp)
+        f_wa.addRow(btn_save_wa)
+
+        root.addWidget(gb_wa)
         root.addStretch(1)
 
         self._load_all()
@@ -214,6 +245,11 @@ class ReportesCorreoConfig(QWidget):
         self.cmb_tls.setCurrentIndex(0 if p == 587 else 1)
         self.ed_user.setText(s.get("username") or "")
         self.ed_pwd.setText(s.get("password") or "")
+
+        # WhatsApp
+        wa = cfg.get("whatsapp") or {}
+        self.chk_wa_pedir_tel.setChecked(bool(wa.get("pedir_telefono", True)))
+        self.ed_wa_ticket_dir.setText(wa.get("ticket_save_dir") or "")
 
     def _save_prog(self):
         from app.config import load as load_config, save as save_config
@@ -358,3 +394,19 @@ class ReportesCorreoConfig(QWidget):
             self._test_worker.terminate() if self._test_worker and self._test_worker.isRunning() else None
         ))
         self._test_worker.start()
+
+    def _browse_wa_ticket_dir(self):
+        from PyQt5.QtWidgets import QFileDialog
+        d = QFileDialog.getExistingDirectory(self, "Seleccionar carpeta para tickets")
+        if d:
+            self.ed_wa_ticket_dir.setText(d)
+
+    def _save_whatsapp(self):
+        cfg = load_config()
+        wa = cfg.get("whatsapp") or {}
+        wa["pedir_telefono"] = self.chk_wa_pedir_tel.isChecked()
+        ticket_dir = self.ed_wa_ticket_dir.text().strip()
+        wa["ticket_save_dir"] = ticket_dir if ticket_dir else None
+        cfg["whatsapp"] = wa
+        ok = save_config(cfg)
+        QMessageBox.information(self, "WhatsApp", "Configuración guardada." if ok else "Error al guardar.")

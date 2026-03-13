@@ -154,7 +154,8 @@ DEFAULTS: Dict[str, Any] = {
             "productos": {"agregar": "A", "editar": "E", "eliminar": "Delete", "imprimir_codigo": "I"},
             "ventas": {"finalizar": "V", "efectivo": "E", "tarjeta": "T", "devolucion": "D", "whatsapp": "W", "imprimir": "F"}
         },
-        "section_mode_enabled": True
+        "section_mode_enabled": True,
+        "autofocus": {}
     },
 
     # TEMA
@@ -181,7 +182,11 @@ DEFAULTS: Dict[str, Any] = {
 
         # Tipografía base
         "font_family": "Roboto",
-        "font_size": 10  # puntos
+        "font_size": 10,  # puntos
+
+        # Hover de botones (colores personalizables)
+        "btn_hover_bg":     "#4CAF50",   # verde al pasar el mouse
+        "btn_hover_border": "#388E3C",   # borde verde al hover
     },
 
     # IMPRESORAS
@@ -373,7 +378,9 @@ Interés: {{totales.interes}}
     "whatsapp": {
         "usar_web": True,         # usar WhatsApp Web (True) o app nativa si aplica
         "preguntar_antes": True,  # preguntar antes de abrir/enviar
-        "formato_ticket": "pdf"   # "pdf" o "png"
+        "formato_ticket": "pdf",  # "pdf" o "png"
+        "pedir_telefono": True,   # pedir numero de telefono antes de abrir WhatsApp
+        "ticket_save_dir": None   # carpeta para guardar tickets (None = AppData/Tickets)
     },
 
     # Configuración de correo para envíos de reportes

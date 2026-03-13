@@ -1331,31 +1331,18 @@ class HistorialVentasWidget(QWidget):
 
         try:
             with xw:
-                # --- Hoja Ventas (siempre) ---
-                df.to_excel(xw, index=False, sheet_name="Ventas")
-
-                # Ajustes de ancho
-                ws = None
-                try:
-                    ws = xw.sheets.get("Ventas") if hasattr(xw, "sheets") else None
-                except Exception:
-                    ws = None
-                if ws is None:
-                    try:
-                        wb = getattr(xw, "book", None)
-                        if wb is not None:
-                            ws = wb["Ventas"]
-                    except Exception:
-                        ws = None
-
+                # --- Hoja Resumen (principal, limpia) ---
                 _engine = (getattr(xw, "engine", "") or getattr(xw, "_engine", "")).lower()
-                if ws is not None:
-                    _autofit_sheet(ws, df, _engine)
 
-                # --- Resumen al pie ---
+                cols_resumen = [c for c in ("ticket", "fecha", "sucursal", "forma", "total") if c in df.columns]
+                df_resumen = df[cols_resumen].copy()
+                df_resumen.columns = ["Ticket", "Fecha", "Sucursal", "Forma Pago", "Total"][:len(cols_resumen)]
+                df_resumen.to_excel(xw, index=False, sheet_name="Resumen")
+
+                # Totales al pie del Resumen
                 desde = self.dt_desde.date().toString("yyyy-MM-dd")
                 hasta = self.dt_hasta.date().toString("yyyy-MM-dd")
-                n = len(df.index)
+                n = len(df_resumen.index)
                 if not df.empty and "forma" in df.columns:
                     g = df.groupby("forma", dropna=False)["total"].sum()
                     tot_eff = float(g.get("Efectivo", 0.0))
@@ -1364,44 +1351,42 @@ class HistorialVentasWidget(QWidget):
                 else:
                     tot_eff = tot_tar = tot_all = 0.0
 
-                resumen = pd.DataFrame([
-                    [f"Total vendido entre {desde} y {hasta}", ""],
-                    ["Efectivo", f"{tot_eff:.2f}"],
-                    ["Tarjeta",  f"{tot_tar:.2f}"],
-                    ["TOTAL",    f"{tot_all:.2f}"],
+                resumen_pie = pd.DataFrame([
+                    [f"Periodo: {desde} a {hasta}", ""],
+                    ["Efectivo", f"${tot_eff:.2f}"],
+                    ["Tarjeta",  f"${tot_tar:.2f}"],
+                    ["TOTAL",    f"${tot_all:.2f}"],
                 ], columns=["Detalle", "Monto"])
-                resumen.to_excel(xw, index=False, header=True, sheet_name="Ventas", startrow=n + 2)
-                if ws is not None:
-                    try:
-                        _autofit_sheet(ws, resumen, _engine)
-                    except Exception:
-                        pass
+                resumen_pie.to_excel(xw, index=False, header=True, sheet_name="Resumen", startrow=n + 2)
 
-                # --- Hojas discriminadas por CAE y sucursal ---
                 try:
-                    if "cae" in df.columns:
-                        # Ventas con CAE
-                        df_cae = df[df["cae"].astype(str).str.strip() != ""]
-                        if not df_cae.empty:
-                            df_cae.to_excel(xw, index=False, sheet_name="Ventas con CAE")
-                            try:
-                                ws_cae = (xw.sheets.get("Ventas con CAE") if hasattr(xw, "sheets") else None) or (getattr(xw, "book", {}) or {}).get("Ventas con CAE")
-                                if ws_cae:
-                                    _autofit_sheet(ws_cae, df_cae, _engine)
-                            except Exception:
-                                pass
+                    ws_res = (xw.sheets.get("Resumen") if hasattr(xw, "sheets") else None)
+                    if ws_res is None:
+                        wb = getattr(xw, "book", None)
+                        if wb: ws_res = wb["Resumen"]
+                    if ws_res:
+                        _autofit_sheet(ws_res, df_resumen, _engine)
+                except Exception:
+                    pass
 
-                        # Ventas sin CAE
-                        df_sin_cae = df[df["cae"].astype(str).str.strip() == ""]
-                        if not df_sin_cae.empty:
-                            df_sin_cae.to_excel(xw, index=False, sheet_name="Ventas sin CAE")
-                            try:
-                                ws_sin = (xw.sheets.get("Ventas sin CAE") if hasattr(xw, "sheets") else None) or (getattr(xw, "book", {}) or {}).get("Ventas sin CAE")
-                                if ws_sin:
-                                    _autofit_sheet(ws_sin, df_sin_cae, _engine)
-                            except Exception:
-                                pass
+                # --- Hoja Detalle Ventas (todos los campos) ---
+                df_detalle = df.copy()
+                if "cae" in df_detalle.columns:
+                    df_detalle["tiene_cae"] = df_detalle["cae"].astype(str).str.strip().apply(
+                        lambda x: "Si" if x else "No")
+                df_detalle.to_excel(xw, index=False, sheet_name="Detalle Ventas")
+                try:
+                    ws_det = (xw.sheets.get("Detalle Ventas") if hasattr(xw, "sheets") else None)
+                    if ws_det is None:
+                        wb = getattr(xw, "book", None)
+                        if wb: ws_det = wb["Detalle Ventas"]
+                    if ws_det:
+                        _autofit_sheet(ws_det, df_detalle, _engine)
+                except Exception:
+                    pass
 
+                # --- Resumen por sucursal ---
+                try:
                     # Resumen por sucursal
                     if not df.empty and "sucursal" in df.columns:
                         suc_rows = []
@@ -1470,44 +1455,6 @@ class HistorialVentasWidget(QWidget):
                         ws_prod = None
                     if ws_prod is not None:
                         _autofit_sheet(ws_prod, prod, _engine)
-
-                # --- Hoja "Resumen Semanal" ---
-                try:
-                    if not df.empty and "fecha" in df.columns:
-                        df_copy = df.copy()
-                        df_copy["fecha_dt"] = pd.to_datetime(df_copy["fecha"], errors="coerce")
-                        df_copy["semana"] = df_copy["fecha_dt"].dt.isocalendar().week.astype(str)
-                        df_copy["año"] = df_copy["fecha_dt"].dt.year.astype(str)
-                        df_copy["semana_label"] = "Sem " + df_copy["semana"] + " (" + df_copy["año"] + ")"
-
-                        resumen_sem = (df_copy.groupby("semana_label", dropna=False)
-                                       .agg(
-                                           ventas=("ticket", "count"),
-                                           total=("total", "sum"),
-                                           efectivo=("total", lambda x: x[df_copy.loc[x.index, "forma"] == "Efectivo"].sum()),
-                                           tarjeta=("total", lambda x: x[df_copy.loc[x.index, "forma"] == "Tarjeta"].sum()),
-                                           promedio=("total", "mean"),
-                                       )
-                                       .reset_index()
-                                       .rename(columns={"semana_label": "Semana"}))
-
-                        # Redondear
-                        for col in ["total", "efectivo", "tarjeta", "promedio"]:
-                            if col in resumen_sem.columns:
-                                resumen_sem[col] = resumen_sem[col].round(2)
-
-                        resumen_sem.to_excel(xw, index=False, sheet_name="Resumen Semanal")
-                        try:
-                            ws_sem = xw.sheets.get("Resumen Semanal") if hasattr(xw, "sheets") else None
-                            if ws_sem is None:
-                                wb = getattr(xw, "book", None)
-                                if wb: ws_sem = wb["Resumen Semanal"]
-                            if ws_sem:
-                                _autofit_sheet(ws_sem, resumen_sem, _engine)
-                        except Exception:
-                            pass
-                except Exception as e_sem:
-                    logger.debug(f"No se pudo crear hoja Resumen Semanal: {e_sem}")
 
                 # --- Hoja "Top 10 Productos" ---
                 try:
