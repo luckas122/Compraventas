@@ -129,6 +129,24 @@ def _run_migrations():
             from app.models import PagoProveedor
             PagoProveedor.__table__.create(bind=engine)
 
+        # Quitar UNIQUE constraint de numero_ticket en ventas (v5.1.0)
+        # Cada sucursal tiene su propia secuencia de tickets
+        if "ventas" in inspector.get_table_names():
+            indexes = inspector.get_indexes("ventas")
+            for idx in indexes:
+                if idx.get("unique") and "numero_ticket" in idx.get("columns", []):
+                    idx_name = idx.get("name", "")
+                    if idx_name:
+                        try:
+                            conn.execute(text(f"DROP INDEX IF EXISTS \"{idx_name}\""))
+                        except Exception:
+                            pass
+            # Recrear index sin UNIQUE
+            try:
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ventas_numero_ticket ON ventas (numero_ticket)"))
+            except Exception:
+                pass
+
         conn.commit()
 
 

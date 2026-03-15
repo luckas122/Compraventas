@@ -210,10 +210,9 @@ DEFAULTS: Dict[str, Any] = {
         "margin_left_mm": 2.0,      # margen izquierdo en mm
         "margin_right_mm": 2.0,     # margen derecho en mm
         "fonts": {
-            "title_px": 18,         # tamaño título en píxeles
-            "head_px": 12,          # cabecera
-            "text_px": 11,          # cuerpo
-            "total_px": 20          # total grande (verde)
+            "title_pt": 12,         # tamaño título en puntos
+            "head_pt": 9,           # cabecera
+            "text_pt": 9,           # cuerpo
         },
         "color": {
             "total_hex": "#2e7d32"
@@ -295,13 +294,25 @@ Interés: {{totales.interes}}
 {{hr}}
 {{pago.modo}} - {{pago.cuotas}} cuotas de {{pago.monto_cuota}}
 {{cae}}
-{{center: {{business}}}}"""
+{{center: {{business}}}}""",
+            "slot5": "",
+            "slot6": "",
+            "slot7": "",
+            "slot8": "",
+            "slot9": "",
+            "slot10": ""
         },
         "slot_names": {
             "slot1": "Efectivo - Clásica",
             "slot2": "Efectivo - Minimalista",
             "slot3": "Tarjeta - Clásica",
-            "slot4": "Tarjeta - Minimalista"
+            "slot4": "Tarjeta - Minimalista",
+            "slot5": "Plantilla 5",
+            "slot6": "Plantilla 6",
+            "slot7": "Plantilla 7",
+            "slot8": "Plantilla 8",
+            "slot9": "Plantilla 9",
+            "slot10": "Plantilla 10"
         },
         "template_efectivo": "slot1",
         "template_tarjeta": "slot3",

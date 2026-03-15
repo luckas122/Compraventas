@@ -258,10 +258,14 @@ def _draw_ticket(p, page_rect, prn, venta, sucursal, direcciones, width_mm=75.0,
     y = page_rect.top()  + px(MARGIN_LEFT_MM)
     w = page_rect.width() - px(MARGIN_LEFT_MM) - px(MARGIN_RIGHT_MM)
 
-    # Fuentes
-    f_title = QFont("Arial"); f_title.setPointSize(12); f_title.setBold(True)
-    f_head  = QFont("Arial"); f_head.setPointSize(9);  f_head.setBold(True)
-    f_norm  = QFont("Arial"); f_norm.setPointSize(9)
+    # Fuentes (tamaños configurables desde config)
+    _fonts = _tk_cfg.get("fonts") or {}
+    _title_pt = int(_fonts.get("title_pt", 12))
+    _head_pt  = int(_fonts.get("head_pt", 9))
+    _text_pt  = int(_fonts.get("text_pt", 9))
+    f_title = QFont("Arial"); f_title.setPointSize(_title_pt); f_title.setBold(True)
+    f_head  = QFont("Arial"); f_head.setPointSize(_head_pt);   f_head.setBold(True)
+    f_norm  = QFont("Arial"); f_norm.setPointSize(_text_pt)
 
     def gap(mm=GAP_MM):
         nonlocal y
@@ -542,9 +546,16 @@ def _compute_ticket_height_mm(venta, prn, width_mm=75.0, template_override: str 
     dpi_x = (getattr(prn, "logicalDpiX", lambda: 300)() or 300) if prn else 300
     mm_per_px = 25.4 / dpi_x
 
-    f_title = QFont("Arial"); f_title.setPointSize(12); f_title.setBold(True)
-    f_head  = QFont("Arial"); f_head.setPointSize(9);  f_head.setBold(True)
-    f_norm  = QFont("Arial"); f_norm.setPointSize(9)
+    # Fuentes configurables
+    from app.config import load as _load_cfg_h
+    _tk_cfg_h = _load_cfg_h().get("ticket", {})
+    _fonts_h = _tk_cfg_h.get("fonts") or {}
+    _title_pt = int(_fonts_h.get("title_pt", 12))
+    _head_pt  = int(_fonts_h.get("head_pt", 9))
+    _text_pt  = int(_fonts_h.get("text_pt", 9))
+    f_title = QFont("Arial"); f_title.setPointSize(_title_pt); f_title.setBold(True)
+    f_head  = QFont("Arial"); f_head.setPointSize(_head_pt);   f_head.setBold(True)
+    f_norm  = QFont("Arial"); f_norm.setPointSize(_text_pt)
 
     fm_t = QFontMetrics(f_title, prn) if prn else QFontMetrics(f_title)
     fm_h = QFontMetrics(f_head,  prn) if prn else QFontMetrics(f_head)

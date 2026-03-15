@@ -48,7 +48,7 @@ class Venta(Base):
     pagado          = Column(Float, nullable=True)
     vuelto          = Column(Float, nullable=True)
     items      = relationship("VentaItem", back_populates="venta")
-    numero_ticket = Column(Integer, unique=True, index=True, nullable=False)
+    numero_ticket = Column(Integer, index=True, nullable=False)  # secuencia independiente por sucursal
     # Campos AFIP
     afip_cae = Column(String, nullable=True)
     afip_cae_vencimiento = Column(String, nullable=True)

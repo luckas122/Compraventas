@@ -352,6 +352,32 @@ class ConfiguracionMixin:
 
         lay_tk.addWidget(gb_tpl)
 
+        # ===== SECCIÓN: TAMAÑO DE FUENTE DEL TICKET =====
+        _tk_fonts = tk.get("fonts") or {}
+        gb_fonts = QGroupBox("Tamaño de fuente del ticket", parent=page_ticket)
+        lay_fonts = QFormLayout(gb_fonts)
+        lay_fonts.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
+        self.cfg_tk_font_title = QSpinBox(gb_fonts)
+        self.cfg_tk_font_title.setRange(6, 24)
+        self.cfg_tk_font_title.setValue(int(_tk_fonts.get("title_pt", 12)))
+        self.cfg_tk_font_title.setSuffix(" pt")
+        lay_fonts.addRow("Título (negocio):", self.cfg_tk_font_title)
+
+        self.cfg_tk_font_head = QSpinBox(gb_fonts)
+        self.cfg_tk_font_head.setRange(6, 20)
+        self.cfg_tk_font_head.setValue(int(_tk_fonts.get("head_pt", 9)))
+        self.cfg_tk_font_head.setSuffix(" pt")
+        lay_fonts.addRow("Cabecera (TOTAL, secciones):", self.cfg_tk_font_head)
+
+        self.cfg_tk_font_text = QSpinBox(gb_fonts)
+        self.cfg_tk_font_text.setRange(6, 20)
+        self.cfg_tk_font_text.setValue(int(_tk_fonts.get("text_pt", 9)))
+        self.cfg_tk_font_text.setSuffix(" pt")
+        lay_fonts.addRow("Texto (cuerpo, items):", self.cfg_tk_font_text)
+
+        lay_tk.addWidget(gb_fonts)
+
         # ===== SECCIÓN: MÁRGENES DEL TICKET =====
         from PyQt5.QtWidgets import QDoubleSpinBox as _QDblSpin
         gb_margins = QGroupBox("Márgenes del ticket (mm)", parent=page_ticket)
@@ -1124,6 +1150,15 @@ class ConfiguracionMixin:
         tk = cfg.get("ticket") or {}
         if hasattr(self, "cfg_txt_tpl"):
             tk["template"] = self.cfg_txt_tpl.toPlainText()
+        # ---------- fuentes ticket ----------
+        try:
+            fonts = tk.get("fonts") or {}
+            fonts["title_pt"] = self.cfg_tk_font_title.value()
+            fonts["head_pt"]  = self.cfg_tk_font_head.value()
+            fonts["text_pt"]  = self.cfg_tk_font_text.value()
+            tk["fonts"] = fonts
+        except Exception:
+            pass
         # ---------- márgenes ticket ----------
         try:
             tk["margin_left_mm"] = self.cfg_margin_left.value()

@@ -160,17 +160,16 @@ class VentaRepo:
     def commit(self):
         self.session.commit()
 
-    # siguiente número para la sucursal, conservando paridad
+    # Siguiente número de ticket para la sucursal (secuencia independiente por sucursal)
     # Consulta también pagos_proveedores para evitar colisión
     def siguiente_ticket(self, sucursal: str) -> int:
-        base = 1 if sucursal == 'Sarmiento' else 2  # impares Sarmiento, pares Salta
+        max_ticket = 0
         last_venta = (
             self.session.query(Venta)
             .filter(Venta.sucursal == sucursal, Venta.numero_ticket.isnot(None))
             .order_by(Venta.numero_ticket.desc())
             .first()
         )
-        max_ticket = 0
         if last_venta and getattr(last_venta, 'numero_ticket', None):
             max_ticket = last_venta.numero_ticket
         try:
@@ -184,9 +183,7 @@ class VentaRepo:
                 max_ticket = max(max_ticket, last_pago.numero_ticket)
         except Exception:
             pass
-        if max_ticket < base:
-            return base
-        return max_ticket + 2
+        return max_ticket + 1
 
     
     # ====== CREAR VENTA CON total=0.0 ======
@@ -404,8 +401,7 @@ class PagoProveedorRepo:
         self.session = session
 
     def siguiente_ticket(self, sucursal: str) -> int:
-        """Siguiente ticket compartiendo numeracion con VentaRepo."""
-        base = 1 if sucursal == 'Sarmiento' else 2
+        """Siguiente ticket compartiendo numeracion con VentaRepo (secuencia independiente por sucursal)."""
         max_ticket = 0
         last_venta = (
             self.session.query(Venta)
@@ -423,9 +419,7 @@ class PagoProveedorRepo:
         )
         if last_pago and getattr(last_pago, 'numero_ticket', None):
             max_ticket = max(max_ticket, last_pago.numero_ticket)
-        if max_ticket < base:
-            return base
-        return max_ticket + 2
+        return max_ticket + 1
 
     def crear_pago(self, sucursal, proveedor_id, proveedor_nombre, monto,
                    metodo_pago='Efectivo', pago_de_caja=False, nota=None):

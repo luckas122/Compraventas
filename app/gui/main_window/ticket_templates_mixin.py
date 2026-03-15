@@ -29,8 +29,8 @@ class TicketTemplatesMixin:
         slot_names = (tk.get("slot_names") or {})
         self.cfg_tpl_slot.clear()
 
-        # Soporta 4 slots ahora, con nombres editables
-        for key in ("slot1", "slot2", "slot3", "slot4"):
+        # Soporta hasta 10 slots con nombres editables
+        for key in tuple(f"slot{i}" for i in range(1, 11)):
             # Obtener nombre personalizado o usar fallback
             label = slot_names.get(key, f"Plantilla {key[-1]}")
             txt = (slots.get(key) or "").strip()
@@ -54,7 +54,7 @@ class TicketTemplatesMixin:
         # Limpiar y rellenar ambos combos
         for combo in (self.cfg_tpl_efectivo, self.cfg_tpl_tarjeta):
             combo.clear()
-            for key in ("slot1", "slot2", "slot3", "slot4"):
+            for key in tuple(f"slot{i}" for i in range(1, 11)):
                 label = slot_names.get(key, f"Plantilla {key[-1]}")
                 combo.addItem(label, key)
 
