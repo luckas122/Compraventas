@@ -210,9 +210,11 @@ DEFAULTS: Dict[str, Any] = {
         "margin_left_mm": 2.0,      # margen izquierdo en mm
         "margin_right_mm": 2.0,     # margen derecho en mm
         "fonts": {
-            "title_pt": 12,         # tamaño título en puntos
-            "head_pt": 9,           # cabecera
-            "text_pt": 9,           # cuerpo
+            "h1_pt": 14,           # H1: Nombre negocio, título principal
+            "h2_pt": 12,           # H2: TOTAL, secciones grandes
+            "h3_pt": 10,           # H3: Cabeceras columnas, subtítulos
+            "h4_pt": 9,            # H4: Items, precios, texto normal
+            "h5_pt": 7,            # H5: Pie ticket, datos legales, CAE
         },
         "color": {
             "total_hex": "#2e7d32"
@@ -316,6 +318,11 @@ Interés: {{totales.interes}}
         },
         "template_efectivo": "slot1",
         "template_tarjeta": "slot3",
+        "template_factura_a": "",
+        "template_factura_b": "",
+        "template_cae_efectivo": "",
+        "template_cae_tarjeta": "",
+        "template_consumidor_final": "",
         "placeholders": [
             "{{ticket.numero}}", "{{ticket.fecha_hora}}", "{{sucursal}}",
             "{{cliente.nombre}}", "{{cliente.doc}}",
@@ -324,7 +331,7 @@ Interés: {{totales.interes}}
             "{{abonado}}", "{{vuelto}}", "{{business}}", "{{title}}",
             "{{business.cuit}}", "{{business.direccion}}",
             "{{vendedor}}",
-            "{{hr}}", "{{items}}", "{{cae}}",
+            "{{hr}}", "{{items}}", "{{cae}}", "{{iva.discriminado}}", "{{qrcae}}",
             "{{img:logo}}", "{{img:instagram}}", "{{img:whatsapp}}", "{{img:qr}}"
         ],
         "images": {

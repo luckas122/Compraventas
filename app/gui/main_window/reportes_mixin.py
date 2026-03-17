@@ -212,7 +212,45 @@ class ReportesMixin:
                 subj_prefix = email_cfg.get("subject_prefix") or "[Historial]"
                 subj = f"{subj_prefix} Reporte {freq_name.title()} {today_key}"
 
-                worker = SmtpWorker(subj, "Se adjunta el reporte automático.", recips, [fpath])
+                # Construir body con resumen IVA
+                _body_lines = ["Se adjunta el reporte automatico.", ""]
+                try:
+                    from datetime import datetime as _dt_cls
+                    _d = _dt_cls.strptime(today_key, "%Y-%m-%d").date()
+                    _desde = _dt_cls.combine(_d, _dt_cls.min.time())
+                    _hasta = _dt_cls.combine(_d, _dt_cls.max.time())
+
+                    _ventas_rep = self.venta_repo.listar_por_rango(_desde, _hasta, None)
+                    _total_ventas = sum(v.total for v in _ventas_rep)
+                    _cant = len(_ventas_rep)
+
+                    _iva_v_cae = [v for v in _ventas_rep if getattr(v, 'afip_cae', None)]
+                    _total_cae = sum(v.total for v in _iva_v_cae)
+                    _iva_ventas = round(_total_cae - _total_cae / 1.21, 2)
+
+                    _iva_compras = 0.0
+                    try:
+                        _pagos = self.pago_prov_repo.listar_por_rango(_desde, _hasta, None)
+                        _total_pag = sum(float(getattr(p, 'monto', 0) or 0) for p in _pagos)
+                        _iva_compras = round(_total_pag - _total_pag / 1.21, 2)
+                    except Exception:
+                        pass
+
+                    _saldo = round(_iva_compras - _iva_ventas, 2)
+
+                    _body_lines.append(f"--- Resumen del dia {today_key} ---")
+                    _body_lines.append(f"Total Ventas: ${_total_ventas:,.2f}  ({_cant} ventas)")
+                    _body_lines.append("")
+                    _body_lines.append("--- IVA ---")
+                    _body_lines.append(f"IVA Compras (pagos proveedores): ${_iva_compras:,.2f}")
+                    _body_lines.append(f"IVA Ventas (con CAE): ${_iva_ventas:,.2f}")
+                    _body_lines.append(f"Saldo IVA (compras - ventas): ${_saldo:,.2f}")
+                except Exception as _ex:
+                    logger.warning("[auto-send] no se pudo calcular IVA para body: %s", _ex)
+
+                _body_text = "\n".join(_body_lines)
+
+                worker = SmtpWorker(subj, _body_text, recips, [fpath])
                 # Guardar referencia para evitar GC
                 if not hasattr(self, '_report_workers'):
                     self._report_workers = []

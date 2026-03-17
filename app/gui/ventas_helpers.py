@@ -92,23 +92,35 @@ def imprimir_ticket(venta, sucursal, direcciones: dict, parent=None, preview=Fal
     from PyQt5.QtWidgets import QMessageBox
     from PyQt5.QtPrintSupport import QPrintDialog, QPrinterInfo
 
-    # Si no hay template_override, seleccionar automáticamente según forma de pago
+    # Si no hay template_override, seleccionar automáticamente según tipo de operación
     if template_override is None:
         cfg = load_config()
         tk = (cfg.get("ticket") or {})
+        slots = tk.get("slots", {})
 
-        # Detectar forma de pago
+        # Detectar datos de la venta
         forma_raw = (getattr(venta, "forma_pago", "") or getattr(venta, "modo_pago", "") or getattr(venta, "modo", "")).lower()
         is_tarjeta = ("tarj" in forma_raw)
+        has_cae = bool(getattr(venta, "afip_cae", None))
+        tipo_cbte = (getattr(venta, "tipo_comprobante", "") or "").upper()
 
-        # Seleccionar plantilla según forma de pago
-        if is_tarjeta:
-            slot_key = tk.get("template_tarjeta", "slot3")
-        else:
-            slot_key = tk.get("template_efectivo", "slot1")
+        # Resolver template con prioridad específica → genérica
+        slot_key = ""
+        if "FACTURA_A" in tipo_cbte and tk.get("template_factura_a"):
+            slot_key = tk["template_factura_a"]
+        elif "FACTURA_B" in tipo_cbte and tk.get("template_factura_b"):
+            slot_key = tk["template_factura_b"]
+        elif has_cae and is_tarjeta and tk.get("template_cae_tarjeta"):
+            slot_key = tk["template_cae_tarjeta"]
+        elif has_cae and not is_tarjeta and tk.get("template_cae_efectivo"):
+            slot_key = tk["template_cae_efectivo"]
+        elif tk.get("template_consumidor_final") and not has_cae and not tipo_cbte:
+            slot_key = tk["template_consumidor_final"]
 
-        # Obtener el contenido de la plantilla desde slots
-        slots = tk.get("slots", {})
+        # Fallback genérico por forma de pago
+        if not slot_key:
+            slot_key = tk.get("template_tarjeta", "slot3") if is_tarjeta else tk.get("template_efectivo", "slot1")
+
         template_override = slots.get(slot_key, "")
 
     try:
@@ -258,14 +270,18 @@ def _draw_ticket(p, page_rect, prn, venta, sucursal, direcciones, width_mm=75.0,
     y = page_rect.top()  + px(MARGIN_LEFT_MM)
     w = page_rect.width() - px(MARGIN_LEFT_MM) - px(MARGIN_RIGHT_MM)
 
-    # Fuentes (tamaños configurables desde config)
+    # Fuentes H1-H5 configurables
     _fonts = _tk_cfg.get("fonts") or {}
-    _title_pt = int(_fonts.get("title_pt", 12))
-    _head_pt  = int(_fonts.get("head_pt", 9))
-    _text_pt  = int(_fonts.get("text_pt", 9))
-    f_title = QFont("Arial"); f_title.setPointSize(_title_pt); f_title.setBold(True)
-    f_head  = QFont("Arial"); f_head.setPointSize(_head_pt);   f_head.setBold(True)
-    f_norm  = QFont("Arial"); f_norm.setPointSize(_text_pt)
+    _h1 = int(_fonts.get("h1_pt") or _fonts.get("title_pt", 14))
+    _h2 = int(_fonts.get("h2_pt", 12))
+    _h3 = int(_fonts.get("h3_pt") or _fonts.get("head_pt", 10))
+    _h4 = int(_fonts.get("h4_pt") or _fonts.get("text_pt", 9))
+    _h5 = int(_fonts.get("h5_pt", 7))
+    f_title = QFont("Arial"); f_title.setPointSize(_h1); f_title.setBold(True)   # H1
+    f_head  = QFont("Arial"); f_head.setPointSize(_h3);  f_head.setBold(True)    # H3
+    f_norm  = QFont("Arial"); f_norm.setPointSize(_h4)                            # H4
+    f_h2    = QFont("Arial"); f_h2.setPointSize(_h2);    f_h2.setBold(True)      # H2
+    f_h5    = QFont("Arial"); f_h5.setPointSize(_h5)                              # H5
 
     def gap(mm=GAP_MM):
         nonlocal y
@@ -472,7 +488,7 @@ def _draw_ticket(p, page_rect, prn, venta, sucursal, direcciones, width_mm=75.0,
         draw_lr("Descuento", money(descuento_monto), f_norm)
     if getattr(venta, "interes_monto", None):
         draw_lr("Interés", money(getattr(venta, "interes_monto", 0.0)), f_norm)
-    draw_lr("TOTAL", money(tot), f_head)
+    draw_lr("TOTAL", money(tot), f_h2)
     gap()
 
     # ===== Forma de pago =====
@@ -527,10 +543,10 @@ def _draw_ticket(p, page_rect, prn, venta, sucursal, direcciones, width_mm=75.0,
         draw_text("COMPROBANTE ELECTRÓNICO AFIP", f_head, Qt.AlignCenter)
         gap(0.5)
         if afip_num_cbte:
-            draw_lr("Nº Comprobante", str(afip_num_cbte), f_norm)
-        draw_lr("CAE", str(afip_cae), f_norm)
+            draw_lr("Nº Comprobante", str(afip_num_cbte), f_h5)
+        draw_lr("CAE", str(afip_cae), f_h5)
         if afip_cae_venc:
-            draw_lr("Vencimiento CAE", str(afip_cae_venc), f_norm)
+            draw_lr("Vencimiento CAE", str(afip_cae_venc), f_h5)
 
     # ===== Plantilla 100% editable (sin "footer" automático) =====
     _tpl_draw_block(p, px, draw_text, draw_image, line, gap, f_norm, f_head, venta, sucursal, direcciones, template_override=template_override)
@@ -546,16 +562,16 @@ def _compute_ticket_height_mm(venta, prn, width_mm=75.0, template_override: str 
     dpi_x = (getattr(prn, "logicalDpiX", lambda: 300)() or 300) if prn else 300
     mm_per_px = 25.4 / dpi_x
 
-    # Fuentes configurables
+    # Fuentes H1-H5 configurables
     from app.config import load as _load_cfg_h
     _tk_cfg_h = _load_cfg_h().get("ticket", {})
     _fonts_h = _tk_cfg_h.get("fonts") or {}
-    _title_pt = int(_fonts_h.get("title_pt", 12))
-    _head_pt  = int(_fonts_h.get("head_pt", 9))
-    _text_pt  = int(_fonts_h.get("text_pt", 9))
-    f_title = QFont("Arial"); f_title.setPointSize(_title_pt); f_title.setBold(True)
-    f_head  = QFont("Arial"); f_head.setPointSize(_head_pt);   f_head.setBold(True)
-    f_norm  = QFont("Arial"); f_norm.setPointSize(_text_pt)
+    _h1 = int(_fonts_h.get("h1_pt") or _fonts_h.get("title_pt", 14))
+    _h3 = int(_fonts_h.get("h3_pt") or _fonts_h.get("head_pt", 10))
+    _h4 = int(_fonts_h.get("h4_pt") or _fonts_h.get("text_pt", 9))
+    f_title = QFont("Arial"); f_title.setPointSize(_h1); f_title.setBold(True)
+    f_head  = QFont("Arial"); f_head.setPointSize(_h3);  f_head.setBold(True)
+    f_norm  = QFont("Arial"); f_norm.setPointSize(_h4)
 
     fm_t = QFontMetrics(f_title, prn) if prn else QFontMetrics(f_title)
     fm_h = QFontMetrics(f_head,  prn) if prn else QFontMetrics(f_head)
@@ -829,6 +845,100 @@ def _tpl_context(venta, sucursal, direcciones):
     }
     return ctx, items
 
+def _generate_afip_qr_pixmap(venta, sucursal):
+    """Genera QPixmap con QR de factura electrónica AFIP/ARCA.
+    URL: https://www.afip.gob.ar/fe/qr/?p={base64_json}
+    Retorna None si no hay datos suficientes."""
+    try:
+        afip_cae = getattr(venta, 'afip_cae', None)
+        if not afip_cae:
+            return None
+
+        import json, base64
+        from app.config import load as _load_cfg_qr
+        cfg = _load_cfg_qr()
+        fiscal = cfg.get("fiscal") or {}
+
+        # CUIT del comerciante (solo dígitos)
+        cuit_str = str(fiscal.get("cuit", "") or "").replace("-", "").replace(" ", "").strip()
+        if not cuit_str:
+            logger.warning("[QRCAE] No hay CUIT configurado, no se genera QR")
+            return None
+        cuit_num = int(cuit_str)
+
+        # Punto de venta (por sucursal o global)
+        pv_map = fiscal.get("puntos_venta_por_sucursal") or {}
+        pto_vta = int(pv_map.get(sucursal) or fiscal.get("punto_venta", 1))
+
+        # Tipo comprobante AFIP
+        _TIPO_MAP = {"FACTURA_A": 1, "FACTURA_B": 6, "FACTURA_C": 11}
+        tipo_cbte = str(getattr(venta, 'tipo_comprobante', '') or '').upper()
+        tipo_cmp = _TIPO_MAP.get(tipo_cbte, 6)  # default Factura B
+
+        nro_cmp = int(getattr(venta, 'afip_numero_comprobante', 0) or 0)
+        importe = float(getattr(venta, 'total', 0) or 0)
+
+        # Fecha de emisión
+        fecha = getattr(venta, 'fecha', None)
+        if fecha:
+            import datetime
+            if isinstance(fecha, str):
+                fecha_str = fecha[:10]
+            elif isinstance(fecha, datetime.datetime):
+                fecha_str = fecha.strftime("%Y-%m-%d")
+            else:
+                fecha_str = str(fecha)[:10]
+        else:
+            import datetime
+            fecha_str = datetime.datetime.now().strftime("%Y-%m-%d")
+
+        # Tipo documento receptor (99=consumidor final, 80=CUIT)
+        tipo_doc_rec = 80 if tipo_cbte == "FACTURA_A" else 99
+        nro_doc_rec = 0
+
+        payload = {
+            "ver": 1,
+            "fecha": fecha_str,
+            "cuit": cuit_num,
+            "ptoVta": pto_vta,
+            "tipoCmp": tipo_cmp,
+            "nroCmp": nro_cmp,
+            "importe": round(importe, 2),
+            "moneda": "PES",
+            "ctz": 1,
+            "tipoDocRec": tipo_doc_rec,
+            "nroDocRec": nro_doc_rec,
+            "tipoCodAut": "E",
+            "codAut": int(str(afip_cae).strip()),
+        }
+
+        json_bytes = json.dumps(payload, separators=(',', ':')).encode('utf-8')
+        b64 = base64.b64encode(json_bytes).decode('ascii')
+        url = f"https://www.afip.gob.ar/fe/qr/?p={b64}"
+        logger.info("[QRCAE] URL generada: %s", url[:120])
+
+        import qrcode
+        from io import BytesIO
+        qr_img = qrcode.make(url)
+        buf = BytesIO()
+        qr_img.save(buf, format='PNG')
+        buf.seek(0)
+
+        pm = QPixmap()
+        pm.loadFromData(buf.read())
+        if pm.isNull():
+            logger.warning("[QRCAE] QPixmap generado es null")
+            return None
+        return pm
+
+    except ImportError:
+        logger.warning("[QRCAE] Libreria 'qrcode' no instalada")
+        return None
+    except Exception as ex:
+        logger.error("[QRCAE] Error generando QR AFIP: %s", ex, exc_info=True)
+        return None
+
+
 def _tpl_render_lines(template_text, ctx, items, venta=None):
     """
     Convierte la plantilla en una lista de dicts 'línea' con campos:
@@ -907,6 +1017,24 @@ def _tpl_render_lines(template_text, ctx, items, venta=None):
                 pass
         return out
 
+    # Expansión de {{iva.discriminado}} — todas las ventas con CAE
+    def _expand_iva_discriminado():
+        if venta is None:
+            return []
+        afip_cae = getattr(venta, 'afip_cae', None)
+        if not afip_cae:
+            return []
+        total = float(getattr(venta, 'total', 0) or 0)
+        if not total:
+            return []
+        neto = round(total / 1.21, 2)
+        iva = round(total - neto, 2)
+        return [
+            f"Subtotal Neto: {_money(neto)}",
+            f"IVA 21%: {_money(iva)}",
+            f"TOTAL: {_money(total)}",
+        ]
+
     # Detectar si la plantilla ya incluye {{cae}}
     has_cae_placeholder = "{{cae}}" in template_text
 
@@ -935,10 +1063,30 @@ def _tpl_render_lines(template_text, ctx, items, venta=None):
                         lines.append({"text": l, "align": Qt.AlignLeft, "bold": False, "italic": False, "is_rule": False})
             continue
 
+        # Bloque IVA discriminado (solo Factura A)
+        if "{{iva.discriminado}}" in raw:
+            iva_lines = _expand_iva_discriminado()
+            if iva_lines:
+                lines.append({"text": "", "align": Qt.AlignLeft, "bold": False, "italic": False, "is_rule": True})
+                for l in iva_lines:
+                    is_total = l.startswith("TOTAL")
+                    lines.append({"text": l, "align": Qt.AlignRight if is_total else Qt.AlignLeft,
+                                  "bold": is_total, "italic": False, "is_rule": False})
+            continue
+
         # Bloque items
         if "{{items}}" in raw:
             for l in _expand_items():
                 lines.append({"text": l, "align": Qt.AlignLeft, "bold": False, "italic": False, "is_rule": False})
+            continue
+
+        # QR CAE AFIP {{qrcae}}
+        if raw.strip() == "{{qrcae}}":
+            lines.append({
+                "text": "", "align": Qt.AlignHCenter, "bold": False,
+                "italic": False, "is_rule": False,
+                "is_qrcae": True,
+            })
             continue
 
         # Imagen {{img:xxx}}
@@ -956,6 +1104,7 @@ def _tpl_render_lines(template_text, ctx, items, venta=None):
         # Alineado y estilo por prefijo
         align = Qt.AlignLeft
         bold = italic = False
+        heading = None  # None = default (f_norm), 1-5 = H1-H5
         txt = raw.strip()
 
         for tag, a in (("{{center:", Qt.AlignHCenter), ("{{right:", Qt.AlignRight), ("{{left:", Qt.AlignLeft)):
@@ -974,8 +1123,17 @@ def _tpl_render_lines(template_text, ctx, items, venta=None):
                 elif flag == "rb":    bold = True;  align = Qt.AlignRight;   txt = inner
                 break
 
+        # Heading tags {{h1: texto}} ... {{h5: texto}}
+        for h_tag, h_level in (("{{h1:", 1), ("{{h2:", 2), ("{{h3:", 3), ("{{h4:", 4), ("{{h5:", 5)):
+            if txt.startswith(h_tag) and txt.endswith("}}"):
+                txt = txt[len(h_tag):-2].strip()
+                heading = h_level
+                if h_level <= 3:
+                    bold = True
+                break
+
         txt = _repl_placeholders(txt)
-        lines.append({"text": txt, "align": align, "bold": bold, "italic": italic, "is_rule": False})
+        lines.append({"text": txt, "align": align, "bold": bold, "italic": italic, "is_rule": False, "heading": heading})
 
     return lines
 
@@ -1012,9 +1170,29 @@ def _tpl_draw_block(p, px, draw_text, draw_image, line, gap, f_norm, f_head, ven
     except Exception as ex:
         logger.error("[ticket-img] error cargando imagenes: %s", ex, exc_info=True)
 
+    # Construir fuentes H1-H5 para tags {{h1:}} ... {{h5:}}
+    _fonts = tk.get("fonts") or {}
+    _h1_pt = int(_fonts.get("h1_pt") or _fonts.get("title_pt", 14))
+    _h2_pt = int(_fonts.get("h2_pt", 12))
+    _h3_pt = int(_fonts.get("h3_pt") or _fonts.get("head_pt", 10))
+    _h4_pt = int(_fonts.get("h4_pt") or _fonts.get("text_pt", 9))
+    _h5_pt = int(_fonts.get("h5_pt", 7))
+    _heading_sizes = {1: _h1_pt, 2: _h2_pt, 3: _h3_pt, 4: _h4_pt, 5: _h5_pt}
+
+    # Pre-generar QR AFIP si hay alguna línea {{qrcae}}
+    _qrcae_pixmap = None
+    if any(ln.get("is_qrcae") for ln in lines):
+        _qrcae_pixmap = _generate_afip_qr_pixmap(venta, sucursal)
+
     for ln in lines:
         if ln["is_rule"]:
             gap(); line(); continue
+
+        # QR CAE AFIP
+        if ln.get("is_qrcae"):
+            if _qrcae_pixmap is not None:
+                draw_image(_qrcae_pixmap, size_mm=img_size_mm)
+            continue
 
         # Dibujar imagen si es linea de imagen
         if ln.get("is_image"):
@@ -1027,11 +1205,18 @@ def _tpl_draw_block(p, px, draw_text, draw_image, line, gap, f_norm, f_head, ven
                 logger.warning("[ticket-img] '%s' no encontrada en cache (configurada?)", img_key)
             continue
 
-        f = f_norm
-        if ln["bold"] or ln["italic"]:
+        h_level = ln.get("heading")
+        if h_level and h_level in _heading_sizes:
+            f = QFont("Arial")
+            f.setPointSize(_heading_sizes[h_level])
+            if ln["bold"]:   f.setBold(True)
+            if ln["italic"]: f.setItalic(True)
+        elif ln["bold"] or ln["italic"]:
             f = QFont(f_norm)
             if ln["bold"]:   f.setBold(True)
             if ln["italic"]: f.setItalic(True)
+        else:
+            f = f_norm
         draw_text(ln["text"], f, ln["align"])
 
     # ===== Agregar datos del CAE automáticamente solo si NO está en la plantilla =====

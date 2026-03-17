@@ -69,8 +69,12 @@ class VentasFinalizacionMixin:
                 if datos["cuit_cliente"]:
                     logger.info(f"[Tarjeta] CUIT cliente: {datos['cuit_cliente']}")
         else:
-            # Usuario cancelo, volver a efectivo
+            # Usuario cancelo, volver a efectivo (bloquear señales para evitar re-trigger)
+            self.rb_tarjeta.blockSignals(True)
+            self.rb_efectivo.blockSignals(True)
             self.rb_efectivo.setChecked(True)
+            self.rb_efectivo.blockSignals(False)
+            self.rb_tarjeta.blockSignals(False)
 
     def _update_cuota_label(self, cuotas):
         try:
@@ -182,6 +186,12 @@ class VentasFinalizacionMixin:
         modo = 'Efectivo' if is_efectivo else 'Tarjeta'
         cuotas = self._datos_tarjeta["cuotas"] if (not is_efectivo and hasattr(self, '_datos_tarjeta') and self._datos_tarjeta) else None
 
+        # Determinar tipo de comprobante para guardar en BD
+        _tipo_cbte_guardar = None
+        if not is_efectivo and hasattr(self, '_datos_tarjeta') and self._datos_tarjeta:
+            _tipo_cbte_guardar = self._datos_tarjeta.get("tipo_comprobante")
+        elif is_efectivo and efectivo_tipo_cbte:
+            _tipo_cbte_guardar = efectivo_tipo_cbte
 
         # Crear venta (total=0 en BD inicialmente)
         venta = self.venta_repo.crear_venta(
@@ -189,6 +199,9 @@ class VentasFinalizacionMixin:
             modo_pago=modo,
             cuotas=cuotas
         )
+        # Guardar tipo de comprobante
+        if _tipo_cbte_guardar:
+            venta.tipo_comprobante = _tipo_cbte_guardar
 
         # Agregar items
         for r in range(self.table_cesta.rowCount()):
@@ -492,3 +505,29 @@ class VentasFinalizacionMixin:
                 "La venta fue registrada pero SIN comprobante electronico.\n"
                 "Puedes reintentar desde el historial de ventas."
             )
+
+            # Enviar email de alerta por error AFIP
+            try:
+                from app.email_helper import send_mail_with_attachments
+                from app.config import load as _load_cfg_afip
+                _cfg_afip = _load_cfg_afip()
+                _email_cfg = _cfg_afip.get("email") or {}
+                if _email_cfg.get("enabled"):
+                    _recips = list(filter(None, _email_cfg.get("recipients") or []))
+                    if _recips:
+                        _subj = f"Error AFIP - Venta #{getattr(venta, 'numero_ticket', '?')}"
+                        _body = (
+                            f"Se produjo un error al emitir comprobante electronico.\n\n"
+                            f"Error: {err_txt}\n"
+                            f"Sucursal: {sucursal}\n"
+                            f"Ticket: #{getattr(venta, 'numero_ticket', '?')}\n"
+                            f"Total: ${venta.total:.2f}\n"
+                            f"Modo de pago: {modo_pago}\n"
+                            f"Tipo comprobante: {tipo_comprobante_final}\n\n"
+                            f"La venta fue registrada pero SIN comprobante electronico.\n"
+                            f"Se puede reintentar desde el historial de ventas."
+                        )
+                        send_mail_with_attachments(_subj, _body, _recips)
+                        logger.info("[AFIP] Email de alerta enviado a %s", _recips)
+            except Exception as _mail_err:
+                logger.warning("[AFIP] No se pudo enviar email de alerta: %s", _mail_err)

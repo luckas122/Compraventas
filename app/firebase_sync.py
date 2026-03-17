@@ -348,6 +348,31 @@ class FirebaseSyncManager:
         if not key:
             self._enqueue_change("proveedores", "delete", data["data"])
 
+    def push_pago_proveedor(self, pago):
+        """Publica un pago a proveedor en Firebase."""
+        data = {
+            "sucursal_origen": self.sucursal_local,
+            "timestamp": int(time.time() * 1000),
+            "accion": "create",
+            "data": {
+                "numero_ticket": getattr(pago, 'numero_ticket', None),
+                "sucursal": getattr(pago, 'sucursal', ''),
+                "fecha": pago.fecha.isoformat() if pago.fecha else None,
+                "proveedor_nombre": getattr(pago, 'proveedor_nombre', ''),
+                "monto": float(getattr(pago, 'monto', 0) or 0),
+                "metodo_pago": getattr(pago, 'metodo_pago', 'Efectivo'),
+                "pago_de_caja": bool(getattr(pago, 'pago_de_caja', False)),
+                "nota": getattr(pago, 'nota', '') or '',
+            }
+        }
+
+        key = self._firebase_post("cambios/pagos_proveedores", data)
+        if not key:
+            self._enqueue_change("pagos_proveedores", "create", data["data"])
+            self._log(f"Pago prov #{pago.numero_ticket} encolado offline")
+        else:
+            self._log(f"Pago prov #{pago.numero_ticket} a {pago.proveedor_nombre}: {key}")
+
     # ─── Sync inicial: subir todo lo existente ───────────────────────
 
     @staticmethod

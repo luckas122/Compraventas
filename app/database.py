@@ -129,23 +129,107 @@ def _run_migrations():
             from app.models import PagoProveedor
             PagoProveedor.__table__.create(bind=engine)
 
-        # Quitar UNIQUE constraint de numero_ticket en ventas (v5.1.0)
-        # Cada sucursal tiene su propia secuencia de tickets
+        # Agregar tipo_comprobante a ventas si no existe (v5.1.1)
         if "ventas" in inspector.get_table_names():
-            indexes = inspector.get_indexes("ventas")
-            for idx in indexes:
-                if idx.get("unique") and "numero_ticket" in idx.get("columns", []):
-                    idx_name = idx.get("name", "")
-                    if idx_name:
+            cols = [c["name"] for c in inspector.get_columns("ventas")]
+            if "tipo_comprobante" not in cols:
+                conn.execute(text("ALTER TABLE ventas ADD COLUMN tipo_comprobante VARCHAR"))
+
+        # Quitar UNIQUE constraint de numero_ticket en ventas (v5.1.0)
+        # Cada sucursal tiene su propia secuencia de tickets.
+        # SQLite no permite ALTER TABLE DROP CONSTRAINT, hay que recrear la tabla.
+        if "ventas" in inspector.get_table_names():
+            # Detectar si numero_ticket tiene UNIQUE en la definición de la tabla
+            table_sql = conn.execute(text(
+                "SELECT sql FROM sqlite_master WHERE tbl_name='ventas' AND type='table'"
+            )).scalar() or ""
+            _ts_upper = table_sql.upper()
+
+            # Buscar "numero_ticket ... UNIQUE" en la definición de columna
+            needs_rebuild = False
+            if "NUMERO_TICKET" in _ts_upper:
+                # Extraer la línea de numero_ticket del CREATE TABLE
+                for line in table_sql.split(","):
+                    _lu = line.upper().strip()
+                    if "NUMERO_TICKET" in _lu and "UNIQUE" in _lu:
+                        needs_rebuild = True
+                        break
+
+            if not needs_rebuild:
+                # Verificar también índices explícitos UNIQUE
+                idx_rows = conn.execute(text(
+                    "SELECT name, sql FROM sqlite_master "
+                    "WHERE tbl_name='ventas' AND type='index' AND sql IS NOT NULL"
+                )).fetchall()
+                for row in idx_rows:
+                    idx_sql = (row[1] or "").upper()
+                    if "UNIQUE" in idx_sql and "NUMERO_TICKET" in idx_sql:
+                        # Drop the explicit index
                         try:
-                            conn.execute(text(f"DROP INDEX IF EXISTS \"{idx_name}\""))
+                            conn.execute(text(f'DROP INDEX IF EXISTS "{row[0]}"'))
                         except Exception:
                             pass
-            # Recrear index sin UNIQUE
-            try:
+
+            if needs_rebuild:
+                logger.info("[MIGRATION] Recreando tabla ventas para quitar UNIQUE de numero_ticket...")
+                conn.execute(text("PRAGMA foreign_keys = OFF"))
+
+                # 1) Obtener columnas actuales de la tabla vieja
+                old_cols = [c["name"] for c in inspector.get_columns("ventas")]
+
+                # 2) Renombrar tabla original
+                conn.execute(text("ALTER TABLE ventas RENAME TO _ventas_old"))
+
+                # 3) Crear nueva tabla SIN UNIQUE en numero_ticket (SQL puro)
+                conn.execute(text("""
+                    CREATE TABLE ventas (
+                        id INTEGER NOT NULL PRIMARY KEY,
+                        sucursal VARCHAR NOT NULL,
+                        fecha DATETIME NOT NULL,
+                        modo_pago VARCHAR NOT NULL,
+                        cuotas INTEGER,
+                        total FLOAT NOT NULL,
+                        subtotal_base FLOAT NOT NULL DEFAULT 0.0,
+                        interes_pct FLOAT NOT NULL DEFAULT 0.0,
+                        interes_monto FLOAT NOT NULL DEFAULT 0.0,
+                        descuento_pct FLOAT NOT NULL DEFAULT 0.0,
+                        descuento_monto FLOAT NOT NULL DEFAULT 0.0,
+                        pagado FLOAT,
+                        vuelto FLOAT,
+                        numero_ticket INTEGER NOT NULL,
+                        afip_cae VARCHAR,
+                        afip_cae_vencimiento VARCHAR,
+                        afip_numero_comprobante INTEGER,
+                        afip_error VARCHAR,
+                        tipo_comprobante VARCHAR
+                    )
+                """))
+
+                # 4) Copiar datos (solo columnas que existen en la nueva tabla)
+                new_cols = ["id", "sucursal", "fecha", "modo_pago", "cuotas", "total",
+                            "subtotal_base", "interes_pct", "interes_monto",
+                            "descuento_pct", "descuento_monto", "pagado", "vuelto",
+                            "numero_ticket", "afip_cae", "afip_cae_vencimiento",
+                            "afip_numero_comprobante", "afip_error", "tipo_comprobante"]
+                common = [c for c in new_cols if c in old_cols]
+                cols_csv = ", ".join(common)
+                conn.execute(text(f"INSERT INTO ventas ({cols_csv}) SELECT {cols_csv} FROM _ventas_old"))
+
+                # 5) Eliminar tabla vieja
+                conn.execute(text("DROP TABLE _ventas_old"))
+
+                # 6) Recrear índices
                 conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ventas_numero_ticket ON ventas (numero_ticket)"))
-            except Exception:
-                pass
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ventas_sucursal_fecha ON ventas (sucursal, fecha)"))
+
+                conn.execute(text("PRAGMA foreign_keys = ON"))
+                logger.info("[MIGRATION] Tabla ventas recreada exitosamente sin UNIQUE en numero_ticket")
+            else:
+                # Solo asegurar que existe el índice no-unique
+                try:
+                    conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ventas_numero_ticket ON ventas (numero_ticket)"))
+                except Exception:
+                    pass
 
         conn.commit()
 

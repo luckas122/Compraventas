@@ -187,6 +187,15 @@ class StatsMixin:
         kpi_layout.addWidget(self.kpi_promedio, 0, 2)
         kpi_layout.addWidget(self.kpi_interes_total, 0, 3)
 
+        # KPIs IVA (fila 1)
+        self.kpi_iva_compras = self._create_kpi_card("IVA Compras (Pagos)", "$0.00", "#7B1FA2")
+        self.kpi_iva_ventas = self._create_kpi_card("IVA Ventas (CAE)", "$0.00", "#00796B")
+        self.kpi_iva_saldo = self._create_kpi_card("Saldo IVA", "$0.00", "#455A64")
+
+        kpi_layout.addWidget(self.kpi_iva_compras, 1, 0)
+        kpi_layout.addWidget(self.kpi_iva_ventas, 1, 1)
+        kpi_layout.addWidget(self.kpi_iva_saldo, 1, 2)
+
         main_layout.addWidget(kpi_group)
 
         # Área para gráfico de ventas
@@ -250,8 +259,9 @@ class StatsMixin:
         from PyQt5.QtCore import Qt
 
         card = QWidget()
+        card.setObjectName("kpi_card")
         card.setStyleSheet(f"""
-            QWidget {{
+            QWidget#kpi_card {{
                 background-color: white;
                 border: 2px solid {color};
                 border-radius: 8px;
@@ -324,6 +334,27 @@ class StatsMixin:
         self.kpi_cant_ventas.findChild(QLabel, "kpi_value").setText(f"{cant_ventas}")
         self.kpi_promedio.findChild(QLabel, "kpi_value").setText(f"${promedio:,.2f}")
         self.kpi_interes_total.findChild(QLabel, "kpi_value").setText(f"${interes_total:,.2f}")
+
+        # IVA: pagos proveedores (compras)
+        iva_compras = 0.0
+        try:
+            pagos = self.pago_prov_repo.listar_por_rango(desde_dt, hasta_dt, sucursal)
+            total_pagos = sum(float(getattr(p, 'monto', 0) or 0) for p in pagos)
+            iva_compras = round(total_pagos - total_pagos / 1.21, 2)
+        except Exception as _iva_err:
+            logger.warning("[STATS] Error calculando IVA compras: %s", _iva_err)
+
+        # IVA: ventas con CAE
+        ventas_cae = [v for v in ventas if getattr(v, 'afip_cae', None)]
+        total_cae = sum(v.total for v in ventas_cae)
+        iva_ventas = round(total_cae - total_cae / 1.21, 2)
+
+        saldo_iva = round(iva_compras - iva_ventas, 2)
+
+        self.kpi_iva_compras.findChild(QLabel, "kpi_value").setText(f"${iva_compras:,.2f}")
+        self.kpi_iva_ventas.findChild(QLabel, "kpi_value").setText(f"${iva_ventas:,.2f}")
+        _saldo_prefix = "-" if saldo_iva < 0 else ""
+        self.kpi_iva_saldo.findChild(QLabel, "kpi_value").setText(f"{_saldo_prefix}${abs(saldo_iva):,.2f}")
 
         # Preparar datos para gráfico de ventas por día
         ventas_por_dia = defaultdict(float)
@@ -659,6 +690,8 @@ class StatsMixin:
         _add_group(v, "Contenido", [
             ("{{items}}", "{{items}}", "Lista de articulos de la venta"),
             ("{{cae}}",   "{{cae}}",   "Codigo de Autorizacion Electronica (AFIP)"),
+            ("{{qrcae}}", "{{qrcae}}", "QR de factura electronica AFIP/ARCA (solo si hay CAE)"),
+            ("{{iva.discriminado}}", "{{iva.discriminado}}", "IVA discriminado (ventas con CAE): Neto + IVA 21% + Total"),
             ("{{hr}}",    "{{hr}}",    "Linea separadora horizontal"),
         ])
 
@@ -676,6 +709,15 @@ class StatsMixin:
             ("{{right: }}",   "{{right: }}",   "Alinea el texto a la derecha"),
             ("{{b: }}",       "{{b: }}",       "Aplica negrita al texto"),
             ("{{i: }}",       "{{i: }}",       "Aplica italica al texto"),
+        ])
+
+        # --- Tamaño de fuente ---
+        _add_group(v, "Tamaño fuente", [
+            ("{{h1: }}",  "{{h1: }}",  "Tamaño H1 (titulo grande, negrita)"),
+            ("{{h2: }}",  "{{h2: }}",  "Tamaño H2 (seccion, negrita)"),
+            ("{{h3: }}",  "{{h3: }}",  "Tamaño H3 (cabecera, negrita)"),
+            ("{{h4: }}",  "{{h4: }}",  "Tamaño H4 (texto normal)"),
+            ("{{h5: }}",  "{{h5: }}",  "Tamaño H5 (pie/legal, pequeño)"),
         ])
 
         v.addStretch(1)

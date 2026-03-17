@@ -1276,6 +1276,11 @@ class VentasMixin:
                 f"Pago #{pago.numero_ticket} a {datos['proveedor_nombre']} "
                 f"por ${datos['monto']:.2f} registrado."
             )
+            # Sincronizar pago a Firebase
+            try:
+                self._sync_push("pago_proveedor", pago)
+            except Exception:
+                pass
             self.recargar_ventas_dia()
         except Exception as ex:
             QMessageBox.warning(self, "Error", f"No se pudo registrar el pago:\n{ex}")

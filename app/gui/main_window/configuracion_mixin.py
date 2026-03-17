@@ -330,17 +330,30 @@ class ConfiguracionMixin:
         hl_slots.addStretch(1)
         lay_tpl.addRow("Plantillas guardadas:", hl_slots)
 
-        # Selección automática de plantilla según forma de pago
+        # Selección automática de plantilla según forma de pago / tipo comprobante
         self.cfg_tpl_efectivo = QComboBox()
         self.cfg_tpl_tarjeta = QComboBox()
+        self.cfg_tpl_factura_a = QComboBox()
+        self.cfg_tpl_factura_b = QComboBox()
+        self.cfg_tpl_cae_efectivo = QComboBox()
+        self.cfg_tpl_cae_tarjeta = QComboBox()
+        self.cfg_tpl_consumidor_final = QComboBox()
         self._tpl_build_payment_combos()
 
         # Conectar señales para guardar automáticamente cuando cambia la selección
-        self.cfg_tpl_efectivo.currentIndexChanged.connect(self._tpl_save_payment_selection)
-        self.cfg_tpl_tarjeta.currentIndexChanged.connect(self._tpl_save_payment_selection)
+        for _combo in (self.cfg_tpl_efectivo, self.cfg_tpl_tarjeta,
+                       self.cfg_tpl_factura_a, self.cfg_tpl_factura_b,
+                       self.cfg_tpl_cae_efectivo, self.cfg_tpl_cae_tarjeta,
+                       self.cfg_tpl_consumidor_final):
+            _combo.currentIndexChanged.connect(self._tpl_save_payment_selection)
 
-        lay_tpl.addRow("Plantilla para Efectivo:", self.cfg_tpl_efectivo)
-        lay_tpl.addRow("Plantilla para Tarjeta:", self.cfg_tpl_tarjeta)
+        lay_tpl.addRow("Efectivo (sin CAE):", self.cfg_tpl_efectivo)
+        lay_tpl.addRow("Tarjeta (sin CAE):", self.cfg_tpl_tarjeta)
+        lay_tpl.addRow("Factura A:", self.cfg_tpl_factura_a)
+        lay_tpl.addRow("Factura B:", self.cfg_tpl_factura_b)
+        lay_tpl.addRow("CAE + Efectivo:", self.cfg_tpl_cae_efectivo)
+        lay_tpl.addRow("CAE + Tarjeta:", self.cfg_tpl_cae_tarjeta)
+        lay_tpl.addRow("Consumidor Final:", self.cfg_tpl_consumidor_final)
 
         help_lbl = QLabel(
             "Usa los botones del panel derecho para insertar placeholders. "
@@ -358,23 +371,35 @@ class ConfiguracionMixin:
         lay_fonts = QFormLayout(gb_fonts)
         lay_fonts.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
-        self.cfg_tk_font_title = QSpinBox(gb_fonts)
-        self.cfg_tk_font_title.setRange(6, 24)
-        self.cfg_tk_font_title.setValue(int(_tk_fonts.get("title_pt", 12)))
-        self.cfg_tk_font_title.setSuffix(" pt")
-        lay_fonts.addRow("Título (negocio):", self.cfg_tk_font_title)
+        self.cfg_tk_font_h1 = QSpinBox(gb_fonts)
+        self.cfg_tk_font_h1.setRange(6, 30)
+        self.cfg_tk_font_h1.setValue(int(_tk_fonts.get("h1_pt") or _tk_fonts.get("title_pt", 14)))
+        self.cfg_tk_font_h1.setSuffix(" pt")
+        lay_fonts.addRow("H1 - Titulo/Negocio:", self.cfg_tk_font_h1)
 
-        self.cfg_tk_font_head = QSpinBox(gb_fonts)
-        self.cfg_tk_font_head.setRange(6, 20)
-        self.cfg_tk_font_head.setValue(int(_tk_fonts.get("head_pt", 9)))
-        self.cfg_tk_font_head.setSuffix(" pt")
-        lay_fonts.addRow("Cabecera (TOTAL, secciones):", self.cfg_tk_font_head)
+        self.cfg_tk_font_h2 = QSpinBox(gb_fonts)
+        self.cfg_tk_font_h2.setRange(6, 24)
+        self.cfg_tk_font_h2.setValue(int(_tk_fonts.get("h2_pt", 12)))
+        self.cfg_tk_font_h2.setSuffix(" pt")
+        lay_fonts.addRow("H2 - Total/Secciones:", self.cfg_tk_font_h2)
 
-        self.cfg_tk_font_text = QSpinBox(gb_fonts)
-        self.cfg_tk_font_text.setRange(6, 20)
-        self.cfg_tk_font_text.setValue(int(_tk_fonts.get("text_pt", 9)))
-        self.cfg_tk_font_text.setSuffix(" pt")
-        lay_fonts.addRow("Texto (cuerpo, items):", self.cfg_tk_font_text)
+        self.cfg_tk_font_h3 = QSpinBox(gb_fonts)
+        self.cfg_tk_font_h3.setRange(6, 20)
+        self.cfg_tk_font_h3.setValue(int(_tk_fonts.get("h3_pt") or _tk_fonts.get("head_pt", 10)))
+        self.cfg_tk_font_h3.setSuffix(" pt")
+        lay_fonts.addRow("H3 - Cabeceras:", self.cfg_tk_font_h3)
+
+        self.cfg_tk_font_h4 = QSpinBox(gb_fonts)
+        self.cfg_tk_font_h4.setRange(6, 20)
+        self.cfg_tk_font_h4.setValue(int(_tk_fonts.get("h4_pt") or _tk_fonts.get("text_pt", 9)))
+        self.cfg_tk_font_h4.setSuffix(" pt")
+        lay_fonts.addRow("H4 - Texto/Items:", self.cfg_tk_font_h4)
+
+        self.cfg_tk_font_h5 = QSpinBox(gb_fonts)
+        self.cfg_tk_font_h5.setRange(6, 16)
+        self.cfg_tk_font_h5.setValue(int(_tk_fonts.get("h5_pt", 7)))
+        self.cfg_tk_font_h5.setSuffix(" pt")
+        lay_fonts.addRow("H5 - Pie/Legal/CAE:", self.cfg_tk_font_h5)
 
         lay_tk.addWidget(gb_fonts)
 
@@ -1153,9 +1178,11 @@ class ConfiguracionMixin:
         # ---------- fuentes ticket ----------
         try:
             fonts = tk.get("fonts") or {}
-            fonts["title_pt"] = self.cfg_tk_font_title.value()
-            fonts["head_pt"]  = self.cfg_tk_font_head.value()
-            fonts["text_pt"]  = self.cfg_tk_font_text.value()
+            fonts["h1_pt"] = self.cfg_tk_font_h1.value()
+            fonts["h2_pt"] = self.cfg_tk_font_h2.value()
+            fonts["h3_pt"] = self.cfg_tk_font_h3.value()
+            fonts["h4_pt"] = self.cfg_tk_font_h4.value()
+            fonts["h5_pt"] = self.cfg_tk_font_h5.value()
             tk["fonts"] = fonts
         except Exception:
             pass

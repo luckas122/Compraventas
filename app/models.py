@@ -54,6 +54,7 @@ class Venta(Base):
     afip_cae_vencimiento = Column(String, nullable=True)
     afip_numero_comprobante = Column(Integer, nullable=True)
     afip_error = Column(String, nullable=True)  # Guarda error si AFIP falló (para reintentar después)
+    tipo_comprobante = Column(String, nullable=True)  # FACTURA_A, FACTURA_B, etc.
     
     __table_args__ = (
         Index('ix_ventas_sucursal_fecha', 'sucursal', 'fecha'),

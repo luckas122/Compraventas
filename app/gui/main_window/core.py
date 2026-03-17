@@ -1610,7 +1610,9 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
                 if hasattr(self, '_datos_tarjeta') and self._datos_tarjeta:
                     # Ya está configurado, solo marcar el radio button
                     if hasattr(self, 'rb_tarjeta'):
+                        self.rb_tarjeta.blockSignals(True)
                         self.rb_tarjeta.setChecked(True)
+                        self.rb_tarjeta.blockSignals(False)
                 else:
                     # Abrir el diálogo ANTES de marcar el radio button
                     # para evitar que el evento toggled abra el diálogo otra vez
@@ -1621,11 +1623,15 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
                             return
                         # Ahora sí marcar el radio button (ya está configurado)
                         if hasattr(self, 'rb_tarjeta'):
+                            self.rb_tarjeta.blockSignals(True)
                             self.rb_tarjeta.setChecked(True)
+                            self.rb_tarjeta.blockSignals(False)
                     else:
                         # Fallback a popups viejos solo si no existe el método nuevo
                         if hasattr(self, 'rb_tarjeta'):
+                            self.rb_tarjeta.blockSignals(True)
                             self.rb_tarjeta.setChecked(True)
+                            self.rb_tarjeta.blockSignals(False)
                         ok_tarjeta = self._shortcut_set_tarjeta_dialog()
                         if not ok_tarjeta:
                             return  # canceló cuotas/interés
@@ -1635,10 +1641,10 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
 
         except Exception as e:
             logger.error("[VENTAS] Error en _shortcut_finalizar_venta_dialog: %s", e, exc_info=True)
-            try:
-                self.finalizar_venta()
-            except Exception as e2:
-                logger.error("[VENTAS] Error en fallback finalizar_venta: %s", e2, exc_info=True)
+            from PyQt5.QtWidgets import QMessageBox as _QMB
+            _QMB.warning(self, "Error",
+                f"Ocurrio un error al finalizar la venta:\n{e}\n\n"
+                "Intenta de nuevo o revisa los datos.")
         finally:
             # Siempre re-habilitar shortcuts de sección
             if _sm:

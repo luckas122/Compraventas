@@ -47,6 +47,9 @@ hiddenimports = list(set(
         "email.mime.multipart",
         "email.mime.text",
         "email.mime.application",
+        # QR Code (usado para QR AFIP en tickets)
+        "qrcode",
+        "qrcode.main",
     ]
 ))
 

@@ -37,65 +37,77 @@ class TicketTemplatesMixin:
             mark = " •" if txt else " (vacía)"
             self.cfg_tpl_slot.addItem(label + mark, key)
 
+    # Mapeo de claves de config → atributo del combo en self
+    _TPL_COMBO_MAP = {
+        "template_efectivo": "cfg_tpl_efectivo",
+        "template_tarjeta": "cfg_tpl_tarjeta",
+        "template_factura_a": "cfg_tpl_factura_a",
+        "template_factura_b": "cfg_tpl_factura_b",
+        "template_cae_efectivo": "cfg_tpl_cae_efectivo",
+        "template_cae_tarjeta": "cfg_tpl_cae_tarjeta",
+        "template_consumidor_final": "cfg_tpl_consumidor_final",
+    }
+
     def _tpl_build_payment_combos(self):
-        """Construye los combos para seleccionar plantilla por forma de pago."""
+        """Construye los combos para seleccionar plantilla por forma de pago / tipo."""
         from app.config import load as load_config
         cfg = load_config()
         tk = (cfg.get("ticket") or {})
         slot_names = (tk.get("slot_names") or {})
 
-        # Desconectar señales temporalmente para evitar guardados durante la reconstrucción
-        try:
-            self.cfg_tpl_efectivo.currentIndexChanged.disconnect(self._tpl_save_payment_selection)
-            self.cfg_tpl_tarjeta.currentIndexChanged.disconnect(self._tpl_save_payment_selection)
-        except Exception:
-            pass  # Si no estaban conectadas, ignorar
+        all_combos = []
+        for cfg_key, attr in self._TPL_COMBO_MAP.items():
+            combo = getattr(self, attr, None)
+            if combo is not None:
+                all_combos.append((cfg_key, combo))
 
-        # Limpiar y rellenar ambos combos
-        for combo in (self.cfg_tpl_efectivo, self.cfg_tpl_tarjeta):
+        # Desconectar señales temporalmente
+        for _, combo in all_combos:
+            try:
+                combo.currentIndexChanged.disconnect(self._tpl_save_payment_selection)
+            except Exception:
+                pass
+
+        # Limpiar y rellenar todos los combos
+        for cfg_key, combo in all_combos:
             combo.clear()
+            # Los nuevos combos tienen opción "(Sin asignar)" excepto efectivo/tarjeta
+            if cfg_key not in ("template_efectivo", "template_tarjeta"):
+                combo.addItem("(Sin asignar)", "")
             for key in tuple(f"slot{i}" for i in range(1, 11)):
                 label = slot_names.get(key, f"Plantilla {key[-1]}")
                 combo.addItem(label, key)
 
-        # Seleccionar los valores actuales desde config
-        efectivo_slot = tk.get("template_efectivo", "slot1")
-        tarjeta_slot = tk.get("template_tarjeta", "slot3")
+        # Seleccionar valores desde config
+        defaults = {"template_efectivo": "slot1", "template_tarjeta": "slot3"}
+        for cfg_key, combo in all_combos:
+            saved = tk.get(cfg_key, defaults.get(cfg_key, ""))
+            for i in range(combo.count()):
+                if combo.itemData(i) == saved:
+                    combo.setCurrentIndex(i)
+                    break
 
-        # Buscar índice y seleccionar
-        for i in range(self.cfg_tpl_efectivo.count()):
-            if self.cfg_tpl_efectivo.itemData(i) == efectivo_slot:
-                self.cfg_tpl_efectivo.setCurrentIndex(i)
-                break
-
-        for i in range(self.cfg_tpl_tarjeta.count()):
-            if self.cfg_tpl_tarjeta.itemData(i) == tarjeta_slot:
-                self.cfg_tpl_tarjeta.setCurrentIndex(i)
-                break
-
-        # Reconectar las señales
-        self.cfg_tpl_efectivo.currentIndexChanged.connect(self._tpl_save_payment_selection)
-        self.cfg_tpl_tarjeta.currentIndexChanged.connect(self._tpl_save_payment_selection)
+        # Reconectar señales
+        for _, combo in all_combos:
+            combo.currentIndexChanged.connect(self._tpl_save_payment_selection)
 
     def _tpl_save_payment_selection(self):
-        """Guarda automáticamente la selección de plantilla por forma de pago."""
+        """Guarda automáticamente la selección de plantilla por tipo de operación."""
         from app.config import load as load_config, save as save_config
 
         try:
             cfg = load_config()
             tk = cfg.get("ticket") or {}
 
-            # Guardar las selecciones actuales
-            tk["template_efectivo"] = self.cfg_tpl_efectivo.currentData()
-            tk["template_tarjeta"] = self.cfg_tpl_tarjeta.currentData()
+            for cfg_key, attr in self._TPL_COMBO_MAP.items():
+                combo = getattr(self, attr, None)
+                if combo is not None:
+                    tk[cfg_key] = combo.currentData() or ""
 
             cfg["ticket"] = tk
             save_config(cfg)
-
-            # Opcional: mostrar confirmación breve
-            self.statusBar().showMessage("Selección de plantilla guardada", 1500)
-        except Exception as e:
-            # Si falla, no mostrar error para no interrumpir la experiencia del usuario
+            self.statusBar().showMessage("Seleccion de plantilla guardada", 1500)
+        except Exception:
             pass
 
     def _tpl_insert(self, snippet: str):
@@ -233,9 +245,11 @@ class TicketTemplatesMixin:
         slots[key] = self.cfg_txt_tpl.toPlainText()
         tk["slots"] = slots
 
-        # Guardar también las selecciones de plantilla por forma de pago
-        tk["template_efectivo"] = self.cfg_tpl_efectivo.currentData()
-        tk["template_tarjeta"] = self.cfg_tpl_tarjeta.currentData()
+        # Guardar todas las selecciones de plantilla por tipo
+        for cfg_key, attr in self._TPL_COMBO_MAP.items():
+            combo = getattr(self, attr, None)
+            if combo is not None:
+                tk[cfg_key] = combo.currentData() or ""
 
         cfg["ticket"] = tk
         save_config(cfg)

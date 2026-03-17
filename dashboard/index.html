@@ -220,6 +220,7 @@
         .suc-salta { color: #e65100; font-weight: 500; }
         .pago-efectivo { color: #2e7d32; }
         .pago-tarjeta { color: #e65100; }
+        .pago-proveedor { color: #c62828; font-weight: 500; }
         .monto { font-weight: 600; font-family: 'Consolas', monospace; }
         .no-data {
             text-align: center;
@@ -471,6 +472,25 @@
                 </div>
             </div>
 
+            <!-- Cards IVA -->
+            <div class="cards" id="ivaCardsContainer">
+                <div class="card" style="border-left: 4px solid #7b1fa2;">
+                    <div class="label">IVA Ventas (CAE)</div>
+                    <div class="value" style="color:#7b1fa2;" id="ivaVentas">$0.00</div>
+                    <div class="sub" id="ivaVentasSub">21% sobre ventas con CAE</div>
+                </div>
+                <div class="card" style="border-left: 4px solid #00796b;">
+                    <div class="label">Pagos a Proveedores</div>
+                    <div class="value" style="color:#00796b;" id="totalPagos">$0.00</div>
+                    <div class="sub" id="cantPagos">0 pagos</div>
+                </div>
+                <div class="card" style="border-left: 4px solid #455a64;">
+                    <div class="label">IVA Compras (Pagos)</div>
+                    <div class="value" style="color:#455a64;" id="ivaCompras">$0.00</div>
+                    <div class="sub" id="ivaSaldo">Saldo IVA: $0.00</div>
+                </div>
+            </div>
+
             <!-- Cards por sucursal -->
             <div class="cards" id="sucursalCards"></div>
 
@@ -684,58 +704,98 @@
         document.getElementById('noData').classList.add('hidden');
 
         try {
-            // Obtener TODAS las ventas de Firebase
-            const data = await firebaseGet('cambios/ventas');
+            // Obtener ventas y pagos proveedores en paralelo
+            const [data, pagosData] = await Promise.all([
+                firebaseGet('cambios/ventas'),
+                firebaseGet('cambios/pagos_proveedores').catch(() => null)
+            ]);
             actualizarStatus('Conectado', true);
 
-            if (!data) {
+            if (!data && !pagosData) {
                 mostrarVacio();
                 return;
             }
 
-            // Parsear y filtrar
+            // Parsear ventas
             let ventas = [];
-            for (const [key, entry] of Object.entries(data)) {
-                if (!entry || !entry.data) continue;
-                if (entry.accion !== 'create') continue;
+            if (data) {
+                for (const [key, entry] of Object.entries(data)) {
+                    if (!entry || !entry.data) continue;
+                    if (entry.accion !== 'create') continue;
 
-                const v = entry.data;
-                const vFecha = (v.fecha || '').substring(0, 10);
+                    const v = entry.data;
+                    const vFecha = (v.fecha || '').substring(0, 10);
 
-                // Filtro por fecha
-                if (fecha && vFecha !== fecha) continue;
+                    if (fecha && vFecha !== fecha) continue;
+                    if (sucFiltro && v.sucursal !== sucFiltro) continue;
 
-                // Filtro por sucursal
-                if (sucFiltro && v.sucursal !== sucFiltro) continue;
-
-                ventas.push({
-                    key: key,
-                    ticket: v.numero_ticket || '-',
-                    fecha: v.fecha || '',
-                    sucursal: v.sucursal || '',
-                    total: parseFloat(v.total || 0),
-                    modo_pago: v.modo_pago || 'Efectivo',
-                    cuotas: parseInt(v.cuotas || 0),
-                    cae: v.afip_cae || '',
-                    items: v.items || [],
-                    pagado: parseFloat(v.pagado || 0),
-                    vuelto: parseFloat(v.vuelto || 0),
-                    interes: parseFloat(v.interes_monto || 0),
-                    descuento: parseFloat(v.descuento_monto || 0),
-                    timestamp: entry.timestamp || 0
-                });
+                    ventas.push({
+                        key: key,
+                        ticket: v.numero_ticket || '-',
+                        fecha: v.fecha || '',
+                        sucursal: v.sucursal || '',
+                        total: parseFloat(v.total || 0),
+                        modo_pago: v.modo_pago || 'Efectivo',
+                        cuotas: parseInt(v.cuotas || 0),
+                        cae: v.afip_cae || '',
+                        items: v.items || [],
+                        pagado: parseFloat(v.pagado || 0),
+                        vuelto: parseFloat(v.vuelto || 0),
+                        interes: parseFloat(v.interes_monto || 0),
+                        descuento: parseFloat(v.descuento_monto || 0),
+                        timestamp: entry.timestamp || 0,
+                        esPago: false
+                    });
+                }
             }
 
-            // Ordenar por timestamp (mas reciente primero)
-            ventas.sort((a, b) => b.timestamp - a.timestamp);
-            ventasCache = ventas;
+            // Parsear pagos a proveedores
+            let pagosProveedores = [];
+            if (pagosData) {
+                for (const [key, entry] of Object.entries(pagosData)) {
+                    if (!entry || !entry.data) continue;
+                    if (entry.accion !== 'create') continue;
+
+                    const p = entry.data;
+                    const pFecha = (p.fecha || '').substring(0, 10);
+
+                    if (fecha && pFecha !== fecha) continue;
+                    if (sucFiltro && p.sucursal !== sucFiltro) continue;
+
+                    pagosProveedores.push({
+                        key: key,
+                        ticket: p.numero_ticket || '-',
+                        fecha: p.fecha || '',
+                        sucursal: p.sucursal || '',
+                        total: -(Math.abs(parseFloat(p.monto || 0))),
+                        modo_pago: 'PAGO: ' + (p.proveedor_nombre || 'Proveedor'),
+                        cuotas: 0,
+                        cae: '',
+                        items: [],
+                        pagado: 0,
+                        vuelto: 0,
+                        interes: 0,
+                        descuento: 0,
+                        timestamp: entry.timestamp || 0,
+                        esPago: true,
+                        proveedor: p.proveedor_nombre || '',
+                        monto: parseFloat(p.monto || 0),
+                        nota: p.nota || ''
+                    });
+                }
+            }
+
+            // Combinar ventas + pagos, ordenar por timestamp
+            const todo = [...ventas, ...pagosProveedores];
+            todo.sort((a, b) => b.timestamp - a.timestamp);
+            ventasCache = todo;
 
             // Descubrir sucursales
-            actualizarSucursales(ventas);
+            actualizarSucursales(todo);
 
-            // Actualizar UI
-            actualizarCards(ventas);
-            actualizarTabla(ventas);
+            // Actualizar UI (pasar pagos por separado para IVA)
+            actualizarCards(todo, pagosProveedores);
+            actualizarTabla(todo);
 
         } catch(e) {
             console.error('Error cargando datos:', e);
@@ -744,13 +804,17 @@
     }
 
     // ==================== UI Updates (Ventas) ====================
-    function actualizarCards(ventas) {
-        let totalDia = 0, totalEfectivo = 0, totalTarjeta = 0;
+    function actualizarCards(ventas, pagosProveedores = []) {
+        let totalEfectivo = 0, totalTarjeta = 0;
         let cantEf = 0, cantTar = 0, cantCAE = 0;
+        let totalVentasReal = 0, totalCAE = 0;
         const porSucursal = {};
 
+        // Filtrar solo ventas reales (no pagos)
         for (const v of ventas) {
-            totalDia += v.total;
+            if (v.esPago) continue;
+
+            totalVentasReal += v.total;
             const esTarjeta = v.modo_pago.toLowerCase().startsWith('tarj');
             if (esTarjeta) {
                 totalTarjeta += v.total;
@@ -759,7 +823,10 @@
                 totalEfectivo += v.total;
                 cantEf++;
             }
-            if (v.cae) cantCAE++;
+            if (v.cae) {
+                cantCAE++;
+                totalCAE += v.total;
+            }
 
             // Por sucursal
             const suc = v.sucursal || '(sin sucursal)';
@@ -773,14 +840,36 @@
             if (v.cae) porSucursal[suc].cae++;
         }
 
-        document.getElementById('totalDia').textContent = `$${totalDia.toFixed(2)}`;
-        document.getElementById('totalCantidad').textContent = `${ventas.length} ventas`;
+        // Pagos a proveedores (desde Firebase)
+        let totalPagos = 0, cantPagosCount = pagosProveedores.length;
+        for (const p of pagosProveedores) {
+            totalPagos += Math.abs(p.monto || p.total || 0);
+        }
+
+        const cantVentas = ventas.filter(v => !v.esPago).length;
+
+        // IVA: 21% embebido en precio → iva = total - total / 1.21
+        const ivaVentas = totalCAE > 0 ? (totalCAE - totalCAE / 1.21) : 0;
+        const ivaCompras = totalPagos > 0 ? (totalPagos - totalPagos / 1.21) : 0;
+        const saldoIva = ivaCompras - ivaVentas;
+
+        document.getElementById('totalDia').textContent = `$${totalVentasReal.toFixed(2)}`;
+        document.getElementById('totalCantidad').textContent = `${cantVentas} ventas`;
         document.getElementById('totalEfectivo').textContent = `$${totalEfectivo.toFixed(2)}`;
         document.getElementById('cantEfectivo').textContent = `${cantEf} ventas`;
         document.getElementById('totalTarjeta').textContent = `$${totalTarjeta.toFixed(2)}`;
         document.getElementById('cantTarjeta').textContent = `${cantTar} ventas`;
-        document.getElementById('cantTotal').textContent = ventas.length;
+        document.getElementById('cantTotal').textContent = cantVentas;
         document.getElementById('cantConCAE').textContent = `${cantCAE} con CAE`;
+
+        // IVA cards
+        document.getElementById('ivaVentas').textContent = `$${ivaVentas.toFixed(2)}`;
+        document.getElementById('ivaVentasSub').textContent = `21% sobre $${totalCAE.toFixed(2)} en ventas con CAE`;
+        document.getElementById('totalPagos').textContent = `$${totalPagos.toFixed(2)}`;
+        document.getElementById('cantPagos').textContent = `${cantPagosCount} pagos`;
+        document.getElementById('ivaCompras').textContent = `$${ivaCompras.toFixed(2)}`;
+        const saldoPrefix = saldoIva < 0 ? '-' : '';
+        document.getElementById('ivaSaldo').textContent = `Saldo IVA: ${saldoPrefix}$${Math.abs(saldoIva).toFixed(2)}`;
 
         // Cards por sucursal
         const container = document.getElementById('sucursalCards');
@@ -821,19 +910,22 @@
         for (const v of ventas) {
             const hora = v.fecha ? v.fecha.substring(11, 16) : '-';
             const sucClass = v.sucursal.toLowerCase().includes('sarmiento') ? 'suc-sarmiento' : 'suc-salta';
-            const pagoClass = v.modo_pago.toLowerCase().startsWith('tarj') ? 'pago-tarjeta' : 'pago-efectivo';
+            const esPago = v.total < 0 || v.modo_pago.toUpperCase().includes('PAGO');
+            const pagoClass = esPago ? 'pago-proveedor' : (v.modo_pago.toLowerCase().startsWith('tarj') ? 'pago-tarjeta' : 'pago-efectivo');
             const itemsCount = Array.isArray(v.items) ? v.items.length : 0;
             const itemsTooltip = Array.isArray(v.items)
                 ? v.items.map(it => `${it.cantidad}x ${it.nombre} ($${parseFloat(it.precio_unit||0).toFixed(2)})`).join('\n')
                 : '';
+            const rowStyle = esPago ? ' style="background:#fff3e0;"' : '';
+            const tipoLabel = esPago ? 'PAGO PROV.' : v.modo_pago;
 
             body.innerHTML += `
-                <tr>
+                <tr${rowStyle}>
                     <td><strong>#${v.ticket}</strong></td>
                     <td>${hora}</td>
                     <td class="${sucClass}">${v.sucursal}</td>
-                    <td class="monto">$${v.total.toFixed(2)}</td>
-                    <td class="${pagoClass}">${v.modo_pago}${v.cuotas > 1 ? ` (${v.cuotas}c)` : ''}</td>
+                    <td class="monto" style="${esPago ? 'color:#c62828;' : ''}">$${v.total.toFixed(2)}</td>
+                    <td class="${pagoClass}">${tipoLabel}${!esPago && v.cuotas > 1 ? ` (${v.cuotas}c)` : ''}</td>
                     <td>${v.cuotas || '-'}</td>
                     <td>${v.cae ? '&#10004;' : '-'}</td>
                     <td title="${itemsTooltip.replace(/"/g, '&quot;')}">${itemsCount} items</td>

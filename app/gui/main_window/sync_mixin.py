@@ -647,6 +647,8 @@ class SyncNotificationsMixin:
                 self._firebase_sync.push_proveedor(entity, accion)
             elif tipo == "proveedor_del":
                 self._firebase_sync.push_proveedor_eliminado(entity)
+            elif tipo == "pago_proveedor":
+                self._firebase_sync.push_pago_proveedor(entity)
         except Exception as e:
             self._firebase_sync._log(f"Push {tipo} error: {e}")
 
