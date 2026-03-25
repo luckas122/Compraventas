@@ -3,10 +3,11 @@ from typing import List
 from PyQt5.QtCore import Qt, QTime
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QGroupBox, QFormLayout, QHBoxLayout, QLabel, QCheckBox,
-    QComboBox, QTimeEdit, QLineEdit, QPushButton, QListWidget, QListWidgetItem,
+    QTimeEdit, QLineEdit, QPushButton, QListWidget, QListWidgetItem,
     QMessageBox, QSpinBox
 )
 from app.config import load as load_config, save as save_config
+from app.gui.qt_helpers import NoScrollComboBox
 import tempfile, os
 
 MAX_RECIP = 6
@@ -22,7 +23,7 @@ class ReportesCorreoConfig(QWidget):
         f_prog = QFormLayout(gb_prog)
 
         self.chk_enabled = QCheckBox("Activar envíos programados")
-        self.cmb_freq = QComboBox(); self.cmb_freq.addItems(["Diario", "Semanal", "Mensual"])
+        self.cmb_freq = NoScrollComboBox(); self.cmb_freq.addItems(["Diario", "Semanal", "Mensual"])
         self.time_send = QTimeEdit(); self.time_send.setDisplayFormat("HH:mm")
         self.time_send.setAlignment(Qt.AlignCenter); self.time_send.setMinimumWidth(90)
 
@@ -128,7 +129,7 @@ class ReportesCorreoConfig(QWidget):
         btn_del.clicked.connect(_del_recipient)
 
         self.ed_host = QLineEdit(); self.ed_port = QLineEdit(); self.ed_port.setPlaceholderText("587 o 465")
-        self.cmb_tls = QComboBox(); self.cmb_tls.addItems(["STARTTLS (587)", "SSL (465)"])
+        self.cmb_tls = NoScrollComboBox(); self.cmb_tls.addItems(["STARTTLS (587)", "SSL (465)"])
         self.ed_user = QLineEdit(); self.ed_pwd = QLineEdit(); self.ed_pwd.setEchoMode(QLineEdit.Password)
 
         btn_test_login = QPushButton("Probar conexión SMTP")

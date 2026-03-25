@@ -16,11 +16,12 @@ except Exception:
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QFormLayout, QHBoxLayout, QGridLayout, QGroupBox, QLabel, QPushButton,
-    QComboBox, QCheckBox, QTextEdit, QSpinBox, QLineEdit, QScrollArea, QSizePolicy,
+    QCheckBox, QTextEdit, QSpinBox, QLineEdit, QScrollArea, QSizePolicy,
     QFrame, QTabWidget
 )
 from app.gui.backup_config import BackupConfigPanel
 from app.gui.common import ICON_SIZE, MIN_BTN_HEIGHT, icon
+from app.gui.qt_helpers import NoScrollComboBox
 # Configurador de correo/reportes (si tu pestaña abre un diálogo de config):
 from app.gui.reportes_config import ReportesCorreoConfig
 
@@ -38,7 +39,7 @@ class ConfiguracionMixin:
     def tab_configuracion(self):
         from PyQt5.QtWidgets import (
         QWidget, QVBoxLayout, QFormLayout, QHBoxLayout, QGridLayout, QGroupBox, QLabel, QPushButton,
-        QComboBox, QCheckBox, QTextEdit, QSpinBox, QLineEdit, QScrollArea, QSizePolicy,
+        QCheckBox, QTextEdit, QSpinBox, QLineEdit, QScrollArea, QSizePolicy,
         QFrame, QTabWidget
     )
         from PyQt5.QtCore import Qt, QTimer
@@ -79,7 +80,7 @@ class ConfiguracionMixin:
         self.cfg_chk_dark.setChecked(bool(th.get("dark_mode", True)))
         lay_est.addRow("Modo noche (oscuro):", self.cfg_chk_dark)
 
-        self.cfg_cmb_dark_variant = QComboBox(parent=gb_estilos)
+        self.cfg_cmb_dark_variant = NoScrollComboBox(parent=gb_estilos)
         self.cfg_cmb_dark_variant.addItem("Gris suave",  "soft")
         self.cfg_cmb_dark_variant.addItem("Gris medio",  "medium")
         self.cfg_cmb_dark_variant.addItem("Negro (alto contraste)", "black")
@@ -98,13 +99,13 @@ class ConfiguracionMixin:
         row_fuente = QWidget(gb_estilos)
         fila_fuente = QHBoxLayout(row_fuente); fila_fuente.setContentsMargins(0,0,0,0); fila_fuente.setSpacing(8)
 
-        self.cfg_cmb_font = QComboBox(row_fuente)
+        self.cfg_cmb_font = NoScrollComboBox(row_fuente)
         for fam in ["Roboto", "Segoe UI", "Arial", "Tahoma"]:
             self.cfg_cmb_font.addItem(fam, fam)
         self.cfg_cmb_font.setCurrentText(th.get("font_family", "Roboto"))
         self.cfg_cmb_font.setMaximumWidth(260)
 
-        self.cfg_spn_size = QComboBox(row_fuente)
+        self.cfg_spn_size = NoScrollComboBox(row_fuente)
         self.cfg_spn_size.addItem("Pequeña", 10)
         self.cfg_spn_size.addItem("Mediana", 12)
         self.cfg_spn_size.addItem("Grande", 14)
@@ -167,7 +168,7 @@ class ConfiguracionMixin:
         lay_suc = QFormLayout(gb_suc)
         lay_suc.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
-        self.cfg_cmb_sucursal = QComboBox(gb_suc)
+        self.cfg_cmb_sucursal = NoScrollComboBox(gb_suc)
         self.cfg_cmb_sucursal.addItem("Preguntar al iniciar", "ask")
         self.cfg_cmb_sucursal.addItem("Sarmiento", "Sarmiento")
         self.cfg_cmb_sucursal.addItem("Salta", "Salta")
@@ -196,7 +197,7 @@ class ConfiguracionMixin:
         lay_region.addWidget(row_clock)
 
         frm_region = QFormLayout()
-        self.cmb_tz = QComboBox(gb_region)
+        self.cmb_tz = NoScrollComboBox(gb_region)
         self.cmb_tz.addItem("Buenos Aires (GMT-3)", "America/Argentina/Buenos_Aires")
         self.cmb_tz.addItem("Madrid (GMT+1/+2)",   "Europe/Madrid")
         _cfg = load_config()
@@ -221,7 +222,7 @@ class ConfiguracionMixin:
         lay_prn.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
         names = [p.printerName() for p in QPrinterInfo.availablePrinters()]
-        self.cfg_cmb_prn_ticket = QComboBox(gb_print)
+        self.cfg_cmb_prn_ticket = NoScrollComboBox(gb_print)
         self.cfg_cmb_prn_ticket.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.cfg_cmb_prn_ticket.addItem("Preguntar al imprimir…", "__ASK__")
         for n in names:
@@ -236,7 +237,7 @@ class ConfiguracionMixin:
                 self.cfg_cmb_prn_ticket.setCurrentIndex(ix)
         lay_prn.addRow("Impresora TICKETS:", self.cfg_cmb_prn_ticket)
 
-        self.cfg_cmb_prn_bar = QComboBox(gb_print)
+        self.cfg_cmb_prn_bar = NoScrollComboBox(gb_print)
         self.cfg_cmb_prn_bar.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.cfg_cmb_prn_bar.addItems(names)
         sel_bar = prn.get("barcode_printer")
@@ -244,7 +245,7 @@ class ConfiguracionMixin:
             self.cfg_cmb_prn_bar.setCurrentText(sel_bar)
         lay_prn.addRow("Impresora CÓDIGOS:", self.cfg_cmb_prn_bar)
 
-        self.cfg_cmb_scan_src = QComboBox(gb_print)
+        self.cfg_cmb_scan_src = NoScrollComboBox(gb_print)
         self.cfg_cmb_scan_src.addItems(["Ninguno", "Webcam 0", "Webcam 1", "Webcam 2", "URL (RTSP/MJPEG)"])
         src = (sc.get("source") or "none").lower()
         if src == "webcam":
@@ -277,35 +278,33 @@ class ConfiguracionMixin:
         scr_gen.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         tabs_cfg.addTab(scr_gen, "General")
 
-        # ===== PÁGINA: TICKET =====
+        # ===== PÁGINA: TICKET (organizada en sub-tabs) =====
         page_ticket = QWidget(tabs_cfg)
-        lay_tk = QVBoxLayout(page_ticket)
+        lay_tk_root = QVBoxLayout(page_ticket)
+        lay_tk_root.setContentsMargins(0, 0, 0, 0)
+        tabs_ticket = QTabWidget(page_ticket)
+        lay_tk_root.addWidget(tabs_ticket)
 
-        gb_tpl = QGroupBox("Plantilla de ticket", parent=page_ticket)
+        # ────────── Sub-tab 1: EDITOR ──────────
+        _sub_editor = QWidget()
+        _lay_editor = QVBoxLayout(_sub_editor)
+
+        gb_tpl = QGroupBox("Plantilla de ticket")
         lay_tpl = QFormLayout(gb_tpl)
         lay_tpl.setLabelAlignment(Qt.AlignRight | Qt.AlignTop)
 
-        row_widget = QWidget(gb_tpl)
-        row = QHBoxLayout(row_widget); row.setContentsMargins(0, 0, 0, 0); row.setSpacing(12)
+        from app.gui.smart_template_editor import SmartTemplateEditor
 
-        self.cfg_txt_tpl = QTextEdit(row_widget)
-        self.cfg_txt_tpl.setPlainText(tk.get("template", ""))
-        self.cfg_txt_tpl.setMinimumHeight(240)
-        self.cfg_txt_tpl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self._smart_editor = SmartTemplateEditor(gb_tpl)
+        self._smart_editor.setPlainText(tk.get("template", ""))
+        self._smart_editor.setMinimumHeight(350)
 
-        ph_panel = self._build_tpl_placeholder_panel()
-        scroll = QScrollArea(row_widget)
-        scroll.setWidget(ph_panel)
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        # Mantener referencia al editor interno para compatibilidad
+        self.cfg_txt_tpl = self._smart_editor
 
-        row.addWidget(self.cfg_txt_tpl, 7)
-        row.addWidget(scroll, 3)
-        row.setStretch(0, 7)
-        row.setStretch(1, 3)
-        lay_tpl.addRow("Contenido:", row_widget)
+        lay_tpl.addRow(self._smart_editor)
 
-        self.cfg_tpl_slot = QComboBox()
+        self.cfg_tpl_slot = NoScrollComboBox()
         self._tpl_build_slot_combo()
         btn_tpl_load = QPushButton("Cargar"); btn_tpl_save = QPushButton("Guardar en slot")
         btn_tpl_rename = QPushButton("Renombrar"); btn_tpl_rename.setProperty("role", "inline")
@@ -330,86 +329,137 @@ class ConfiguracionMixin:
         hl_slots.addStretch(1)
         lay_tpl.addRow("Plantillas guardadas:", hl_slots)
 
-        # Selección automática de plantilla según forma de pago / tipo comprobante
-        self.cfg_tpl_efectivo = QComboBox()
-        self.cfg_tpl_tarjeta = QComboBox()
-        self.cfg_tpl_factura_a = QComboBox()
-        self.cfg_tpl_factura_b = QComboBox()
-        self.cfg_tpl_cae_efectivo = QComboBox()
-        self.cfg_tpl_cae_tarjeta = QComboBox()
-        self.cfg_tpl_consumidor_final = QComboBox()
+        help_lbl = QLabel(
+            "Escribe {{ para ver el autocompletado de placeholders. "
+            "Usa la barra superior o el panel derecho para insertar tags. "
+            "Los colores indican si el placeholder es valido (verde), formato (azul) o desconocido (rojo)."
+        )
+        help_lbl.setWordWrap(True)
+        help_lbl.setStyleSheet("color: #888; font-size: 9pt;")
+        lay_tpl.addRow("", help_lbl)
+
+        _lay_editor.addWidget(gb_tpl)
+        tabs_ticket.addTab(_sub_editor, "Editor")
+
+        # ────────── Sub-tab 2: ASIGNACIÓN ──────────
+        _sub_asign = QWidget()
+        _lay_asign = QVBoxLayout(_sub_asign)
+
+        gb_payment = QGroupBox("Selección automática de plantilla según tipo de venta")
+        lay_payment = QFormLayout(gb_payment)
+        lay_payment.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
+        self.cfg_tpl_efectivo = NoScrollComboBox()
+        self.cfg_tpl_tarjeta = NoScrollComboBox()
+        self.cfg_tpl_factura_a = NoScrollComboBox()
+        self.cfg_tpl_factura_b = NoScrollComboBox()
+        self.cfg_tpl_cae_efectivo = NoScrollComboBox()
+        self.cfg_tpl_cae_tarjeta = NoScrollComboBox()
+        self.cfg_tpl_consumidor_final = NoScrollComboBox()
         self._tpl_build_payment_combos()
 
-        # Conectar señales para guardar automáticamente cuando cambia la selección
         for _combo in (self.cfg_tpl_efectivo, self.cfg_tpl_tarjeta,
                        self.cfg_tpl_factura_a, self.cfg_tpl_factura_b,
                        self.cfg_tpl_cae_efectivo, self.cfg_tpl_cae_tarjeta,
                        self.cfg_tpl_consumidor_final):
             _combo.currentIndexChanged.connect(self._tpl_save_payment_selection)
 
-        lay_tpl.addRow("Efectivo (sin CAE):", self.cfg_tpl_efectivo)
-        lay_tpl.addRow("Tarjeta (sin CAE):", self.cfg_tpl_tarjeta)
-        lay_tpl.addRow("Factura A:", self.cfg_tpl_factura_a)
-        lay_tpl.addRow("Factura B:", self.cfg_tpl_factura_b)
-        lay_tpl.addRow("CAE + Efectivo:", self.cfg_tpl_cae_efectivo)
-        lay_tpl.addRow("CAE + Tarjeta:", self.cfg_tpl_cae_tarjeta)
-        lay_tpl.addRow("Consumidor Final:", self.cfg_tpl_consumidor_final)
+        lay_payment.addRow("Efectivo (sin CAE):", self.cfg_tpl_efectivo)
+        lay_payment.addRow("Tarjeta (sin CAE):", self.cfg_tpl_tarjeta)
+        lay_payment.addRow("Factura A:", self.cfg_tpl_factura_a)
+        lay_payment.addRow("Factura B:", self.cfg_tpl_factura_b)
+        lay_payment.addRow("CAE + Efectivo:", self.cfg_tpl_cae_efectivo)
+        lay_payment.addRow("CAE + Tarjeta:", self.cfg_tpl_cae_tarjeta)
+        lay_payment.addRow("Consumidor Final:", self.cfg_tpl_consumidor_final)
 
-        help_lbl = QLabel(
-            "Usa los botones del panel derecho para insertar placeholders. "
-            "Pasa el mouse sobre cada boton para ver su descripcion."
+        asign_help = QLabel(
+            "Asigná una plantilla diferente para cada tipo de venta. "
+            "Cuando se imprime un ticket, la app selecciona automáticamente "
+            "la plantilla según la forma de pago y el tipo de comprobante."
         )
-        help_lbl.setWordWrap(True)
-        help_lbl.setStyleSheet("color: #888; font-size: 9pt;")
-        lay_tpl.addRow("", help_lbl)
+        asign_help.setWordWrap(True)
+        asign_help.setStyleSheet("color: #888; font-size: 9pt;")
+        lay_payment.addRow("", asign_help)
 
-        lay_tk.addWidget(gb_tpl)
+        _lay_asign.addWidget(gb_payment)
+        _lay_asign.addStretch(1)
+        tabs_ticket.addTab(_sub_asign, "Asignación")
 
-        # ===== SECCIÓN: TAMAÑO DE FUENTE DEL TICKET =====
+        # ────────── Sub-tab 3: FORMATO ──────────
+        _sub_formato = QWidget()
+        _lay_formato = QVBoxLayout(_sub_formato)
+
+        # IVA Discriminado
+        _iva_disc = tk.get("iva_discriminado") or {}
+        gb_iva = QGroupBox("Bloque {{iva.discriminado}} — líneas visibles")
+        lay_iva = QHBoxLayout(gb_iva)
+        lay_iva.setSpacing(16)
+
+        self.cfg_iva_neto = QCheckBox("Subtotal Neto")
+        self.cfg_iva_neto.setChecked(_iva_disc.get("mostrar_neto", True))
+        self.cfg_iva_iva = QCheckBox("IVA 21%")
+        self.cfg_iva_iva.setChecked(_iva_disc.get("mostrar_iva", True))
+        self.cfg_iva_total = QCheckBox("TOTAL")
+        self.cfg_iva_total.setChecked(_iva_disc.get("mostrar_total", True))
+
+        lay_iva.addWidget(self.cfg_iva_neto)
+        lay_iva.addWidget(self.cfg_iva_iva)
+        lay_iva.addWidget(self.cfg_iva_total)
+        lay_iva.addStretch(1)
+
+        help_iva = QLabel("Seleccioná qué líneas muestra el bloque {{iva.discriminado}}. "
+                          "También podés usar {{iva.base}}, {{iva.cuota}} de forma individual.")
+        help_iva.setWordWrap(True)
+        help_iva.setStyleSheet("color: #888; font-size: 9pt;")
+        lay_iva.addWidget(help_iva)
+
+        _lay_formato.addWidget(gb_iva)
+
+        # Fuentes
         _tk_fonts = tk.get("fonts") or {}
-        gb_fonts = QGroupBox("Tamaño de fuente del ticket", parent=page_ticket)
+        gb_fonts = QGroupBox("Tamaño de fuente del ticket")
         lay_fonts = QFormLayout(gb_fonts)
         lay_fonts.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
-        self.cfg_tk_font_h1 = QSpinBox(gb_fonts)
+        self.cfg_tk_font_h1 = QSpinBox()
         self.cfg_tk_font_h1.setRange(6, 30)
         self.cfg_tk_font_h1.setValue(int(_tk_fonts.get("h1_pt") or _tk_fonts.get("title_pt", 14)))
         self.cfg_tk_font_h1.setSuffix(" pt")
         lay_fonts.addRow("H1 - Titulo/Negocio:", self.cfg_tk_font_h1)
 
-        self.cfg_tk_font_h2 = QSpinBox(gb_fonts)
+        self.cfg_tk_font_h2 = QSpinBox()
         self.cfg_tk_font_h2.setRange(6, 24)
         self.cfg_tk_font_h2.setValue(int(_tk_fonts.get("h2_pt", 12)))
         self.cfg_tk_font_h2.setSuffix(" pt")
         lay_fonts.addRow("H2 - Total/Secciones:", self.cfg_tk_font_h2)
 
-        self.cfg_tk_font_h3 = QSpinBox(gb_fonts)
+        self.cfg_tk_font_h3 = QSpinBox()
         self.cfg_tk_font_h3.setRange(6, 20)
         self.cfg_tk_font_h3.setValue(int(_tk_fonts.get("h3_pt") or _tk_fonts.get("head_pt", 10)))
         self.cfg_tk_font_h3.setSuffix(" pt")
         lay_fonts.addRow("H3 - Cabeceras:", self.cfg_tk_font_h3)
 
-        self.cfg_tk_font_h4 = QSpinBox(gb_fonts)
+        self.cfg_tk_font_h4 = QSpinBox()
         self.cfg_tk_font_h4.setRange(6, 20)
         self.cfg_tk_font_h4.setValue(int(_tk_fonts.get("h4_pt") or _tk_fonts.get("text_pt", 9)))
         self.cfg_tk_font_h4.setSuffix(" pt")
         lay_fonts.addRow("H4 - Texto/Items:", self.cfg_tk_font_h4)
 
-        self.cfg_tk_font_h5 = QSpinBox(gb_fonts)
+        self.cfg_tk_font_h5 = QSpinBox()
         self.cfg_tk_font_h5.setRange(6, 16)
         self.cfg_tk_font_h5.setValue(int(_tk_fonts.get("h5_pt", 7)))
         self.cfg_tk_font_h5.setSuffix(" pt")
         lay_fonts.addRow("H5 - Pie/Legal/CAE:", self.cfg_tk_font_h5)
 
-        lay_tk.addWidget(gb_fonts)
+        _lay_formato.addWidget(gb_fonts)
 
-        # ===== SECCIÓN: MÁRGENES DEL TICKET =====
+        # Márgenes
         from PyQt5.QtWidgets import QDoubleSpinBox as _QDblSpin
-        gb_margins = QGroupBox("Márgenes del ticket (mm)", parent=page_ticket)
+        gb_margins = QGroupBox("Márgenes del ticket (mm)")
         lay_margins = QFormLayout(gb_margins)
         lay_margins.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
-        self.cfg_margin_left = _QDblSpin(gb_margins)
+        self.cfg_margin_left = _QDblSpin()
         self.cfg_margin_left.setRange(0.0, 10.0)
         self.cfg_margin_left.setSingleStep(0.5)
         self.cfg_margin_left.setDecimals(1)
@@ -418,7 +468,7 @@ class ConfiguracionMixin:
         self.cfg_margin_left.setToolTip("Margen izquierdo del contenido del ticket.\n0 = sin margen, 4 = valor anterior.")
         lay_margins.addRow("Margen izquierdo:", self.cfg_margin_left)
 
-        self.cfg_margin_right = _QDblSpin(gb_margins)
+        self.cfg_margin_right = _QDblSpin()
         self.cfg_margin_right.setRange(0.0, 10.0)
         self.cfg_margin_right.setSingleStep(0.5)
         self.cfg_margin_right.setDecimals(1)
@@ -435,10 +485,20 @@ class ConfiguracionMixin:
         lbl_margins_help.setStyleSheet("color: #888; font-size: 9pt;")
         lay_margins.addRow("", lbl_margins_help)
 
-        lay_tk.addWidget(gb_margins)
+        _lay_formato.addWidget(gb_margins)
+        _lay_formato.addStretch(1)
 
-        # ===== SECCIÓN: IMÁGENES PARA TICKET =====
-        gb_images = QGroupBox("Imágenes para Ticket", parent=page_ticket)
+        _scr_formato = QScrollArea()
+        _scr_formato.setWidget(_sub_formato)
+        _scr_formato.setWidgetResizable(True)
+        _scr_formato.setFrameShape(QFrame.NoFrame)
+        tabs_ticket.addTab(_scr_formato, "Formato")
+
+        # ────────── Sub-tab 4: IMÁGENES ──────────
+        _sub_images = QWidget()
+        _lay_images_root = QVBoxLayout(_sub_images)
+
+        gb_images = QGroupBox("Imágenes para Ticket")
         lay_images = QFormLayout(gb_images)
         lay_images.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
@@ -463,7 +523,6 @@ class ConfiguracionMixin:
             row_h.addStretch()
             lay_images.addRow(f"{img_label}:", row_h)
 
-        # Generador de QR desde URL
         self.ed_qr_url = QLineEdit()
         self.ed_qr_url.setPlaceholderText("URL para generar QR automáticamente...")
         self.ed_qr_url.setText(images_cfg.get("qr_url") or "")
@@ -474,8 +533,7 @@ class ConfiguracionMixin:
         qr_row.addWidget(btn_gen_qr)
         lay_images.addRow("URL QR:", qr_row)
 
-        # Tamaño de imágenes
-        self.cmb_img_size = QComboBox()
+        self.cmb_img_size = NoScrollComboBox()
         self.cmb_img_size.addItem("2 × 2 cm", 20)
         self.cmb_img_size.addItem("1.5 × 1.5 cm", 15)
         self.cmb_img_size.addItem("1 × 1 cm", 10)
@@ -494,17 +552,21 @@ class ConfiguracionMixin:
         img_help.setStyleSheet("color: #888; font-size: 9pt;")
         lay_images.addRow("", img_help)
 
-        lay_tk.addWidget(gb_images)
+        _lay_images_root.addWidget(gb_images)
+        _lay_images_root.addStretch(1)
+        tabs_ticket.addTab(_sub_images, "Imágenes")
 
-        # ===== SECCIÓN: ETIQUETAS DE CÓDIGO DE BARRAS =====
+        # ────────── Sub-tab 5: ETIQUETAS ──────────
+        _sub_barcode = QWidget()
+        _lay_barcode_root = QVBoxLayout(_sub_barcode)
+
         barcode_cfg = cfg.get("barcode") or {}
-        gb_barcode = QGroupBox("Etiquetas de código de barras", parent=page_ticket)
+        gb_barcode = QGroupBox("Etiquetas de código de barras")
         lay_barcode = QFormLayout(gb_barcode)
         lay_barcode.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
 
-        # Ancho de etiqueta
         from PyQt5.QtWidgets import QDoubleSpinBox
-        self.cfg_barcode_width = QDoubleSpinBox(gb_barcode)
+        self.cfg_barcode_width = QDoubleSpinBox()
         self.cfg_barcode_width.setRange(1.0, 8.0)
         self.cfg_barcode_width.setSingleStep(0.5)
         self.cfg_barcode_width.setDecimals(1)
@@ -512,8 +574,7 @@ class ConfiguracionMixin:
         self.cfg_barcode_width.setValue(barcode_cfg.get("width_cm", 5.0))
         lay_barcode.addRow("Ancho de etiqueta:", self.cfg_barcode_width)
 
-        # Alto de etiqueta
-        self.cfg_barcode_height = QDoubleSpinBox(gb_barcode)
+        self.cfg_barcode_height = QDoubleSpinBox()
         self.cfg_barcode_height.setRange(1.0, 8.0)
         self.cfg_barcode_height.setSingleStep(0.5)
         self.cfg_barcode_height.setDecimals(1)
@@ -521,7 +582,6 @@ class ConfiguracionMixin:
         self.cfg_barcode_height.setValue(barcode_cfg.get("height_cm", 3.0))
         lay_barcode.addRow("Alto de etiqueta:", self.cfg_barcode_height)
 
-        # Info sobre distribución
         barcode_info = QLabel(
             "Distribución automática: 75% código de barras / 25% texto.\n"
             "El tamaño del código y texto se ajustan automáticamente al espacio disponible.\n"
@@ -531,15 +591,11 @@ class ConfiguracionMixin:
         barcode_info.setStyleSheet("color: #666; font-size: 9pt;")
         lay_barcode.addRow("", barcode_info)
 
-        lay_tk.addWidget(gb_barcode)
+        _lay_barcode_root.addWidget(gb_barcode)
+        _lay_barcode_root.addStretch(1)
+        tabs_ticket.addTab(_sub_barcode, "Etiquetas")
 
-        scr_tk = QScrollArea(tabs_cfg)
-        scr_tk.setWidget(page_ticket)
-        scr_tk.setWidgetResizable(True)
-        scr_tk.setFrameShape(QFrame.NoFrame)
-        scr_tk.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        scr_tk.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        tabs_cfg.addTab(scr_tk, "Ticket")
+        tabs_cfg.addTab(page_ticket, "Ticket")
 
         # ===== PÁGINA: REPORTES & ENVÍOS =====
         page_rep_cfg = ReportesCorreoConfig(self)
@@ -575,7 +631,7 @@ class ConfiguracionMixin:
         lay_fisc_form.addRow("Integración AFIP:", self.cfg_chk_fiscal_enabled)
 
         # Modo: test / prod
-        self.cfg_cmb_fiscal_mode = QComboBox(gb_fisc)
+        self.cfg_cmb_fiscal_mode = NoScrollComboBox(gb_fisc)
         self.cfg_cmb_fiscal_mode.addItem("Pruebas", "test")
         self.cfg_cmb_fiscal_mode.addItem("Producción", "prod")
         cur_mode = (fisc.get("mode") or "test")
@@ -624,7 +680,7 @@ class ConfiguracionMixin:
             self._fiscal_pv_spinners[suc_name] = spn
 
         # Tipo de comprobante
-        self.cfg_cmb_fiscal_tipo = QComboBox(gb_fisc)
+        self.cfg_cmb_fiscal_tipo = NoScrollComboBox(gb_fisc)
         self.cfg_cmb_fiscal_tipo.addItem("Factura A - Resp. Inscripto a Resp. Inscripto", "FACTURA_A")
         self.cfg_cmb_fiscal_tipo.addItem("Factura B - Monotributista a Consumidor Final", "FACTURA_B")
         self.cfg_cmb_fiscal_tipo.addItem("Factura C - Consumidor Final", "FACTURA_C")
@@ -1053,6 +1109,137 @@ class ConfiguracionMixin:
         scr_sync.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         tabs_cfg.addTab(scr_sync, "Sincronización")
 
+        # ===== PÁGINA: DASHBOARD =====
+        from app.gui.dashboard_config import DashboardConfigPanel
+        page_dashboard = DashboardConfigPanel(self)
+        try:
+            page_dashboard.setMinimumSize(0, 0)
+            page_dashboard.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.MinimumExpanding)
+        except Exception:
+            pass
+
+        scr_dash = QScrollArea(tabs_cfg)
+        scr_dash.setWidget(page_dashboard)
+        scr_dash.setWidgetResizable(True)
+        scr_dash.setFrameShape(QFrame.NoFrame)
+        scr_dash.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scr_dash.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        tabs_cfg.addTab(scr_dash, "Dashboard")
+
+        # ===== PÁGINA: ALERTAS =====
+        page_alertas = QWidget()
+        lay_alertas = QVBoxLayout(page_alertas)
+
+        gb_alert_main = QGroupBox("Alertas por Email")
+        lay_alert_main = QVBoxLayout(gb_alert_main)
+
+        alert_info = QLabel(
+            "Cuando ocurre un error critico (CAE, sincronizacion, base de datos), "
+            "el sistema puede enviar un email automatico para que puedas actuar rapido.\n"
+            "Usa la misma configuracion SMTP de Reportes & Envios."
+        )
+        alert_info.setWordWrap(True)
+        alert_info.setStyleSheet("color: #888; font-size: 10px;")
+        lay_alert_main.addWidget(alert_info)
+
+        self.chk_alerts_enabled = QCheckBox("Habilitar alertas por email")
+        lay_alert_main.addWidget(self.chk_alerts_enabled)
+
+        form_alert = QFormLayout()
+
+        self.ed_alert_recipients = QLineEdit()
+        self.ed_alert_recipients.setPlaceholderText("email1@ejemplo.com, email2@ejemplo.com")
+        self.ed_alert_recipients.setMinimumWidth(350)
+        form_alert.addRow("Destinatarios:", self.ed_alert_recipients)
+
+        alert_recip_info = QLabel(
+            "Separar multiples emails con coma. Si esta vacio, usa los destinatarios de Reportes."
+        )
+        alert_recip_info.setWordWrap(True)
+        alert_recip_info.setStyleSheet("color: #888; font-size: 10px;")
+        form_alert.addRow("", alert_recip_info)
+
+        self.spn_alert_cooldown = QSpinBox()
+        self.spn_alert_cooldown.setRange(5, 1440)
+        self.spn_alert_cooldown.setSuffix(" min")
+        self.spn_alert_cooldown.setToolTip("Tiempo minimo entre alertas del mismo tipo")
+        form_alert.addRow("Cooldown entre alertas:", self.spn_alert_cooldown)
+
+        lay_alert_main.addLayout(form_alert)
+        lay_alertas.addWidget(gb_alert_main)
+
+        # Tipos de alerta
+        gb_alert_types = QGroupBox("Tipos de alerta habilitados")
+        lay_alert_types = QVBoxLayout(gb_alert_types)
+
+        self.chk_alert_afip = QCheckBox("Error de facturacion AFIP / CAE")
+        self.chk_alert_sync = QCheckBox("Sincronizacion Firebase offline / errores")
+        self.chk_alert_db = QCheckBox("Error de base de datos")
+        self.chk_alert_critical = QCheckBox("Errores criticos del sistema")
+
+        lay_alert_types.addWidget(self.chk_alert_afip)
+        lay_alert_types.addWidget(self.chk_alert_sync)
+        lay_alert_types.addWidget(self.chk_alert_db)
+        lay_alert_types.addWidget(self.chk_alert_critical)
+
+        lay_alertas.addWidget(gb_alert_types)
+
+        # Boton test
+        row_alert_btns = QHBoxLayout()
+        row_alert_btns.addStretch(1)
+
+        btn_alert_test = QPushButton("  Enviar prueba  ")
+        btn_alert_test.setMinimumWidth(180)
+        btn_alert_test.setMinimumHeight(36)
+        btn_alert_test.setStyleSheet("""
+            QPushButton {
+                background: #2e7d32; color: white;
+                font-weight: bold; border-radius: 6px;
+                padding: 6px 16px; font-size: 12px;
+            }
+            QPushButton:hover { background: #388e3c; }
+        """)
+        btn_alert_test.clicked.connect(self._test_alert_email)
+        row_alert_btns.addWidget(btn_alert_test)
+
+        btn_alert_save = QPushButton("  Guardar alertas  ")
+        btn_alert_save.setMinimumWidth(180)
+        btn_alert_save.setMinimumHeight(36)
+        btn_alert_save.setStyleSheet("""
+            QPushButton {
+                background: #1a237e; color: white;
+                font-weight: bold; border-radius: 6px;
+                padding: 6px 16px; font-size: 12px;
+            }
+            QPushButton:hover { background: #283593; }
+        """)
+        btn_alert_save.clicked.connect(self._save_alert_config)
+        row_alert_btns.addWidget(btn_alert_save)
+
+        lay_alertas.addLayout(row_alert_btns)
+        lay_alertas.addStretch(1)
+
+        # Cargar config actual de alertas
+        _alerts_raw = load_config()
+        alerts_cfg = _alerts_raw.get("alerts", {})
+        self.chk_alerts_enabled.setChecked(alerts_cfg.get("enabled", False))
+        email_alert = alerts_cfg.get("email", {})
+        self.ed_alert_recipients.setText(", ".join(email_alert.get("recipients", [])))
+        self.spn_alert_cooldown.setValue(email_alert.get("cooldown_minutes", 30))
+        types_alert = alerts_cfg.get("types", {})
+        self.chk_alert_afip.setChecked(types_alert.get("afip_error", True))
+        self.chk_alert_sync.setChecked(types_alert.get("sync_offline", True))
+        self.chk_alert_db.setChecked(types_alert.get("db_error", True))
+        self.chk_alert_critical.setChecked(types_alert.get("critical", True))
+
+        scr_alertas = QScrollArea(tabs_cfg)
+        scr_alertas.setWidget(page_alertas)
+        scr_alertas.setWidgetResizable(True)
+        scr_alertas.setFrameShape(QFrame.NoFrame)
+        scr_alertas.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        scr_alertas.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        tabs_cfg.addTab(scr_alertas, "Alertas")
+
         return w
     def _apply_config_from_ui(self):
         """Guarda TODO y aplica cambios (tema, fuentes, impresoras, plantilla, TZ, etc.)."""
@@ -1175,6 +1362,15 @@ class ConfiguracionMixin:
         tk = cfg.get("ticket") or {}
         if hasattr(self, "cfg_txt_tpl"):
             tk["template"] = self.cfg_txt_tpl.toPlainText()
+        # ---------- iva_discriminado ----------
+        try:
+            tk["iva_discriminado"] = {
+                "mostrar_neto":  self.cfg_iva_neto.isChecked(),
+                "mostrar_iva":   self.cfg_iva_iva.isChecked(),
+                "mostrar_total": self.cfg_iva_total.isChecked(),
+            }
+        except Exception:
+            pass
         # ---------- fuentes ticket ----------
         try:
             fonts = tk.get("fonts") or {}
@@ -1728,4 +1924,66 @@ class ConfiguracionMixin:
         except Exception:
             pass
 
+    # ------------------------------------------------------------------
+    #  Alertas por Email
+    # ------------------------------------------------------------------
+    def _save_alert_config(self):
+        """Guarda la configuracion de alertas."""
+        from app.config import load as load_config, save as save_config
+        from PyQt5.QtWidgets import QMessageBox
 
+        cfg = load_config()
+
+        # Parsear recipients
+        raw = self.ed_alert_recipients.text().strip()
+        recipients = [e.strip() for e in raw.split(",") if e.strip()] if raw else []
+
+        cfg["alerts"] = {
+            "enabled": self.chk_alerts_enabled.isChecked(),
+            "email": {
+                "recipients": recipients,
+                "cooldown_minutes": self.spn_alert_cooldown.value(),
+            },
+            "types": {
+                "afip_error": self.chk_alert_afip.isChecked(),
+                "sync_offline": self.chk_alert_sync.isChecked(),
+                "db_error": self.chk_alert_db.isChecked(),
+                "critical": self.chk_alert_critical.isChecked(),
+            },
+        }
+        save_config(cfg)
+        QMessageBox.information(self, "Alertas", "Configuracion de alertas guardada.")
+
+    def _test_alert_email(self):
+        """Envia un email de prueba del sistema de alertas."""
+        from PyQt5.QtWidgets import QMessageBox
+
+        # Guardar primero
+        self._save_alert_config()
+
+        try:
+            from app.alert_manager import AlertManager
+            mgr = AlertManager.get_instance()
+
+            # Parsear recipients del campo
+            raw = self.ed_alert_recipients.text().strip()
+            recipients = [e.strip() for e in raw.split(",") if e.strip()] if raw else None
+
+            ok, err = mgr.send_test_alert(recipients=recipients)
+            if ok:
+                QMessageBox.information(
+                    self, "Alertas",
+                    "Email de prueba enviado correctamente.\n"
+                    "Revisa tu bandeja de entrada."
+                )
+            else:
+                QMessageBox.warning(
+                    self, "Alertas",
+                    f"No se pudo enviar el email de prueba:\n{err}\n\n"
+                    f"Verifica la configuracion SMTP en la pestana Reportes & Envios."
+                )
+        except Exception as e:
+            QMessageBox.warning(
+                self, "Alertas",
+                f"Error al enviar email de prueba:\n{e}"
+            )

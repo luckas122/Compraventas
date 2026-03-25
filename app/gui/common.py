@@ -3,7 +3,7 @@ import logging
 import os, sys
 from PyQt5.QtCore import Qt, QSize, QEvent, QObject
 from PyQt5.QtGui import QIcon
-from PyQt5.QtWidgets import QCheckBox
+from PyQt5.QtWidgets import QCheckBox, QApplication
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -47,17 +47,65 @@ class FullCellCheckFilter(QObject):
         super().__init__(parent)
         self.table = table
         self.check_col = check_col
+        self._last_checked_row = None
+        self._shift_on_press = False
+
+    def _toggle_item(self, row):
+        """Toggle checkbox via QTableWidgetItem (CheckStateRole)."""
+        it = self.table.item(row, self.check_col)
+        if it:
+            new_state = Qt.Unchecked if it.checkState() == Qt.Checked else Qt.Checked
+            it.setCheckState(new_state)
+            return True
+        return False
+
+    def _set_item_state(self, row, state):
+        """Set checkbox state via QTableWidgetItem."""
+        it = self.table.item(row, self.check_col)
+        if it:
+            it.setCheckState(state)
 
     def eventFilter(self, obj, event):
         vp = _safe_viewport(self.table)
-        if obj is vp and event.type() == QEvent.MouseButtonRelease:
+        if obj is not vp:
+            return False
+
+        # Capturar Shift en Press (más confiable en Windows)
+        if event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
             index = self.table.indexAt(event.pos())
             if index.isValid() and index.column() == self.check_col:
-                w = self.table.cellWidget(index.row(), self.check_col)
-                if w:
-                    box = w.findChild(QCheckBox)
-                    if box:
-                        box.toggle()
+                self._shift_on_press = bool(QApplication.keyboardModifiers() & Qt.ShiftModifier)
+            return False  # dejar que Qt procese el press
+
+        if event.type() == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
+            index = self.table.indexAt(event.pos())
+            if index.isValid() and index.column() == self.check_col:
+                row = index.row()
+
+                if self._shift_on_press and self._last_checked_row is not None:
+                    # Shift+Click: seleccionar/deseleccionar rango
+                    start = min(self._last_checked_row, row)
+                    end = max(self._last_checked_row, row)
+                    it = self.table.item(row, self.check_col)
+                    new_state = Qt.Unchecked if (it and it.checkState() == Qt.Checked) else Qt.Checked
+                    for r in range(start, end + 1):
+                        self._set_item_state(r, new_state)
+                    self._last_checked_row = row
+                    self._shift_on_press = False
+                    return True
+                else:
+                    # Click normal: toggle individual via widget o item
+                    self._shift_on_press = False
+                    w = self.table.cellWidget(row, self.check_col)
+                    if w:
+                        box = w.findChild(QCheckBox)
+                        if box:
+                            box.toggle()
+                            self._last_checked_row = row
+                            return True
+                    # Fallback: toggle via item
+                    if self._toggle_item(row):
+                        self._last_checked_row = row
                         return True
         return False
 

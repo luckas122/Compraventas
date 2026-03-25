@@ -12,7 +12,7 @@ from barcode.writer import ImageWriter
 from PyQt5.QtPrintSupport import QPrinter, QPrintDialog
 from app.utils_timing import measure
 from PyQt5.QtGui import QPainter, QPixmap, QIcon, QMouseEvent, QFont, QFontMetrics
-from app.gui.common import BASE_ICONS_PATH, MIN_BTN_HEIGHT, ICON_SIZE, icon, _safe_viewport, _mouse_release_event_type, _checked_states, FullCellCheckFilter
+from app.gui.common import BASE_ICONS_PATH, MIN_BTN_HEIGHT, ICON_SIZE, icon, _safe_viewport, _mouse_release_event_type, _checked_states
 
 import pandas as pd
 import barcode
@@ -168,7 +168,6 @@ class ProductosMixin:
                 pass
         self.table_productos.destroyed.connect(_safe_remove_filter)
 
-        self._chk_main = FullCellCheckFilter(self.table_productos, 0, self)
         self.refrescar_productos()
         return w
 

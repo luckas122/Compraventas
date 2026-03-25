@@ -3,7 +3,7 @@ from PyQt5.QtWidgets import *
 from PyQt5.QtCore import QSize,pyqtSignal, Qt, QTimer, QRectF,QSizeF,QRect
 from PyQt5.QtGui import QPixmap, QPainter,QFont, QFontMetrics,QImage
 from app.models import Producto  # usado en ProductosDialog.cargar()
-from .common import icon, MIN_BTN_HEIGHT, ICON_SIZE, FullCellCheckFilter
+from .common import icon, MIN_BTN_HEIGHT, ICON_SIZE
 from io import BytesIO
 # Fallback: si no está instalado python-barcode, no rompas el import del módulo
 try:
@@ -15,7 +15,7 @@ except Exception:
 from PyQt5.QtPrintSupport import QPrinter, QPrintDialog, QPrinterInfo
 import pandas
 from app.repository import prod_repo
-from app.gui.qt_helpers import FullCellCheckDelegate
+from app.gui.qt_helpers import FullCellCheckDelegate, NoScrollComboBox
 from app.config import load as load_config
 import unicodedata
 
@@ -322,14 +322,7 @@ class ProductosDialog(QDialog):
         # Poblar al inicio
         
 
-        # Filtro “click en toda la celda” para la columna 0
-        # Asegúrate de tener definida la clase FullCellCheckFilter en este archivo.
-        self._chk_dialog = FullCellCheckFilter(self.table, 0, self)
-        self.table.viewport().installEventFilter(self._chk_dialog)
-
-        # Estilo global de check (si no lo pusiste en main.py)
-        # self.setStyleSheet("QCheckBox::indicator{width:22px;height:22px;} QCheckBox{margin:0;padding:0;}")
-        # Activa el delegate (esto sí deja la celda entera clickeable)
+        # Delegate para checkbox full-cell (con soporte Shift+Click)
         self.table.setItemDelegateForColumn(0, FullCellCheckDelegate(self.table, column=0, padding=2))
         # Conexiones
         btn_aplicar.clicked.connect(self._aplicar_filtro_inputs)        
@@ -543,11 +536,13 @@ class ProductosDialog(QDialog):
             QMessageBox.information(self,'Restaurar','No hay historial global disponible.')
 
     def dlg_editar_precios(self):
-        modos = ['Porcentaje', 'Monto fijo']
+        modos = ['Porcentaje', 'Monto fijo', 'Valor final']
         modo, ok = QInputDialog.getItem(self, 'Modo de edición', 'Seleccione modo:', modos, 0, False)
         if not ok: return
         if modo == 'Porcentaje':
             val, ok = QInputDialog.getDouble(self, 'Porcentaje', 'Introduce % (10 o -5):', decimals=2)
+        elif modo == 'Valor final':
+            val, ok = QInputDialog.getDouble(self, 'Valor final', 'Nuevo precio para todos:', 0, 0, 999999, 2)
         else:
             val, ok = QInputDialog.getDouble(self, 'Monto fijo', 'Introduce importe (+/-):', decimals=2)
         if not ok: return
@@ -562,6 +557,8 @@ class ProductosDialog(QDialog):
             prod = self.session.query(Producto).get(pid)
             if modo == 'Porcentaje':
                 prod.precio *= (1 + val/100.0)
+            elif modo == 'Valor final':
+                prod.precio = val
             else:
                 prod.precio += val
             prod.precio = max(prod.precio, 0.0)
@@ -1145,7 +1142,7 @@ class PagoTarjetaDialog(QDialog):
         form.addRow("Descuento ($):", self.spin_descuento_monto)
 
         # Tipo de comprobante
-        self.cmb_tipo_cbte = QComboBox()
+        self.cmb_tipo_cbte = NoScrollComboBox()
         self.cmb_tipo_cbte.addItem("Factura A - Resp. Inscripto", "FACTURA_A")
         self.cmb_tipo_cbte.addItem("Factura B - Consumidor Final", "FACTURA_B")
         self.cmb_tipo_cbte.addItem("Factura C - Sin IVA discriminado", "FACTURA_C")
@@ -1434,7 +1431,7 @@ class PagoEfectivoDialog(QDialog):
         afip_layout.setSpacing(10)
 
         # Tipo de comprobante
-        self.cmb_tipo_cbte = QComboBox()
+        self.cmb_tipo_cbte = NoScrollComboBox()
         self.cmb_tipo_cbte.addItem("Factura A - Resp. Inscripto", "FACTURA_A")
         self.cmb_tipo_cbte.addItem("Factura B - Consumidor Final", "FACTURA_B")
         self.cmb_tipo_cbte.addItem("Factura C - Sin IVA discriminado", "FACTURA_C")
@@ -1652,7 +1649,7 @@ class PagoProveedorDialog(QDialog):
         form = QFormLayout()
 
         # Proveedor dropdown
-        self.cmb_proveedor = QComboBox()
+        self.cmb_proveedor = NoScrollComboBox()
         self.cmb_proveedor.setEditable(False)
         self._cargar_proveedores()
         self.cmb_proveedor.currentIndexChanged.connect(self._on_proveedor_changed)
@@ -1688,7 +1685,7 @@ class PagoProveedorDialog(QDialog):
         form.addRow("Monto:", self.spin_monto)
 
         # Metodo de pago
-        self.cmb_metodo = QComboBox()
+        self.cmb_metodo = NoScrollComboBox()
         self.cmb_metodo.addItems(["Efectivo", "Tarjeta", "Transferencia"])
         form.addRow("Método de pago:", self.cmb_metodo)
 

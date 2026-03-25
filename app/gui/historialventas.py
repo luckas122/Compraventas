@@ -17,12 +17,13 @@ from PyQt5.QtCore import Qt, QTimer, QDate,QTime
 
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QLineEdit, QPushButton,
-    QComboBox, QDateEdit, QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox,
+    QDateEdit, QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox,
     QFileDialog, QMessageBox, QDialog, QDialogButtonBox, QTableWidgetSelectionRange,QTimeEdit, QSpinBox,
     QTabWidget, QScrollArea, QFrame, QGroupBox, QGridLayout
 )
 
 from app.config import load as load_config, save as save_config   # ← config existente :contentReference[oaicite:1]{index=1}
+from app.gui.qt_helpers import NoScrollComboBox
 from app.models import Venta, VentaItem
 from app.repository import VentaRepo                               # ← repo existente (listar_por_rango, listar_items) :contentReference[oaicite:2]{index=2}
 
@@ -155,14 +156,14 @@ class HistorialVentasWidget(QWidget):
         self.dt_desde.setDate(hoy)
         self.dt_hasta.setDate(hoy)
 
-        self.cmb_sucursal = QComboBox()
+        self.cmb_sucursal = NoScrollComboBox()
         self.cmb_sucursal.addItem("Todas", None)
         for s in ("Sarmiento", "Salta"):
             self.cmb_sucursal.addItem(s, s)
         if self.sucursal_actual and self.sucursal_actual in ("Sarmiento", "Salta"):
             self.cmb_sucursal.setCurrentText(self.sucursal_actual)
 
-        self.cmb_forma = QComboBox()
+        self.cmb_forma = NoScrollComboBox()
         self.cmb_forma.addItems(["Todas", "Efectivo", "Tarjeta"])
 
         self.txt_buscar = QLineEdit()

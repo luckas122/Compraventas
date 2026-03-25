@@ -5,6 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dashboard - Tu Local 2025</title>
     <style>
+        :root {
+            --font-titulo: 22px;
+            --font-cards: 28px;
+            --font-labels: 12px;
+            --font-tabla: 14px;
+            --color-header: #1a237e;
+            --color-header-hover: #283593;
+            --color-card-total: #1a237e;
+            --color-efectivo: #2e7d32;
+            --color-tarjeta: #ff9800;
+            --color-cantidad: #7b1fa2;
+        }
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -14,7 +26,7 @@
         }
         /* Header */
         .header {
-            background: linear-gradient(135deg, #1a237e 0%, #283593 100%);
+            background: linear-gradient(135deg, var(--color-header) 0%, var(--color-header-hover) 100%);
             color: white;
             padding: 16px 24px;
             display: flex;
@@ -24,7 +36,7 @@
             gap: 12px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.15);
         }
-        .header h1 { font-size: 22px; font-weight: 600; }
+        .header h1 { font-size: var(--font-titulo); font-weight: 600; }
         .header .status {
             font-size: 13px;
             opacity: 0.85;
@@ -63,10 +75,10 @@
             transition: all 0.2s;
             user-select: none;
         }
-        .tab:hover { color: #1a237e; background: #f5f5ff; }
+        .tab:hover { color: var(--color-header); background: #f5f5ff; }
         .tab.active {
-            color: #1a237e;
-            border-bottom-color: #1a237e;
+            color: var(--color-header);
+            border-bottom-color: var(--color-header);
             font-weight: 600;
         }
 
@@ -78,7 +90,7 @@
             border-radius: 12px;
             box-shadow: 0 1px 4px rgba(0,0,0,0.08);
         }
-        .config-panel h2 { font-size: 16px; margin-bottom: 12px; color: #1a237e; }
+        .config-panel h2 { font-size: 16px; margin-bottom: 12px; color: var(--color-header); }
         .config-row {
             display: flex;
             gap: 12px;
@@ -100,7 +112,7 @@
         }
         .config-row input:focus, .config-row select:focus {
             outline: none;
-            border-color: #1a237e;
+            border-color: var(--color-header);
             box-shadow: 0 0 0 2px rgba(26,35,126,0.1);
         }
         .btn {
@@ -113,10 +125,10 @@
             transition: all 0.2s;
         }
         .btn-primary {
-            background: #1a237e;
+            background: var(--color-header);
             color: white;
         }
-        .btn-primary:hover { background: #283593; }
+        .btn-primary:hover { background: var(--color-header-hover); }
         .btn-success {
             background: #2e7d32;
             color: white;
@@ -124,8 +136,8 @@
         .btn-success:hover { background: #388e3c; }
         .btn-outline {
             background: transparent;
-            border: 1px solid #1a237e;
-            color: #1a237e;
+            border: 1px solid var(--color-header);
+            color: var(--color-header);
         }
         .btn-outline:hover { background: #e8eaf6; }
         .btn-sm { padding: 6px 14px; font-size: 12px; }
@@ -146,24 +158,27 @@
             box-shadow: 0 1px 4px rgba(0,0,0,0.08);
         }
         .card .label {
-            font-size: 12px;
+            font-size: var(--font-labels);
             text-transform: uppercase;
             letter-spacing: 0.5px;
             color: #888;
             margin-bottom: 4px;
         }
         .card .value {
-            font-size: 28px;
+            font-size: var(--font-cards);
             font-weight: 700;
-            color: #1a237e;
+            color: var(--color-card-total);
         }
+        .card.efectivo .value { color: var(--color-efectivo); }
+        .card.tarjeta .value { color: var(--color-tarjeta); }
+        .card.cantidad .value { color: var(--color-cantidad); }
         .card .sub { font-size: 13px; color: #666; margin-top: 4px; }
         .card.sarmiento { border-left: 4px solid #1565c0; }
         .card.salta { border-left: 4px solid #e65100; }
-        .card.total { border-left: 4px solid #2e7d32; }
-        .card.efectivo { border-left: 4px solid #4caf50; }
-        .card.tarjeta { border-left: 4px solid #ff9800; }
-        .card.cantidad { border-left: 4px solid #7b1fa2; }
+        .card.total { border-left: 4px solid var(--color-card-total); }
+        .card.efectivo { border-left: 4px solid var(--color-efectivo); }
+        .card.tarjeta { border-left: 4px solid var(--color-tarjeta); }
+        .card.cantidad { border-left: 4px solid var(--color-cantidad); }
 
         /* Filters */
         .filters {
@@ -192,7 +207,7 @@
         .table-container h3 {
             padding: 16px 20px 8px;
             font-size: 15px;
-            color: #1a237e;
+            color: var(--color-header);
         }
         table {
             width: 100%;
@@ -212,7 +227,7 @@
         }
         td {
             padding: 10px 14px;
-            font-size: 14px;
+            font-size: var(--font-tabla);
             border-bottom: 1px solid #f0f0f0;
         }
         tr:hover td { background: #fafafa; }
@@ -250,7 +265,7 @@
             display: inline-block;
             width: 30px; height: 30px;
             border: 3px solid #e0e0e0;
-            border-top-color: #1a237e;
+            border-top-color: var(--color-header);
             border-radius: 50%;
             animation: spin 0.8s linear infinite;
             margin-bottom: 12px;
@@ -276,7 +291,7 @@
         }
         .precios-search input:focus {
             outline: none;
-            border-color: #1a237e;
+            border-color: var(--color-header);
             box-shadow: 0 0 0 3px rgba(26,35,126,0.1);
         }
         .precios-count {
@@ -286,8 +301,8 @@
         }
         .btn-edit {
             background: none;
-            border: 1px solid #1a237e;
-            color: #1a237e;
+            border: 1px solid var(--color-header);
+            color: var(--color-header);
             padding: 6px 12px;
             border-radius: 6px;
             cursor: pointer;
@@ -304,7 +319,7 @@
         /* Inline editor */
         .precio-editor {
             background: #e8eaf6;
-            border: 2px solid #1a237e;
+            border: 2px solid var(--color-header);
             border-radius: 10px;
             padding: 16px 20px;
             margin: 8px 16px 16px;
@@ -316,7 +331,7 @@
         .precio-editor .editor-title {
             width: 100%;
             font-weight: 600;
-            color: #1a237e;
+            color: var(--color-header);
             font-size: 15px;
             margin-bottom: 4px;
         }
@@ -332,7 +347,7 @@
         }
         .precio-editor input[type="number"] {
             padding: 10px 14px;
-            border: 2px solid #1a237e;
+            border: 2px solid var(--color-header);
             border-radius: 6px;
             font-size: 16px;
             font-weight: 600;
@@ -377,17 +392,96 @@
         }
         .toast.error { background: #c62828; }
 
-        /* Responsive */
-        @media (max-width: 600px) {
+        /* Visibility classes (controlled by config or responsive) */
+        .col-hidden { display: none !important; }
+        .card-hidden { display: none !important; }
+
+        /* ==================== Responsive Breakpoints ==================== */
+
+        /* Tablet grande: hasta 1024px */
+        @media (max-width: 1024px) {
+            .cards {
+                grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+                gap: 12px;
+                margin: 12px;
+            }
+            .header { padding: 14px 16px; }
+            .filters { margin: 0 12px 8px; }
+            .table-container { margin: 0 12px 12px; }
+        }
+
+        /* Tablet / telefono grande: hasta 768px */
+        @media (max-width: 768px) {
+            .cards {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 10px;
+                margin: 10px;
+            }
+            .card { padding: 16px; }
+            .card .value { font-size: 24px; }
+            .card .label { font-size: 11px; }
+            .card .sub { font-size: 12px; }
+
             .header h1 { font-size: 18px; }
-            .card .value { font-size: 22px; }
-            .config-row input { min-width: 160px; }
+            .tab { padding: 12px 18px; font-size: 14px; }
+
+            .config-panel { margin: 10px; padding: 16px; }
+            .config-row { flex-direction: column; }
+            .config-row input, .config-row select { min-width: 100%; }
+
+            /* Tabla: ocultar columnas menos importantes */
+            .col-cuotas-auto, .col-cae-auto { display: none; }
+
             td, th { padding: 8px 10px; font-size: 13px; }
-            .tab { padding: 12px 16px; font-size: 14px; }
-            .precios-search input { min-width: 180px; }
+
+            .filters { flex-direction: column; align-items: stretch; gap: 8px; }
+            .filters label[style*="margin-left"] { margin-left: 0 !important; }
+
+            .precios-search { flex-direction: column; }
+            .precios-search input { min-width: 100%; }
             .precio-editor { flex-direction: column; align-items: stretch; }
             .precio-editor .editor-actions { margin-left: 0; justify-content: flex-end; }
             .precio-editor input[type="number"] { width: 100%; }
+        }
+
+        /* Telefono: hasta 480px */
+        @media (max-width: 480px) {
+            .cards {
+                grid-template-columns: 1fr;
+                gap: 8px;
+                margin: 8px;
+            }
+            .card { padding: 14px; }
+            .card .value { font-size: 22px; }
+
+            .header {
+                padding: 12px;
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 6px;
+            }
+            .header h1 { font-size: 16px; }
+            .header .status { font-size: 12px; }
+
+            .tabs { padding: 0 8px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+            .tab { padding: 10px 14px; font-size: 13px; white-space: nowrap; }
+
+            .table-container { margin: 0 8px 8px; border-radius: 8px; }
+            .table-container h3 { padding: 12px 14px 6px; font-size: 14px; }
+            td, th { padding: 6px 8px; font-size: 12px; }
+
+            /* Tabla: ocultar aun mas columnas */
+            .col-cuotas-auto, .col-cae-auto, .col-items-auto { display: none; }
+
+            /* Touch-friendly: tap targets mas grandes */
+            .btn { min-height: 44px; min-width: 44px; }
+            .btn-sm { min-height: 40px; }
+            .filters input, .filters select { padding: 10px 12px; font-size: 14px; }
+            .btn-edit { min-width: 48px; min-height: 48px; }
+
+            .config-panel { margin: 8px; padding: 12px; }
+            .config-row input { min-width: 100% !important; }
+            .toast { bottom: 12px; right: 12px; left: 12px; text-align: center; }
         }
     </style>
 </head>
@@ -444,28 +538,28 @@
                 <button class="btn btn-outline btn-sm" onclick="cargarDatos()">Actualizar</button>
                 <label style="margin-left: auto;">
                     <input type="checkbox" id="autoRefresh" checked>
-                    Auto-refresh (30s)
+                    <span id="autoRefreshLabel">Auto-refresh (30s)</span>
                 </label>
             </div>
 
             <!-- Cards -->
             <div class="cards" id="cardsContainer">
-                <div class="card total">
+                <div class="card total" data-card-id="total_dia">
                     <div class="label">Total del dia</div>
                     <div class="value" id="totalDia">$0.00</div>
                     <div class="sub" id="totalCantidad">0 ventas</div>
                 </div>
-                <div class="card efectivo">
+                <div class="card efectivo" data-card-id="efectivo">
                     <div class="label">Efectivo</div>
                     <div class="value" id="totalEfectivo">$0.00</div>
                     <div class="sub" id="cantEfectivo">0 ventas</div>
                 </div>
-                <div class="card tarjeta">
+                <div class="card tarjeta" data-card-id="tarjeta">
                     <div class="label">Tarjeta</div>
                     <div class="value" id="totalTarjeta">$0.00</div>
                     <div class="sub" id="cantTarjeta">0 ventas</div>
                 </div>
-                <div class="card cantidad">
+                <div class="card cantidad" data-card-id="cantidad">
                     <div class="label">Cantidad de ventas</div>
                     <div class="value" id="cantTotal">0</div>
                     <div class="sub" id="cantConCAE">0 con CAE</div>
@@ -474,17 +568,17 @@
 
             <!-- Cards IVA -->
             <div class="cards" id="ivaCardsContainer">
-                <div class="card" style="border-left: 4px solid #7b1fa2;">
+                <div class="card" data-card-id="iva_ventas" style="border-left: 4px solid #7b1fa2;">
                     <div class="label">IVA Ventas (CAE)</div>
                     <div class="value" style="color:#7b1fa2;" id="ivaVentas">$0.00</div>
                     <div class="sub" id="ivaVentasSub">21% sobre ventas con CAE</div>
                 </div>
-                <div class="card" style="border-left: 4px solid #00796b;">
+                <div class="card" data-card-id="pagos_proveedores" style="border-left: 4px solid #00796b;">
                     <div class="label">Pagos a Proveedores</div>
                     <div class="value" style="color:#00796b;" id="totalPagos">$0.00</div>
                     <div class="sub" id="cantPagos">0 pagos</div>
                 </div>
-                <div class="card" style="border-left: 4px solid #455a64;">
+                <div class="card" data-card-id="iva_compras" style="border-left: 4px solid #455a64;">
                     <div class="label">IVA Compras (Pagos)</div>
                     <div class="value" style="color:#455a64;" id="ivaCompras">$0.00</div>
                     <div class="sub" id="ivaSaldo">Saldo IVA: $0.00</div>
@@ -504,14 +598,14 @@
                 <table id="ventasTable" class="hidden">
                     <thead>
                         <tr>
-                            <th>Ticket</th>
-                            <th>Hora</th>
-                            <th>Sucursal</th>
-                            <th>Total</th>
-                            <th>Pago</th>
-                            <th>Cuotas</th>
-                            <th>CAE</th>
-                            <th>Items</th>
+                            <th class="col-ticket">Ticket</th>
+                            <th class="col-hora">Hora</th>
+                            <th class="col-sucursal">Sucursal</th>
+                            <th class="col-total">Total</th>
+                            <th class="col-pago">Pago</th>
+                            <th class="col-cuotas col-cuotas-auto">Cuotas</th>
+                            <th class="col-cae col-cae-auto">CAE</th>
+                            <th class="col-items col-items-auto">Items</th>
                         </tr>
                     </thead>
                     <tbody id="ventasBody"></tbody>
@@ -595,6 +689,9 @@
     let productosCargados = false;
     let editandoCodigo = null;     // codigo_barra del producto en edicion
 
+    // Dashboard config (desde Firebase config/dashboard)
+    let dashboardConfig = null;
+
     // ==================== Persistencia en localStorage ====================
     function guardarCredenciales() {
         try {
@@ -664,7 +761,8 @@
             // Setear fecha de hoy
             document.getElementById('filterDate').value = hoy();
 
-            // Descubrir sucursales y cargar datos
+            // Cargar config del dashboard + datos
+            await cargarDashboardConfig();
             await cargarDatos();
             iniciarAutoRefresh();
 
@@ -921,17 +1019,19 @@
 
             body.innerHTML += `
                 <tr${rowStyle}>
-                    <td><strong>#${v.ticket}</strong></td>
-                    <td>${hora}</td>
-                    <td class="${sucClass}">${v.sucursal}</td>
-                    <td class="monto" style="${esPago ? 'color:#c62828;' : ''}">$${v.total.toFixed(2)}</td>
-                    <td class="${pagoClass}">${tipoLabel}${!esPago && v.cuotas > 1 ? ` (${v.cuotas}c)` : ''}</td>
-                    <td>${v.cuotas || '-'}</td>
-                    <td>${v.cae ? '&#10004;' : '-'}</td>
-                    <td title="${itemsTooltip.replace(/"/g, '&quot;')}">${itemsCount} items</td>
+                    <td class="col-ticket"><strong>#${v.ticket}</strong></td>
+                    <td class="col-hora">${hora}</td>
+                    <td class="col-sucursal ${sucClass}">${v.sucursal}</td>
+                    <td class="col-total monto" style="${esPago ? 'color:#c62828;' : ''}">$${v.total.toFixed(2)}</td>
+                    <td class="col-pago ${pagoClass}">${tipoLabel}${!esPago && v.cuotas > 1 ? ` (${v.cuotas}c)` : ''}</td>
+                    <td class="col-cuotas col-cuotas-auto">${v.cuotas || '-'}</td>
+                    <td class="col-cae col-cae-auto">${v.cae ? '&#10004;' : '-'}</td>
+                    <td class="col-items col-items-auto" title="${itemsTooltip.replace(/"/g, '&quot;')}">${itemsCount} items</td>
                 </tr>
             `;
         }
+        // Re-aplicar visibilidad de columnas desde config
+        _aplicarColumnaVisibility();
     }
 
     function mostrarVacio() {
@@ -974,11 +1074,139 @@
     // ==================== Auto Refresh ====================
     function iniciarAutoRefresh() {
         if (refreshInterval) clearInterval(refreshInterval);
+        const interval = (dashboardConfig && dashboardConfig.refresh_interval)
+            ? parseInt(dashboardConfig.refresh_interval) * 1000
+            : 30000;
         refreshInterval = setInterval(() => {
             if (document.getElementById('autoRefresh').checked) {
                 cargarDatos();
             }
-        }, 30000);
+        }, Math.max(interval, 10000));
+    }
+
+    // ==================== Dashboard Config (desde Firebase) ====================
+    async function cargarDashboardConfig() {
+        try {
+            const data = await firebaseGet('config/dashboard');
+            if (data && typeof data === 'object') {
+                dashboardConfig = data;
+                aplicarDashboardConfig();
+            }
+        } catch(e) {
+            console.log('No dashboard config en Firebase, usando defaults');
+        }
+    }
+
+    function aplicarDashboardConfig() {
+        if (!dashboardConfig) return;
+
+        // Titulo
+        if (dashboardConfig.titulo) {
+            document.querySelector('.header h1').textContent = dashboardConfig.titulo;
+            document.title = dashboardConfig.titulo;
+        }
+
+        // Cards visibilidad
+        const cardsVis = dashboardConfig.cards_visibles || {};
+        document.querySelectorAll('[data-card-id]').forEach(card => {
+            const id = card.dataset.cardId;
+            if (id in cardsVis) {
+                card.classList.toggle('card-hidden', cardsVis[id] === false);
+            }
+        });
+
+        // Columnas visibilidad (headers)
+        _aplicarColumnaVisibility();
+
+        // Actualizar label de auto-refresh
+        if (dashboardConfig.refresh_interval) {
+            const secs = dashboardConfig.refresh_interval;
+            const label = document.getElementById('autoRefreshLabel');
+            if (label) label.textContent = `Auto-refresh (${secs}s)`;
+        }
+
+        // Estilos personalizados (fuentes y colores)
+        _aplicarEstilos();
+    }
+
+    function _aplicarEstilos() {
+        const estilos = (dashboardConfig && dashboardConfig.estilos) || {};
+        const r = document.documentElement.style;
+
+        // Tamanos de fuente
+        if (estilos.font_size_titulo) r.setProperty('--font-titulo', estilos.font_size_titulo + 'px');
+        if (estilos.font_size_cards)  r.setProperty('--font-cards', estilos.font_size_cards + 'px');
+        if (estilos.font_size_labels) r.setProperty('--font-labels', estilos.font_size_labels + 'px');
+        if (estilos.font_size_tabla)  r.setProperty('--font-tabla', estilos.font_size_tabla + 'px');
+
+        // Colores
+        if (estilos.color_header) {
+            r.setProperty('--color-header', estilos.color_header);
+            // Calcular hover (ligeramente mas claro)
+            r.setProperty('--color-header-hover', _lightenColor(estilos.color_header, 15));
+        }
+        if (estilos.color_card_total) r.setProperty('--color-card-total', estilos.color_card_total);
+        if (estilos.color_efectivo)   r.setProperty('--color-efectivo', estilos.color_efectivo);
+        if (estilos.color_tarjeta)    r.setProperty('--color-tarjeta', estilos.color_tarjeta);
+        if (estilos.color_cantidad)   r.setProperty('--color-cantidad', estilos.color_cantidad);
+
+        // Aplicar colores a cards con inline styles (IVA cards y efectivo/tarjeta values)
+        _aplicarColoresCards(estilos);
+    }
+
+    function _aplicarColoresCards(estilos) {
+        // Cards principales: actualizar color del .value
+        const cardMap = {
+            'total_dia': estilos.color_card_total,
+            'efectivo': estilos.color_efectivo,
+            'tarjeta': estilos.color_tarjeta,
+            'cantidad': estilos.color_cantidad,
+        };
+        for (const [cardId, color] of Object.entries(cardMap)) {
+            if (!color) continue;
+            const card = document.querySelector(`[data-card-id="${cardId}"]`);
+            if (card) {
+                const val = card.querySelector('.value');
+                if (val) val.style.color = color;
+                // Actualizar border-left para las cards que lo tienen
+                if (['efectivo', 'tarjeta', 'cantidad'].includes(cardId)) {
+                    card.style.borderLeftColor = color;
+                }
+                if (cardId === 'total_dia') {
+                    card.style.borderLeftColor = color;
+                }
+            }
+        }
+    }
+
+    function _lightenColor(hex, percent) {
+        // Aclara un color hex por un porcentaje dado
+        hex = hex.replace('#', '');
+        const num = parseInt(hex, 16);
+        const r = Math.min(255, (num >> 16) + Math.round(255 * percent / 100));
+        const g = Math.min(255, ((num >> 8) & 0x00FF) + Math.round(255 * percent / 100));
+        const b = Math.min(255, (num & 0x0000FF) + Math.round(255 * percent / 100));
+        return '#' + (0x1000000 + (r << 16) + (g << 8) + b).toString(16).slice(1);
+    }
+
+    function _aplicarColumnaVisibility() {
+        if (!dashboardConfig || !dashboardConfig.columnas_visibles) return;
+        const colsVis = dashboardConfig.columnas_visibles;
+        const colNames = ['ticket', 'hora', 'sucursal', 'total', 'pago', 'cuotas', 'cae', 'items'];
+
+        colNames.forEach(name => {
+            if (colsVis[name] === false) {
+                // Ocultar header y todas las celdas de esa columna
+                document.querySelectorAll(`.col-${name}`).forEach(el => {
+                    el.classList.add('col-hidden');
+                });
+            } else {
+                // Mostrar (pero respetar responsive auto-hide)
+                document.querySelectorAll(`.col-${name}`).forEach(el => {
+                    el.classList.remove('col-hidden');
+                });
+            }
+        });
     }
 
     // ==================== PRECIOS: Cargar productos ====================

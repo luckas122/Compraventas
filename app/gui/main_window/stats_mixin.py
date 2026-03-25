@@ -3,6 +3,7 @@
 
 from PyQt5.QtWidgets import QLabel
 from PyQt5.QtCore import Qt
+from app.gui.qt_helpers import NoScrollComboBox
 
 
 class StatsMixin:
@@ -24,7 +25,7 @@ class StatsMixin:
     def tab_historial(self):
         from PyQt5.QtWidgets import (
             QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
-            QTableWidget, QHeaderView, QDateEdit, QComboBox, QTabWidget
+            QTableWidget, QHeaderView, QDateEdit, QTabWidget
         )
         from PyQt5.QtCore import Qt, QDate
 
@@ -54,14 +55,14 @@ class StatsMixin:
         row.addWidget(self.hist_hasta)
 
         row.addWidget(QLabel("Sucursal:"))
-        self.hist_sucursal = QComboBox()
+        self.hist_sucursal = NoScrollComboBox()
         self.hist_sucursal.addItem("Todas", None)
         for s in getattr(self, "direcciones", {}).keys():
             self.hist_sucursal.addItem(s, s)
         row.addWidget(self.hist_sucursal)
 
         row.addWidget(QLabel("Forma:"))
-        self.hist_forma = QComboBox()
+        self.hist_forma = NoScrollComboBox()
         self.hist_forma.addItem("Todas", None)
         self.hist_forma.addItem("Efectivo", "efectivo")
         self.hist_forma.addItem("Tarjeta", "tarjeta")
@@ -686,12 +687,22 @@ class StatsMixin:
             ("{{totales.total}}",     "{{totales.total}}",     "Total final a pagar"),
         ])
 
+        # --- IVA / Fiscal ---
+        _add_group(v, "IVA / Fiscal", [
+            ("{{iva.base}}",          "{{iva.base}}",          "Monto neto gravado (total sin IVA)"),
+            ("{{iva.cuota}}",         "{{iva.cuota}}",         "Monto del IVA"),
+            ("{{iva.porcentaje}}",    "{{iva.porcentaje}}",    "Porcentaje de IVA (21%)"),
+            ("{{afip.cae}}",          "{{afip.cae}}",          "Numero de CAE (individual)"),
+            ("{{afip.vencimiento}}",  "{{afip.vencimiento}}",  "Fecha de vencimiento del CAE"),
+            ("{{afip.comprobante}}",  "{{afip.comprobante}}",  "Numero de comprobante AFIP"),
+        ])
+
         # --- Contenido ---
         _add_group(v, "Contenido", [
             ("{{items}}", "{{items}}", "Lista de articulos de la venta"),
-            ("{{cae}}",   "{{cae}}",   "Codigo de Autorizacion Electronica (AFIP)"),
+            ("{{cae}}",   "{{cae}}",   "Bloque completo AFIP (titulo + CAE + vencimiento)"),
             ("{{qrcae}}", "{{qrcae}}", "QR de factura electronica AFIP/ARCA (solo si hay CAE)"),
-            ("{{iva.discriminado}}", "{{iva.discriminado}}", "IVA discriminado (ventas con CAE): Neto + IVA 21% + Total"),
+            ("{{iva.discriminado}}", "{{iva.discriminado}}", "Bloque IVA discriminado (configurable desde Config)"),
             ("{{hr}}",    "{{hr}}",    "Linea separadora horizontal"),
         ])
 
@@ -718,6 +729,11 @@ class StatsMixin:
             ("{{h3: }}",  "{{h3: }}",  "Tamaño H3 (cabecera, negrita)"),
             ("{{h4: }}",  "{{h4: }}",  "Tamaño H4 (texto normal)"),
             ("{{h5: }}",  "{{h5: }}",  "Tamaño H5 (pie/legal, pequeño)"),
+        ])
+
+        # --- Expresiones matemáticas ---
+        _add_group(v, "Expresiones", [
+            ("{{= }}",  "{{= }}",  "Operacion matematica. Ej: {{= totales.total - iva.cuota }}"),
         ])
 
         v.addStretch(1)

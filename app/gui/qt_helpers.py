@@ -1,10 +1,24 @@
 # -*- coding: utf-8 -*-
 from contextlib import contextmanager
-from PyQt5.QtWidgets import QStyledItemDelegate, QApplication,QStyleOptionButton,QStyle
+from PyQt5.QtWidgets import (
+    QStyledItemDelegate, QApplication, QStyleOptionButton, QStyle, QComboBox,
+)
 from PyQt5.QtCore import Qt, QEvent, QRect
 from PyQt5.QtGui import QFont
-from PyQt5.QtWidgets import QStyledItemDelegate, QApplication, QStyleOptionButton, QStyle
-from PyQt5.QtCore import Qt, QEvent
+
+
+class NoScrollComboBox(QComboBox):
+    """QComboBox que ignora el scroll del mouse a menos que tenga foco.
+    Evita cambios accidentales al hacer scroll en una página con combos."""
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.setFocusPolicy(Qt.StrongFocus)
+
+    def wheelEvent(self, event):
+        if self.hasFocus():
+            super().wheelEvent(event)
+        else:
+            event.ignore()
 
 
 @contextmanager
@@ -38,6 +52,8 @@ class FullCellCheckDelegate(QStyledItemDelegate):
         super().__init__(parent)
         self.column = column
         self.padding = padding
+        self._last_checked_row = None
+        self._shift_on_press = False
 
     def paint(self, painter, option, index):
         if index.column() != self.column:
@@ -57,11 +73,28 @@ class FullCellCheckDelegate(QStyledItemDelegate):
         if index.column() != self.column:
             return super().editorEvent(event, model, option, index)
 
-        # — SOLO togglear en MouseButtonRelease —
+        # Capturar Shift en Press (más confiable que en Release en Windows)
+        if event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+            self._shift_on_press = bool(QApplication.keyboardModifiers() & Qt.ShiftModifier)
+            return True  # consumir press para evitar selección nativa de Qt
+
+        # Togglear en MouseButtonRelease
         if event.type() == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
             curr = index.data(Qt.CheckStateRole)
             new_state = Qt.Unchecked if curr == Qt.Checked else Qt.Checked
-            model.setData(index, new_state, Qt.CheckStateRole)
+
+            if self._shift_on_press and self._last_checked_row is not None:
+                # Shift+Click: seleccionar/deseleccionar rango
+                start = min(self._last_checked_row, index.row())
+                end = max(self._last_checked_row, index.row())
+                for r in range(start, end + 1):
+                    idx = model.index(r, self.column)
+                    model.setData(idx, new_state, Qt.CheckStateRole)
+            else:
+                model.setData(index, new_state, Qt.CheckStateRole)
+
+            self._last_checked_row = index.row()
+            self._shift_on_press = False
             return True
 
         # Evitar que el doble click entre en edición / togglee de nuevo

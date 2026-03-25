@@ -385,13 +385,15 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
     
 
     def editar_precios_masivos(self):
-        """Aplica un porcentaje o un monto fijo a todos los productos seleccionados."""
-        modos = ['Porcentaje', 'Monto fijo']
+        """Aplica un porcentaje, monto fijo o valor final a todos los productos seleccionados."""
+        modos = ['Porcentaje', 'Monto fijo', 'Valor final']
         modo, ok = QInputDialog.getItem(self, 'Modo de edición', 'Seleccione modo:', modos, 0, False)
         if not ok:
             return
         if modo == 'Porcentaje':
             val, ok = QInputDialog.getDouble(self, 'Porcentaje', 'Introduce % (10 o -5):', decimals=2)
+        elif modo == 'Valor final':
+            val, ok = QInputDialog.getDouble(self, 'Valor final', 'Nuevo precio para todos:', 0, 0, 999999, 2)
         else:
             val, ok = QInputDialog.getDouble(self, 'Monto fijo', 'Introduce importe (+/-):', decimals=2)
         if not ok:
@@ -404,12 +406,14 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
         if not filas:
             QMessageBox.information(self, 'Editar precios', 'No hay productos seleccionados.')
             return
-        
+
         for r in filas:
             pid = int(self.table_productos.item(r, 1).text())
             prod = self.session.query(Producto).get(pid)
             if modo == 'Porcentaje':
                 prod.precio *= (1 + val/100.0)
+            elif modo == 'Valor final':
+                prod.precio = val
             else:
                 prod.precio += val
             prod.precio = max(prod.precio, 0.0)
@@ -736,7 +740,7 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
                             QApplication.sendEvent(ventas_input, event)
                             return True
 
-            # --- Checkbox en tabla productos ---
+            # --- Checkbox en tabla productos (con Shift+Click) ---
             tbl = getattr(self, "table_productos", None)
             if tbl is not None:
                 try:
@@ -744,13 +748,32 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
                 except RuntimeError:
                     return False
                 if obj is vp:
-                    if event.type() == QEvent.MouseButtonRelease:
+                    # Capturar Shift en Press (más confiable que en Release)
+                    if event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+                        idx_p = tbl.indexAt(event.pos())
+                        if idx_p.isValid() and idx_p.column() == 0:
+                            self._shift_on_press_prod = bool(QApplication.keyboardModifiers() & Qt.ShiftModifier)
+                            return False  # dejar que Qt procese el press normalmente
+
+                    if event.type() == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
                         index = tbl.indexAt(event.pos())
-                        if index.column() == 0:
+                        if index.isValid() and index.column() == 0:
                             item = tbl.item(index.row(), 0)
                             if item is not None:
                                 new_state = Qt.Unchecked if item.checkState() == Qt.Checked else Qt.Checked
-                                item.setCheckState(new_state)
+                                shift = getattr(self, '_shift_on_press_prod', False)
+                                last = getattr(self, '_last_checked_row_productos', None)
+                                if shift and last is not None:
+                                    start = min(last, index.row())
+                                    end = max(last, index.row())
+                                    for r in range(start, end + 1):
+                                        it = tbl.item(r, 0)
+                                        if it:
+                                            it.setCheckState(new_state)
+                                else:
+                                    item.setCheckState(new_state)
+                                self._last_checked_row_productos = index.row()
+                            self._shift_on_press_prod = False
                             return True
         except Exception:
             pass

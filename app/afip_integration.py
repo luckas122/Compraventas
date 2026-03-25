@@ -490,6 +490,15 @@ class AfipSDKClient:
 
         except Exception as e:
             logger.error(f"Error al emitir factura B en AFIP: {e}", exc_info=True)
+            try:
+                from app.alert_manager import AlertManager
+                AlertManager.get_instance().send_alert(
+                    "afip_error",
+                    f"Error al emitir Factura B: {e}",
+                    details=f"Tipo: Factura B\nImporte: {importe}\nError: {e}"
+                )
+            except Exception:
+                pass
             return AfipResponse(
                 success=False,
                 error_message=str(e)
@@ -697,6 +706,15 @@ class AfipSDKClient:
 
         except Exception as e:
             logger.error(f"Error al emitir Factura A en AFIP: {e}", exc_info=True)
+            try:
+                from app.alert_manager import AlertManager
+                AlertManager.get_instance().send_alert(
+                    "afip_error",
+                    f"Error al emitir Factura A: {e}",
+                    details=f"Tipo: Factura A\nImporte: {importe}\nError: {e}"
+                )
+            except Exception:
+                pass
             return AfipResponse(
                 success=False,
                 error_message=str(e)

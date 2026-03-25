@@ -37,6 +37,9 @@ hiddenimports = list(set(
         "subprocess",
         "app.gui.main_window.configuracion_mixin",
         "app.gui.main_window.core",
+        "app.alert_manager",
+        "app.gui.smart_template_editor",
+        "app.gui.dashboard_config",
         # Módulos SSL/email (usados por email_helper para reportes)
         "ssl",
         "smtplib",

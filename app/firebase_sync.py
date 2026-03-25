@@ -947,6 +947,18 @@ class FirebaseSyncManager:
 
         self._log(f"Sync completa: {enviados} enviados, {recibidos} recibidos, {len(errores_list)} errores")
 
+        # Enviar alerta si hubo errores de sync
+        if errores_list:
+            try:
+                from app.alert_manager import AlertManager
+                AlertManager.get_instance().send_alert(
+                    "sync_offline",
+                    f"Errores durante sincronizacion Firebase ({len(errores_list)}).",
+                    details="\n".join(errores_list)
+                )
+            except Exception:
+                pass
+
         return {
             "enviados": enviados,
             "recibidos": recibidos,

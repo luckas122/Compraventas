@@ -323,6 +323,11 @@ Interés: {{totales.interes}}
         "template_cae_efectivo": "",
         "template_cae_tarjeta": "",
         "template_consumidor_final": "",
+        "iva_discriminado": {
+            "mostrar_neto": True,
+            "mostrar_iva": True,
+            "mostrar_total": True
+        },
         "placeholders": [
             "{{ticket.numero}}", "{{ticket.fecha_hora}}", "{{sucursal}}",
             "{{cliente.nombre}}", "{{cliente.doc}}",
@@ -331,6 +336,8 @@ Interés: {{totales.interes}}
             "{{abonado}}", "{{vuelto}}", "{{business}}", "{{title}}",
             "{{business.cuit}}", "{{business.direccion}}",
             "{{vendedor}}",
+            "{{iva.base}}", "{{iva.cuota}}", "{{iva.porcentaje}}",
+            "{{afip.cae}}", "{{afip.vencimiento}}", "{{afip.comprobante}}",
             "{{hr}}", "{{items}}", "{{cae}}", "{{iva.discriminado}}", "{{qrcae}}",
             "{{img:logo}}", "{{img:instagram}}", "{{img:whatsapp}}", "{{img:qr}}"
         ],
@@ -418,6 +425,20 @@ Interés: {{totales.interes}}
         "attach_format": "xlsx"   # por ahora sólo xlsx
     },
 
+    # Alertas por email ante errores criticos
+    "alerts": {
+        "enabled": False,
+        "email": {
+            "recipients": [],
+            "cooldown_minutes": 30
+        },
+        "types": {
+            "afip_error": True,
+            "sync_offline": True,
+            "db_error": True,
+            "critical": True
+        }
+    },
 
  # Facturación electrónica (AFIP / ARCA vía AfipSDK)
     "fiscal": {
@@ -481,6 +502,41 @@ Interés: {{totales.interes}}
             "ventas": None,
             "productos": None,
             "proveedores": None
+        }
+    },
+
+    "dashboard": {
+        "titulo": "Tu Local 2025 - Dashboard",
+        "cards_visibles": {
+            "total_dia": True,
+            "efectivo": True,
+            "tarjeta": True,
+            "cantidad": True,
+            "iva_ventas": True,
+            "pagos_proveedores": True,
+            "iva_compras": True
+        },
+        "columnas_visibles": {
+            "ticket": True,
+            "hora": True,
+            "sucursal": True,
+            "total": True,
+            "pago": True,
+            "cuotas": True,
+            "cae": True,
+            "items": True
+        },
+        "refresh_interval": 30,
+        "estilos": {
+            "font_size_titulo": 22,
+            "font_size_cards": 28,
+            "font_size_labels": 12,
+            "font_size_tabla": 14,
+            "color_header": "#1a237e",
+            "color_card_total": "#1a237e",
+            "color_efectivo": "#2e7d32",
+            "color_tarjeta": "#ff9800",
+            "color_cantidad": "#7b1fa2"
         }
     }
 }

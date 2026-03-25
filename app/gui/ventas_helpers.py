@@ -334,13 +334,15 @@ def _draw_ticket(p, page_rect, prn, venta, sucursal, direcciones, width_mm=75.0,
             x = 0.0
         return f"${x:,.2f}".replace(",", "X").replace(".", ",").replace("X",".")
 
-    def draw_image(pixmap, size_mm=20.0):
-        """Dibuja un QPixmap cuadrado (size_mm x size_mm) centrado y avanza y."""
+    def draw_image(pixmap, size_mm=20.0, smooth=True):
+        """Dibuja un QPixmap cuadrado (size_mm x size_mm) centrado y avanza y.
+        smooth=False usa FastTransformation (ideal para QR codes)."""
         nonlocal y
         if pixmap is None or pixmap.isNull():
             return
         side = px(size_mm)
-        scaled = pixmap.scaled(side, side, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        transform = Qt.SmoothTransformation if smooth else Qt.FastTransformation
+        scaled = pixmap.scaled(side, side, Qt.KeepAspectRatio, transform)
         img_x = x + (w - scaled.width()) // 2
         p.drawPixmap(img_x, y, scaled)
         y += scaled.height() + px(1.0)
@@ -755,10 +757,14 @@ def _ticket_strings():
 # ======= Plantilla: helpers =======
 
 def _money(x):
+    """Formatea un valor numérico como moneda argentina: $1.234,56"""
     try:
-        return f"${float(x):.2f}"
+        v = float(x)
+        formatted = f"${v:,.2f}"
+        # Convertir formato US (1,234.56) a argentino (1.234,56)
+        return formatted.replace(",", "X").replace(".", ",").replace("X", ".")
     except Exception:
-        return "$0.00"
+        return "$0,00"
 
 def _tpl_context(venta, sucursal, direcciones):
     import datetime
@@ -843,7 +849,22 @@ def _tpl_context(venta, sucursal, direcciones):
         "afip.vencimiento":  str(getattr(venta, "afip_cae_vencimiento", "") or ""),
         "afip.comprobante":  str(getattr(venta, "afip_numero_comprobante", "") or ""),
     }
-    return ctx, items
+
+    # Valores numéricos para expresiones {{= ... }}
+    ctx_numeric = {
+        "totales.subtotal": subtotal,
+        "totales.total":    total,
+        "totales.descuento": descuento,
+        "totales.interes":  interes,
+        "iva.base":         iva_base,
+        "iva.cuota":        iva_cuota,
+        "abonado":          float(abonado or 0),
+        "vuelto":           float(vuelto or 0),
+        "pago.cuotas":      float(cuotas),
+        "pago.monto_cuota": monto_cuota,
+    }
+
+    return ctx, ctx_numeric, items
 
 def _generate_afip_qr_pixmap(venta, sucursal):
     """Genera QPixmap con QR de factura electrónica AFIP/ARCA.
@@ -919,7 +940,15 @@ def _generate_afip_qr_pixmap(venta, sucursal):
 
         import qrcode
         from io import BytesIO
-        qr_img = qrcode.make(url)
+        qr = qrcode.QRCode(
+            version=None,
+            error_correction=qrcode.constants.ERROR_CORRECT_L,  # 7% — menos módulos posible
+            box_size=8,       # 8px/módulo → imagen nítida ~450px, se achica poco
+            border=2,
+        )
+        qr.add_data(url)
+        qr.make(fit=True)
+        qr_img = qr.make_image(fill_color="black", back_color="white")
         buf = BytesIO()
         qr_img.save(buf, format='PNG')
         buf.seek(0)
@@ -939,23 +968,97 @@ def _generate_afip_qr_pixmap(venta, sucursal):
         return None
 
 
-def _tpl_render_lines(template_text, ctx, items, venta=None):
+def _safe_eval_expr(expr_str, ctx_numeric):
+    """Evalúa expresiones aritméticas simples de forma segura.
+    Solo permite: números, +, -, *, /, paréntesis y nombres del ctx.
+    Retorna el resultado como float o None si falla."""
+    import ast
+    import operator
+    _ops = {
+        ast.Add: operator.add,
+        ast.Sub: operator.sub,
+        ast.Mult: operator.mul,
+        ast.Div: operator.truediv,
+    }
+    # Reemplazar nombres con puntos por identificadores válidos
+    # Ordenar por longitud descendente para evitar reemplazos parciales
+    transformed = expr_str
+    ctx_safe = {}
+    for key in sorted(ctx_numeric.keys(), key=len, reverse=True):
+        safe_key = key.replace(".", "_")
+        transformed = transformed.replace(key, safe_key)
+        ctx_safe[safe_key] = ctx_numeric[key]
+
+    def _eval_node(node):
+        # Número literal
+        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+            return float(node.value)
+        # Variable (nombre del contexto)
+        if isinstance(node, ast.Name):
+            if node.id in ctx_safe:
+                return float(ctx_safe[node.id])
+            raise ValueError(f"Variable desconocida: {node.id}")
+        # Operación binaria (+, -, *, /)
+        if isinstance(node, ast.BinOp):
+            op_fn = _ops.get(type(node.op))
+            if op_fn is None:
+                raise ValueError("Operador no soportado")
+            left = _eval_node(node.left)
+            right = _eval_node(node.right)
+            if isinstance(node.op, ast.Div) and right == 0:
+                raise ValueError("División por cero")
+            return op_fn(left, right)
+        # Negación unaria
+        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+            return -_eval_node(node.operand)
+        raise ValueError("Expresión no soportada")
+
+    try:
+        tree = ast.parse(transformed.strip(), mode='eval')
+        result = _eval_node(tree.body)
+        logger.debug("[EXPR] '%s' → '%s' = %s", expr_str, transformed.strip(), result)
+        return result
+    except Exception as e:
+        logger.warning("[EXPR] Error evaluando '%s' (transformed='%s'): %s", expr_str, transformed, e)
+        return None
+
+
+def _tpl_render_lines(template_text, ctx, ctx_numeric=None, items=None, venta=None):
     """
     Convierte la plantilla en una lista de dicts 'línea' con campos:
     {'text': str, 'align': Qt.AlignmentFlag, 'bold': bool, 'italic': bool, 'is_rule': bool}
     Expande {{items}} en múltiples líneas.
+    Soporta expresiones {{= expr }} con operaciones aritméticas.
     """
+    if ctx_numeric is None:
+        ctx_numeric = {}
+    if items is None:
+        items = []
     lines = []
     if not template_text:
         return lines
+
+    import re
+    _expr_re = re.compile(r"\{\{=\s*(.+?)\s*\}\}")
 
     def _repl_placeholders(s):
         out = s
         for k, v in ctx.items():
             out = out.replace("{{" + k + "}}", str(v))
+        # Evaluar expresiones {{= ... }}
+        def _eval_match(m):
+            expr = m.group(1)
+            logger.debug("[EXPR] Regex capturó: '%s', ctx_numeric keys=%s", expr, list((ctx_numeric or {}).keys()))
+            result = _safe_eval_expr(expr, ctx_numeric or {})
+            if result is not None:
+                formatted = _money(result)
+                logger.debug("[EXPR] Resultado formateado: %s", formatted)
+                return formatted
+            logger.warning("[EXPR] Expresión '%s' retornó None", expr)
+            return ""
+        out = _expr_re.sub(_eval_match, out)
         return out
 
-    import re
     _img_re = re.compile(r"\{\{img:(\w+)\}\}")
 
     # Expansión de {{cae}} - Datos AFIP
@@ -1017,7 +1120,7 @@ def _tpl_render_lines(template_text, ctx, items, venta=None):
                 pass
         return out
 
-    # Expansión de {{iva.discriminado}} — todas las ventas con CAE
+    # Expansión de {{iva.discriminado}} — todas las ventas con CAE (configurable)
     def _expand_iva_discriminado():
         if venta is None:
             return []
@@ -1029,11 +1132,18 @@ def _tpl_render_lines(template_text, ctx, items, venta=None):
             return []
         neto = round(total / 1.21, 2)
         iva = round(total - neto, 2)
-        return [
-            f"Subtotal Neto: {_money(neto)}",
-            f"IVA 21%: {_money(iva)}",
-            f"TOTAL: {_money(total)}",
-        ]
+        # Leer configuración de qué líneas mostrar
+        from app.config import load as _load_cfg
+        _cfg = _load_cfg()
+        cfg_iva = (_cfg.get("ticket") or {}).get("iva_discriminado", {})
+        lines = []
+        if cfg_iva.get("mostrar_neto", True):
+            lines.append(f"Subtotal Neto: {_money(neto)}")
+        if cfg_iva.get("mostrar_iva", True):
+            lines.append(f"IVA 21%: {_money(iva)}")
+        if cfg_iva.get("mostrar_total", True):
+            lines.append(f"TOTAL: {_money(total)}")
+        return lines
 
     # Detectar si la plantilla ya incluye {{cae}}
     has_cae_placeholder = "{{cae}}" in template_text
@@ -1145,8 +1255,8 @@ def _tpl_draw_block(p, px, draw_text, draw_image, line, gap, f_norm, f_head, ven
     if not template_text:
         return
 
-    ctx, items = _tpl_context(venta, sucursal, direcciones)
-    lines = _tpl_render_lines(template_text, ctx, items, venta)
+    ctx, ctx_numeric, items = _tpl_context(venta, sucursal, direcciones)
+    lines = _tpl_render_lines(template_text, ctx, ctx_numeric, items, venta)
 
     # Precargar imagenes de ticket
     _img_cache = {}
@@ -1191,7 +1301,9 @@ def _tpl_draw_block(p, px, draw_text, draw_image, line, gap, f_norm, f_head, ven
         # QR CAE AFIP
         if ln.get("is_qrcae"):
             if _qrcae_pixmap is not None:
-                draw_image(_qrcae_pixmap, size_mm=img_size_mm)
+                # QR AFIP: mínimo 25mm para legibilidad, sin suavizado
+                qr_size = max(img_size_mm, 35.0)
+                draw_image(_qrcae_pixmap, size_mm=qr_size, smooth=True)
             continue
 
         # Dibujar imagen si es linea de imagen

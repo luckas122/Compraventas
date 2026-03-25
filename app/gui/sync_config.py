@@ -5,10 +5,11 @@ Pestana de configuracion de Sincronizacion entre sucursales via Firebase.
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QFormLayout, QHBoxLayout, QGroupBox, QLabel,
-    QCheckBox, QComboBox, QLineEdit, QPushButton, QMessageBox, QSpinBox,
+    QCheckBox, QLineEdit, QPushButton, QMessageBox, QSpinBox,
     QFrame, QProgressBar,
 )
 from app.config import load as load_config, save as save_config
+from app.gui.qt_helpers import NoScrollComboBox
 
 
 class SyncConfigPanel(QWidget):
@@ -55,7 +56,7 @@ class SyncConfigPanel(QWidget):
         gb_modo = QGroupBox("Modo de sincronizacion")
         lay_modo = QFormLayout(gb_modo)
 
-        self.cmb_modo = QComboBox()
+        self.cmb_modo = NoScrollComboBox()
         self.cmb_modo.addItem("Automatica (intervalo fijo)", "interval")
         self.cmb_modo.addItem("Manual (boton en status bar)", "manual")
         lay_modo.addRow("Modo:", self.cmb_modo)
