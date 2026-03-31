@@ -858,11 +858,11 @@ class HistorialVentasWidget(QWidget):
     def _pintar_tabla(self):
         # Asegurar 15 columnas y headers (por si no se hizo en __init__)
         if self.tbl.columnCount() != 15:
-            self.tbl.setColumnCount(15)
+            self.tbl.setColumnCount(16)
             self.tbl.setHorizontalHeaderLabels([
                 "Nº Ticket", "Fecha/Hora", "Sucursal", "Forma Pago",
                 "Cuotas", "Interés", "Descuento", "Monto x cuota",
-                "Total", "Pagado", "Vuelto", "CAE", "Vto CAE", "Comentario", "ID"
+                "Total", "Pagado", "Vuelto", "CAE", "Vto CAE", "Nota Crédito", "Comentario", "ID"
             ])
 
         self.tbl.setRowCount(0)
@@ -937,6 +937,8 @@ class HistorialVentasWidget(QWidget):
             has_error = bool(afip_error and not cae)
 
             # Orden EXACTO de columnas (coincide con headers)
+            nc_cae = getattr(v, "nota_credito_cae", None) or ""
+
             data = [
                 nro,                                  # Nº Ticket
                 hora,                                 # Fecha/Hora
@@ -951,6 +953,7 @@ class HistorialVentasWidget(QWidget):
                 vuelto_txt,                           # Vuelto
                 "",                                   # CAE (placeholder - se llena abajo)
                 str(cae_vto) if cae_vto else "-",     # Vto CAE
+                "",                                   # Nota Crédito (placeholder)
                 coment,                               # Comentario
                 str(getattr(v, "id", ""))             # ID
             ]
@@ -982,6 +985,25 @@ class HistorialVentasWidget(QWidget):
                 it_cae = QTableWidgetItem(str(cae) if cae else "-")
                 it_cae.setTextAlignment(Qt.AlignCenter)
                 self.tbl.setItem(row, 11, it_cae)
+
+            # Columna Nota Crédito (col 13)
+            if nc_cae:
+                it_nc = QTableWidgetItem(f"NC: {nc_cae[:10]}...")
+                it_nc.setTextAlignment(Qt.AlignCenter)
+                from PyQt5.QtGui import QColor
+                it_nc.setForeground(QColor(192, 57, 43))
+                self.tbl.setItem(row, 13, it_nc)
+            elif cae and not has_error:
+                from PyQt5.QtWidgets import QPushButton as _QPB
+                btn_nc = _QPB("Nota Crédito")
+                btn_nc.setStyleSheet(
+                    "background: #C0392B; color: white; padding: 2px 6px; "
+                    "font-size: 8pt; border-radius: 3px;"
+                )
+                btn_nc.setToolTip("Emitir Nota de Crédito para anular esta factura")
+                venta_id_nc = getattr(v, "id", None)
+                btn_nc.clicked.connect(lambda _, vid=venta_id_nc: self._emitir_nota_credito(vid))
+                self.tbl.setCellWidget(row, 13, btn_nc)
 
         # Agregar pagos a proveedores (en rojo)
         from PyQt5.QtGui import QColor, QBrush
@@ -1091,6 +1113,91 @@ class HistorialVentasWidget(QWidget):
             pass
 
         return ""
+
+    def _emitir_nota_credito(self, venta_id):
+        """Emite una Nota de Crédito para anular una factura con CAE."""
+        from PyQt5.QtWidgets import QMessageBox
+        from app.afip_integration import crear_cliente_afip
+        from app.config import load as load_config
+        from app.models import Venta
+
+        session = self.session
+        venta = session.query(Venta).get(venta_id)
+        if not venta or not venta.afip_cae:
+            QMessageBox.warning(self, "Error", "La venta no tiene CAE.")
+            return
+        if getattr(venta, "nota_credito_cae", None):
+            QMessageBox.information(self, "Nota Crédito", "Esta venta ya tiene una Nota de Crédito emitida.")
+            return
+
+        resp = QMessageBox.question(
+            self, "Nota de Crédito",
+            f"¿Emitir Nota de Crédito para anular esta factura?\n\n"
+            f"Ticket #{venta.numero_ticket}\n"
+            f"Total: ${float(venta.total or 0):.2f}\n"
+            f"CAE: {venta.afip_cae}\n"
+            f"Comprobante AFIP Nº: {venta.afip_numero_comprobante}\n"
+            f"Tipo: {venta.tipo_comprobante or 'FACTURA_B'}",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if resp != QMessageBox.Yes:
+            return
+
+        cfg = load_config()
+        fiscal = cfg.get("fiscal", {})
+        sucursal = getattr(venta, "sucursal", "") or ""
+        client = crear_cliente_afip(fiscal, sucursal=sucursal)
+        if not client:
+            QMessageBox.warning(self, "AFIP", "No se pudo crear cliente AFIP.")
+            return
+
+        total = float(venta.total or 0)
+        subtotal = round(total / 1.21, 2)
+        iva = round(total - subtotal, 2)
+        fecha_original = venta.fecha.strftime("%Y%m%d") if venta.fecha else ""
+        tipo_cbte = (getattr(venta, "tipo_comprobante", "") or "").upper()
+
+        try:
+            if "FACTURA_A" in tipo_cbte and "MONO" not in tipo_cbte:
+                cuit_cliente = getattr(venta, "cuit_cliente", "") or ""
+                response = client.emitir_nota_credito_a(
+                    total=total, subtotal=subtotal, iva=iva,
+                    comprobante_asociado=venta.afip_numero_comprobante,
+                    fecha_comprobante_original=fecha_original,
+                    cuit_cliente=cuit_cliente
+                )
+            else:
+                doc_tipo = 99
+                doc_numero = 0
+                if "MONO" in tipo_cbte:
+                    cuit_clean = (getattr(venta, "cuit_cliente", "") or "").replace("-", "").strip()
+                    if cuit_clean:
+                        doc_tipo = 86 if cuit_clean[:2] in ("20", "23", "24", "27") else 80
+                        doc_numero = int(cuit_clean)
+                response = client.emitir_nota_credito_b(
+                    total=total, subtotal=subtotal, iva=iva,
+                    comprobante_asociado=venta.afip_numero_comprobante,
+                    fecha_comprobante_original=fecha_original,
+                    doc_tipo=doc_tipo, doc_numero=doc_numero
+                )
+
+            if response.success:
+                venta.nota_credito_cae = response.cae
+                venta.nota_credito_numero = response.numero_comprobante
+                session.commit()
+                QMessageBox.information(
+                    self, "Nota de Crédito",
+                    f"Nota de Crédito emitida exitosamente.\n\n"
+                    f"CAE: {response.cae}\nNº: {response.numero_comprobante}"
+                )
+                self.refrescar()
+            else:
+                QMessageBox.warning(
+                    self, "AFIP - Error",
+                    f"Error al emitir Nota de Crédito:\n{response.error_message}"
+                )
+        except Exception as e:
+            QMessageBox.warning(self, "AFIP - Error", f"Error: {e}")
 
     def _reintentar_cae_desde_tabla(self, venta_id):
         """Reintenta la emisión de CAE para una venta directamente desde la tabla."""

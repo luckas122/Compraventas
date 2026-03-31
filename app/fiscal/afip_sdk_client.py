@@ -95,7 +95,6 @@ class AfipSDKClient:
         tipo_map = {
             "FACTURA_A": 1,
             "FACTURA_B": 6,
-            "FACTURA_C": 11,
         }
         cbte_tipo = tipo_map.get(tipo_cbte_str, 6)  # default B
 

@@ -125,7 +125,7 @@ class AfipSDKClient:
     # Tipos de comprobante AFIP
     FACTURA_A = 1
     FACTURA_B = 6
-    FACTURA_C = 11
+    NOTA_CREDITO_A = 3
     NOTA_CREDITO_B = 8
 
     # Condiciones IVA
@@ -863,36 +863,192 @@ class AfipSDKClient:
                 error_message=str(e)
             )
 
+    def _emitir_nota_credito(
+        self,
+        cbte_tipo_nc: int,
+        cbte_tipo_original: int,
+        total: float,
+        subtotal: float,
+        iva: float,
+        comprobante_asociado: int,
+        fecha_comprobante_original: str,
+        doc_tipo: int = None,
+        doc_numero: int = 0,
+        condicion_iva_receptor: int = None,
+    ) -> AfipResponse:
+        """
+        Emite una Nota de Crédito (A o B) para anular una factura.
+
+        Args:
+            cbte_tipo_nc: Tipo NC (3=NC A, 8=NC B)
+            cbte_tipo_original: Tipo factura original (1=Fact A, 6=Fact B)
+            total: Total de la nota de crédito
+            subtotal: Subtotal sin IVA
+            iva: Monto de IVA
+            comprobante_asociado: Nº de factura original
+            fecha_comprobante_original: Fecha factura original YYYYMMDD
+            doc_tipo: Tipo documento (80=CUIT, 86=CUIL, 99=Sin Identificar)
+            doc_numero: Número de documento
+            condicion_iva_receptor: Condición IVA del receptor
+        """
+        if doc_tipo is None:
+            doc_tipo = self.DOC_SIN_IDENTIFICAR
+        if condicion_iva_receptor is None:
+            condicion_iva_receptor = self.IVA_CONSUMIDOR_FINAL
+
+        nc_label = "A" if cbte_tipo_nc == self.NOTA_CREDITO_A else "B"
+        logger.info(
+            "[AFIP] Emitiendo Nota de Crédito %s por $%.2f asociada a comprobante %d",
+            nc_label, total, comprobante_asociado
+        )
+
+        try:
+            # 1. Auth
+            token, sign = self.get_auth_token()
+
+            # 2. Fecha
+            if PYTZ_AVAILABLE:
+                tz_arg = pytz.timezone('America/Argentina/Buenos_Aires')
+                fecha_str = datetime.now(tz_arg).date().strftime("%Y%m%d")
+            elif ZONEINFO_AVAILABLE:
+                tz_arg = ZoneInfo('America/Argentina/Buenos_Aires')
+                fecha_str = datetime.now(tz_arg).date().strftime("%Y%m%d")
+            else:
+                from datetime import timedelta
+                fecha_str = (datetime.now(timezone.utc) - timedelta(hours=3)).date().strftime("%Y%m%d")
+
+            # 3. Último comprobante de este tipo de NC
+            ultimo = self.get_ultimo_comprobante(cbte_tipo_nc)
+            proximo_nro = ultimo + 1
+
+            # 4. Payload
+            payload = {
+                "environment": self.config.environment,
+                "method": "FECAESolicitar",
+                "wsid": self.WSID,
+                "params": {
+                    "Auth": {"Token": token, "Sign": sign, "Cuit": self.config.cuit},
+                    "FeCAEReq": {
+                        "FeCabReq": {
+                            "CantReg": 1,
+                            "PtoVta": self.config.punto_venta,
+                            "CbteTipo": cbte_tipo_nc
+                        },
+                        "FeDetReq": {
+                            "FECAEDetRequest": {
+                                "Concepto": 1,
+                                "DocTipo": doc_tipo,
+                                "DocNro": doc_numero,
+                                "CbteDesde": proximo_nro,
+                                "CbteHasta": proximo_nro,
+                                "CbteFch": fecha_str,
+                                "ImpTotal": round(total, 2),
+                                "ImpTotConc": 0,
+                                "ImpNeto": round(subtotal, 2),
+                                "ImpOpEx": 0,
+                                "ImpIVA": round(iva, 2),
+                                "ImpTrib": 0,
+                                "MonId": "PES",
+                                "MonCotiz": 1,
+                                "CondicionIVAReceptorId": condicion_iva_receptor,
+                                "CbtesAsoc": {
+                                    "CbteAsoc": [{
+                                        "Tipo": cbte_tipo_original,
+                                        "PtoVta": self.config.punto_venta,
+                                        "Nro": comprobante_asociado,
+                                        "Cuit": self.config.cuit,
+                                        "CbteFch": fecha_comprobante_original
+                                    }]
+                                },
+                                "Iva": {
+                                    "AlicIva": [{
+                                        "Id": 5,
+                                        "BaseImp": round(subtotal, 2),
+                                        "Importe": round(iva, 2)
+                                    }]
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            # 5. Emitir
+            logger.info("[AFIP] NC %s Nº %d con fecha %s", nc_label, proximo_nro, fecha_str)
+            response = self._make_request("requests", payload)
+
+            # 6. Parsear respuesta
+            result = response.get("FECAESolicitarResult", {})
+            fe_det_list = result.get("FeDetResp", {}).get("FECAEDetResponse", [])
+            fe_det = fe_det_list[0] if fe_det_list else {}
+
+            cae = fe_det.get("CAE", "")
+            cae_vto = fe_det.get("CAEFchVto", "")
+            resultado = fe_det.get("Resultado", "")
+
+            if resultado == "A" and cae:
+                logger.info("[AFIP] NC %s emitida - CAE: %s, Nº: %d", nc_label, cae, proximo_nro)
+                return AfipResponse(
+                    success=True, cae=cae, cae_vencimiento=cae_vto,
+                    numero_comprobante=proximo_nro, raw_response=response
+                )
+
+            # Error
+            errs = result.get("Errors", {}).get("Err", [])
+            if isinstance(errs, dict): errs = [errs]
+            obs = fe_det.get("Observaciones", {}).get("Obs", [])
+            if isinstance(obs, dict): obs = [obs]
+            all_msgs = [f"[{x.get('Code')}] {x.get('Msg', '')}" for x in errs + obs]
+            error_msg = "; ".join(all_msgs) if all_msgs else "Error desconocido"
+            logger.error("[AFIP] NC %s rechazada: %s", nc_label, error_msg)
+            return AfipResponse(success=False, error_message=error_msg, raw_response=response)
+
+        except Exception as e:
+            logger.error("[AFIP] Error emitiendo NC %s: %s", nc_label, e)
+            return AfipResponse(success=False, error_message=str(e))
+
+    def emitir_nota_credito_a(
+        self,
+        total: float,
+        subtotal: float,
+        iva: float,
+        comprobante_asociado: int,
+        fecha_comprobante_original: str,
+        cuit_cliente: str,
+    ) -> AfipResponse:
+        """Emite Nota de Crédito A (CbteTipo 3) para anular una Factura A."""
+        cuit_clean = (cuit_cliente or "").replace("-", "").strip()
+        return self._emitir_nota_credito(
+            cbte_tipo_nc=self.NOTA_CREDITO_A,
+            cbte_tipo_original=self.FACTURA_A,
+            total=total, subtotal=subtotal, iva=iva,
+            comprobante_asociado=comprobante_asociado,
+            fecha_comprobante_original=fecha_comprobante_original,
+            doc_tipo=self.DOC_CUIT,
+            doc_numero=int(cuit_clean) if cuit_clean else 0,
+            condicion_iva_receptor=self.IVA_RESPONSABLE_INSCRIPTO,
+        )
+
     def emitir_nota_credito_b(
         self,
         total: float,
         subtotal: float,
         iva: float,
         comprobante_asociado: int,
-        fecha: Optional[datetime] = None
+        fecha_comprobante_original: str,
+        doc_tipo: int = None,
+        doc_numero: int = 0,
     ) -> AfipResponse:
-        """
-        Emite una Nota de Crédito B (para devoluciones).
-
-        Args:
-            total: Total de la nota de crédito
-            subtotal: Subtotal sin IVA
-            iva: Monto de IVA
-            comprobante_asociado: Número de factura original
-            fecha: Fecha del comprobante
-
-        Returns:
-            AfipResponse con el CAE
-        """
-        logger.info(f"Emitiendo Nota de Crédito B por ${total:.2f} asociada a factura {comprobante_asociado}")
-
-        # Similar a emitir_factura_b pero con CbteTipo = NOTA_CREDITO_B (8)
-        # y agregando CbtesAsoc para referenciar la factura original
-        # Implementación pendiente según necesidad
-
-        return AfipResponse(
-            success=False,
-            error_message="Nota de Crédito no implementada aún"
+        """Emite Nota de Crédito B (CbteTipo 8) para anular una Factura B."""
+        return self._emitir_nota_credito(
+            cbte_tipo_nc=self.NOTA_CREDITO_B,
+            cbte_tipo_original=self.FACTURA_B,
+            total=total, subtotal=subtotal, iva=iva,
+            comprobante_asociado=comprobante_asociado,
+            fecha_comprobante_original=fecha_comprobante_original,
+            doc_tipo=doc_tipo or self.DOC_SIN_IDENTIFICAR,
+            doc_numero=doc_numero,
+            condicion_iva_receptor=self.IVA_CONSUMIDOR_FINAL,
         )
 
 

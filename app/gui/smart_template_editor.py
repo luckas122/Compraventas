@@ -64,6 +64,7 @@ PLACEHOLDER_CATEGORIES = {
         "cae": "Bloque completo CAE (titulo + datos)",
         "qrcae": "QR de factura electronica AFIP",
         "iva.discriminado": "Bloque IVA discriminado",
+        "items_sin_iva": "Artículos con IVA discriminado (Factura A)",
         "hr": "Linea separadora horizontal",
     },
     "Imagenes": {

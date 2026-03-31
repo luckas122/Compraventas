@@ -129,11 +129,17 @@ def _run_migrations():
             from app.models import PagoProveedor
             PagoProveedor.__table__.create(bind=engine)
 
-        # Agregar tipo_comprobante a ventas si no existe (v5.1.1)
+        # Agregar tipo_comprobante y campos nota de crédito a ventas
         if "ventas" in inspector.get_table_names():
             cols = [c["name"] for c in inspector.get_columns("ventas")]
             if "tipo_comprobante" not in cols:
                 conn.execute(text("ALTER TABLE ventas ADD COLUMN tipo_comprobante VARCHAR"))
+            if "cuit_cliente" not in cols:
+                conn.execute(text("ALTER TABLE ventas ADD COLUMN cuit_cliente VARCHAR"))
+            if "nota_credito_cae" not in cols:
+                conn.execute(text("ALTER TABLE ventas ADD COLUMN nota_credito_cae VARCHAR"))
+            if "nota_credito_numero" not in cols:
+                conn.execute(text("ALTER TABLE ventas ADD COLUMN nota_credito_numero INTEGER"))
 
         # Quitar UNIQUE constraint de numero_ticket en ventas (v5.1.0)
         # Cada sucursal tiene su propia secuencia de tickets.

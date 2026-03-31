@@ -199,9 +199,16 @@ class VentasFinalizacionMixin:
             modo_pago=modo,
             cuotas=cuotas
         )
-        # Guardar tipo de comprobante
+        # Guardar tipo de comprobante y CUIT del cliente
         if _tipo_cbte_guardar:
             venta.tipo_comprobante = _tipo_cbte_guardar
+        _cuit_cliente_guardar = ""
+        if self._datos_tarjeta:
+            _cuit_cliente_guardar = self._datos_tarjeta.get("cuit_cliente", "")
+        elif hasattr(self, "_datos_efectivo") and self._datos_efectivo:
+            _cuit_cliente_guardar = self._datos_efectivo.get("cuit_cliente", "")
+        if _cuit_cliente_guardar:
+            venta.cuit_cliente = _cuit_cliente_guardar
 
         # Agregar items
         for r in range(self.table_cesta.rowCount()):
@@ -351,10 +358,20 @@ class VentasFinalizacionMixin:
             return None, f"Error inicializando cliente AFIP: {e}"
 
         try:
-            if tipo_cbte and "FACTURA_A" in str(tipo_cbte).upper():
+            tipo_upper = str(tipo_cbte or "").upper()
+            if "FACTURA_A" in tipo_upper and "MONO" not in tipo_upper:
                 response = client.emitir_factura_a(
                     items=items, total=total, subtotal=subtotal,
                     iva=iva, cuit_cliente=cuit_cliente
+                )
+            elif "FACTURA_B_MONO" in tipo_upper:
+                # Monotributo: CbteTipo 6 pero con CUIT/CUIL del comprador
+                cuit_clean = (cuit_cliente or "").replace("-", "").strip()
+                doc_tipo = 86 if cuit_clean and cuit_clean[:2] in ("20", "23", "24", "27") else 80
+                response = client.emitir_factura_b(
+                    items=items, total=total, subtotal=subtotal, iva=iva,
+                    doc_tipo=doc_tipo,
+                    doc_numero=int(cuit_clean) if cuit_clean else 0,
                 )
             else:
                 response = client.emitir_factura_b(
@@ -445,12 +462,14 @@ class VentasFinalizacionMixin:
 
         # Validar CUIT para Factura A ANTES de intentar (para no preguntar 2 veces)
         cuit_limpio = ""
-        if tipo_comprobante_final and "FACTURA_A" in str(tipo_comprobante_final).upper():
+        tipo_upper = str(tipo_comprobante_final or "").upper()
+        if tipo_upper and any(x in tipo_upper for x in ("FACTURA_A", "FACTURA_B_MONO")):
             cuit_limpio = (cuit_cliente_final or "").replace("-", "").strip()
             if not cuit_limpio or len(cuit_limpio) != 11 or not cuit_limpio.isdigit():
+                label = "Factura A" if "FACTURA_A" in tipo_upper and "MONO" not in tipo_upper else "Factura B Monotributo"
                 QMessageBox.warning(
-                    self, "AFIP - Factura A",
-                    "Para emitir Factura A se requiere un CUIT valido de 11 digitos.\n"
+                    self, f"AFIP - {label}",
+                    f"Para emitir {label} se requiere un CUIT/CUIL valido de 11 digitos.\n"
                     f"CUIT ingresado: '{cuit_cliente_final or '(vacio)'}'"
                 )
                 return

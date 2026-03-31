@@ -681,10 +681,9 @@ class ConfiguracionMixin:
 
         # Tipo de comprobante
         self.cfg_cmb_fiscal_tipo = NoScrollComboBox(gb_fisc)
-        self.cfg_cmb_fiscal_tipo.addItem("Factura A - Resp. Inscripto a Resp. Inscripto", "FACTURA_A")
-        self.cfg_cmb_fiscal_tipo.addItem("Factura B - Monotributista a Consumidor Final", "FACTURA_B")
-        self.cfg_cmb_fiscal_tipo.addItem("Factura C - Consumidor Final", "FACTURA_C")
-        self.cfg_cmb_fiscal_tipo.addItem("Ticket Factura B", "TICKET_B")
+        self.cfg_cmb_fiscal_tipo.addItem("Factura A - Resp. Inscripto", "FACTURA_A")
+        self.cfg_cmb_fiscal_tipo.addItem("Factura B - Consumidor Final", "FACTURA_B")
+        self.cfg_cmb_fiscal_tipo.addItem("Factura B - Monotributo", "FACTURA_B_MONO")
         cur_tipo = fisc.get("tipo_cbte") or "FACTURA_B"
         idx_tipo = self.cfg_cmb_fiscal_tipo.findData(cur_tipo)
         if idx_tipo < 0:

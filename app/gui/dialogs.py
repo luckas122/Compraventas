@@ -1145,8 +1145,7 @@ class PagoTarjetaDialog(QDialog):
         self.cmb_tipo_cbte = NoScrollComboBox()
         self.cmb_tipo_cbte.addItem("Factura A - Resp. Inscripto", "FACTURA_A")
         self.cmb_tipo_cbte.addItem("Factura B - Consumidor Final", "FACTURA_B")
-        self.cmb_tipo_cbte.addItem("Factura C - Sin IVA discriminado", "FACTURA_C")
-        self.cmb_tipo_cbte.addItem("Ticket Factura B", "TICKET_B")
+        self.cmb_tipo_cbte.addItem("Factura B - Monotributo", "FACTURA_B_MONO")
         # Leer default de config (fiscal.tipo_cbte)
         from app.config import load as _load_cfg
         _fiscal_cfg = _load_cfg().get("fiscal", {})
@@ -1160,7 +1159,7 @@ class PagoTarjetaDialog(QDialog):
         self.cmb_tipo_cbte.currentIndexChanged.connect(self._on_tipo_cbte_changed)
         form.addRow("Tipo de comprobante:", self.cmb_tipo_cbte)
 
-        # CUIT del cliente (solo visible si es Factura A)
+        # CUIT del cliente (visible para Factura A y Factura B Monotributo)
         self.lbl_cuit = QLabel("CUIT/CUIL de cliente:")
         self.edt_cuit = QLineEdit()
         self.edt_cuit.setPlaceholderText("Ej: 20123456789 (solo números)")
@@ -1259,12 +1258,12 @@ class PagoTarjetaDialog(QDialog):
     def _on_tipo_cbte_changed(self):
         """Muestra/oculta el campo CUIT según el tipo de comprobante."""
         tipo = self.cmb_tipo_cbte.currentData()
-        es_factura_a = (tipo == "FACTURA_A")
+        necesita_cuit = tipo in ("FACTURA_A", "FACTURA_B_MONO")
 
-        self.lbl_cuit.setVisible(es_factura_a)
-        self.edt_cuit.setVisible(es_factura_a)
+        self.lbl_cuit.setVisible(necesita_cuit)
+        self.edt_cuit.setVisible(necesita_cuit)
 
-        if es_factura_a:
+        if necesita_cuit:
             self.edt_cuit.setFocus()
             self.edt_cuit.selectAll()
 
@@ -1298,13 +1297,14 @@ Descuento: -${descuento_monto:,.2f}<br>
         """Valida y acepta el diálogo."""
         tipo = self.cmb_tipo_cbte.currentData()
 
-        if tipo == "FACTURA_A":
+        if tipo in ("FACTURA_A", "FACTURA_B_MONO"):
             cuit = self.edt_cuit.text().strip()
             if not cuit or len(cuit) != 11:
+                label = "Factura A" if tipo == "FACTURA_A" else "Factura B Monotributo"
                 QMessageBox.warning(
                     self,
                     "CUIT requerido",
-                    "Para Factura A es obligatorio ingresar el CUIT del cliente (11 dígitos)."
+                    f"Para {label} es obligatorio ingresar el CUIT/CUIL del cliente (11 dígitos)."
                 )
                 self.edt_cuit.setFocus()
                 return
@@ -1315,7 +1315,7 @@ Descuento: -${descuento_monto:,.2f}<br>
             "descuento_pct": self.spin_descuento_pct.value(),
             "descuento_monto": self.spin_descuento_monto.value(),
             "tipo_comprobante": tipo,
-            "cuit_cliente": self.edt_cuit.text().strip() if tipo == "FACTURA_A" else ""
+            "cuit_cliente": self.edt_cuit.text().strip() if tipo in ("FACTURA_A", "FACTURA_B_MONO") else ""
         }
 
         self.accept()
@@ -1434,8 +1434,7 @@ class PagoEfectivoDialog(QDialog):
         self.cmb_tipo_cbte = NoScrollComboBox()
         self.cmb_tipo_cbte.addItem("Factura A - Resp. Inscripto", "FACTURA_A")
         self.cmb_tipo_cbte.addItem("Factura B - Consumidor Final", "FACTURA_B")
-        self.cmb_tipo_cbte.addItem("Factura C - Sin IVA discriminado", "FACTURA_C")
-        self.cmb_tipo_cbte.addItem("Ticket Factura B", "TICKET_B")
+        self.cmb_tipo_cbte.addItem("Factura B - Monotributo", "FACTURA_B_MONO")
         # Leer default de config (fiscal.tipo_cbte)
         from app.config import load as _load_cfg2
         _fiscal_cfg2 = _load_cfg2().get("fiscal", {})
@@ -1449,7 +1448,7 @@ class PagoEfectivoDialog(QDialog):
         self.cmb_tipo_cbte.currentIndexChanged.connect(self._on_tipo_cbte_changed)
         afip_layout.addRow("Tipo de comprobante:", self.cmb_tipo_cbte)
 
-        # CUIT del cliente (solo visible si es Factura A)
+        # CUIT del cliente (visible para Factura A y Factura B Monotributo)
         self.lbl_cuit = QLabel("CUIT/CUIL de cliente:")
         self.edt_cuit = QLineEdit()
         self.edt_cuit.setPlaceholderText("Ej: 20123456789 (solo números)")
@@ -1572,12 +1571,12 @@ class PagoEfectivoDialog(QDialog):
     def _on_tipo_cbte_changed(self):
         """Muestra/oculta el campo CUIT según el tipo de comprobante."""
         tipo = self.cmb_tipo_cbte.currentData()
-        es_factura_a = (tipo == "FACTURA_A")
+        necesita_cuit = tipo in ("FACTURA_A", "FACTURA_B_MONO")
 
-        self.lbl_cuit.setVisible(es_factura_a)
-        self.edt_cuit.setVisible(es_factura_a)
+        self.lbl_cuit.setVisible(necesita_cuit)
+        self.edt_cuit.setVisible(necesita_cuit)
 
-        if es_factura_a and self.afip_widget.isVisible():
+        if necesita_cuit and self.afip_widget.isVisible():
             self.edt_cuit.setFocus()
             self.edt_cuit.selectAll()
 
@@ -1605,13 +1604,14 @@ class PagoEfectivoDialog(QDialog):
         if emitir_afip:
             tipo_comprobante = self.cmb_tipo_cbte.currentData()
 
-            if tipo_comprobante == "FACTURA_A":
+            if tipo_comprobante in ("FACTURA_A", "FACTURA_B_MONO"):
                 cuit = self.edt_cuit.text().strip()
                 if not cuit or len(cuit) != 11:
+                    label = "Factura A" if tipo_comprobante == "FACTURA_A" else "Factura B Monotributo"
                     QMessageBox.warning(
                         self,
                         "CUIT requerido",
-                        "Para Factura A es obligatorio ingresar el CUIT del cliente (11 dígitos)."
+                        f"Para {label} es obligatorio ingresar el CUIT/CUIL del cliente (11 dígitos)."
                     )
                     self.edt_cuit.setFocus()
                     return

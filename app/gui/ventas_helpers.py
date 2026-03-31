@@ -892,7 +892,7 @@ def _generate_afip_qr_pixmap(venta, sucursal):
         pto_vta = int(pv_map.get(sucursal) or fiscal.get("punto_venta", 1))
 
         # Tipo comprobante AFIP
-        _TIPO_MAP = {"FACTURA_A": 1, "FACTURA_B": 6, "FACTURA_C": 11}
+        _TIPO_MAP = {"FACTURA_A": 1, "FACTURA_B": 6}
         tipo_cbte = str(getattr(venta, 'tipo_comprobante', '') or '').upper()
         tipo_cmp = _TIPO_MAP.get(tipo_cbte, 6)  # default Factura B
 
@@ -1120,6 +1120,48 @@ def _tpl_render_lines(template_text, ctx, ctx_numeric=None, items=None, venta=No
                 pass
         return out
 
+    # Expansión de {{items_sin_iva}} - Items con IVA discriminado (para Factura A)
+    def _expand_items_sin_iva():
+        out = []
+        total_neto = 0.0
+        total_iva = 0.0
+        for it in (items or []):
+            try:
+                if isinstance(it, dict):
+                    cant = float(it.get("cantidad", 1) or 1)
+                    pu = float(it.get("precio_unitario") or it.get("precio_unit") or it.get("precio", 0.0) or 0.0)
+                    nom = str(it.get("nombre", "") or "")
+                    cod = str(it.get("codigo", "") or it.get("codigo_barra", "") or "")
+                else:
+                    cant = float(getattr(it, "cantidad", 1) or 1)
+                    pu = float(getattr(it, "precio_unit", None) or getattr(it, "precio_unitario", None) or getattr(it, "precio", 0.0) or 0.0)
+                    prod_obj = getattr(it, "producto", None)
+                    nom = str(getattr(prod_obj, "nombre", "") or "") if prod_obj else str(getattr(it, "nombre", "") or "")
+                    cod = str(getattr(it, "codigo", "") or getattr(it, "codigo_barra", "") or "")
+
+                base_unit = round(pu / 1.21, 2)
+                iva_unit = round(pu - base_unit, 2)
+                tot_base = round(cant * base_unit, 2)
+                tot_iva = round(cant * iva_unit, 2)
+                total_neto += tot_base
+                total_iva += tot_iva
+
+                if nom:
+                    if len(nom) > 35:
+                        nom = nom[:35] + "…"
+                    out.append(nom)
+                if cod:
+                    out.append(f"Código: {cod}")
+                out.append(f"{int(cant)} × {_money(base_unit)}  Neto: {_money(tot_base)}  IVA: {_money(tot_iva)}")
+            except Exception:
+                pass
+        if out:
+            out.append("")
+            out.append(f"Total Neto:     {_money(total_neto)}")
+            out.append(f"IVA 21%:        {_money(total_iva)}")
+            out.append(f"TOTAL:          {_money(total_neto + total_iva)}")
+        return out
+
     # Expansión de {{iva.discriminado}} — todas las ventas con CAE (configurable)
     def _expand_iva_discriminado():
         if venta is None:
@@ -1188,6 +1230,14 @@ def _tpl_render_lines(template_text, ctx, ctx_numeric=None, items=None, venta=No
         if "{{items}}" in raw:
             for l in _expand_items():
                 lines.append({"text": l, "align": Qt.AlignLeft, "bold": False, "italic": False, "is_rule": False})
+            continue
+
+        # Bloque items con IVA discriminado (Factura A)
+        if "{{items_sin_iva}}" in raw:
+            for l in _expand_items_sin_iva():
+                is_total = l.startswith("TOTAL")
+                lines.append({"text": l, "align": Qt.AlignRight if is_total else Qt.AlignLeft,
+                              "bold": is_total, "italic": False, "is_rule": False})
             continue
 
         # QR CAE AFIP {{qrcae}}
