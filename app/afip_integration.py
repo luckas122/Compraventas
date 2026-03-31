@@ -82,6 +82,11 @@ def _sanitize_payload_for_log(payload: dict) -> dict:
             auth["Token"] = auth["Token"][:10] + "..."
         if auth.get("Sign"):
             auth["Sign"] = auth["Sign"][:10] + "..."
+        # Redactar certificado y clave privada
+        if safe.get("cert"):
+            safe["cert"] = safe["cert"][:30] + "...(truncated)"
+        if safe.get("key"):
+            safe["key"] = "[REDACTED]"
     except Exception:
         pass
     return safe
@@ -96,6 +101,8 @@ class AfipConfig:
     punto_venta: int
     enabled: bool = False
     only_card_payments: bool = True  # Solo emitir para pagos con tarjeta
+    cert: str = ""  # Certificado digital PEM (requerido para producción)
+    key: str = ""   # Clave privada PEM (requerido para producción)
 
 
 @dataclass
@@ -168,7 +175,17 @@ class AfipSDKClient:
 
         response = requests.post(url, json=payload, headers=self.headers, timeout=30)
         logger.info("← RESPONSE status=%d", response.status_code)
-        response.raise_for_status()
+
+        if response.status_code >= 400:
+            try:
+                error_body = response.json()
+            except Exception:
+                error_body = response.text
+            logger.error("← ERROR [%d] body=%s", response.status_code, error_body)
+            raise requests.exceptions.HTTPError(
+                f"AfipSDK error {response.status_code}: {error_body}",
+                response=response
+            )
 
         data = response.json()
         logger.info("← RESPONSE body=%s", data)
@@ -199,6 +216,27 @@ class AfipSDKClient:
             "wsid": self.WSID
         }
 
+        # Producción requiere certificado digital y clave privada
+        if self.config.environment == "prod":
+            if self.config.cert and self.config.key:
+                payload["cert"] = self.config.cert
+                payload["key"] = self.config.key
+                # Validación de formato (sin exponer contenido)
+                logger.info(
+                    "[AFIP] Auth prod - cert: len=%d begins=%s ends=%s | key: len=%d begins=%s ends=%s",
+                    len(self.config.cert),
+                    self.config.cert.strip()[:27],
+                    self.config.cert.strip()[-5:],
+                    len(self.config.key),
+                    self.config.key.strip()[:27],
+                    self.config.key.strip()[-5:],
+                )
+            else:
+                raise ValueError(
+                    "Para modo PRODUCCIÓN se requiere certificado digital (.crt) y clave privada (.key). "
+                    "Configuralos en Configuración → Facturación Electrónica."
+                )
+
         try:
             response = self._make_request("auth", payload)
 
@@ -220,6 +258,69 @@ class AfipSDKClient:
         except Exception as e:
             logger.error(f"Error al obtener token AFIP: {e}")
             raise
+
+    def _generar_fechas_resync(self, fecha_str: str, fch_proceso: str) -> list:
+        """
+        Genera lista de fechas a probar en el resync de error 10016.
+        Clave: AFIP error 10016 se dispara tanto por número incorrecto COMO por fecha incorrecta.
+        El servidor de test de AFIP (homologación) suele tener el reloj desactualizado (2024/2025),
+        por lo que '20260328' se rechaza como "fecha futura".
+        Extraemos la fecha real del servidor desde FchProceso del response fallido.
+        """
+        from datetime import date, timedelta
+        fechas = [fecha_str]  # siempre intentar primero con la fecha local
+
+        # Agregar fecha del servidor AFIP si es diferente (viene de FECAESolicitarResult.FchProceso)
+        server_date = fch_proceso[:8] if fch_proceso and len(fch_proceso) >= 8 else ""
+        if server_date and server_date != fecha_str:
+            fechas.insert(1, server_date)  # prioritaria: justo después de la fecha local
+            logger.info(
+                "[AFIP] Desfase de fecha detectado: servidor=%s vs local=%s → resync probará fecha servidor",
+                server_date, fecha_str
+            )
+
+        # Agregar hasta 5 días anteriores (AFIP acepta últimos 5 días hábiles)
+        try:
+            base = date(int(fecha_str[:4]), int(fecha_str[4:6]), int(fecha_str[6:8]))
+            for i in range(1, 6):
+                d = base - timedelta(days=i)
+                d_str = d.strftime("%Y%m%d")
+                if d_str not in fechas:
+                    fechas.append(d_str)
+        except Exception:
+            pass
+
+        return fechas
+
+    def _get_ultimo_comprobante_fresh(self, tipo_comprobante: int) -> int:
+        """
+        Re-consulta FECompUltimoAutorizado forzando un nuevo token de autenticación
+        para obtener el número real actual (sin caché de AfipSDK).
+        Se usa en el resync cuando ocurre error 10016.
+        """
+        logger.info("[AFIP] Re-consultando FECompUltimoAutorizado (token fresco) tipo=%d", tipo_comprobante)
+        token, sign = self.get_auth_token(force=True)
+        payload = {
+            "environment": self.config.environment,
+            "method": "FECompUltimoAutorizado",
+            "wsid": self.WSID,
+            "params": {
+                "Auth": {
+                    "Token": token,
+                    "Sign": sign,
+                    "Cuit": self.config.cuit
+                },
+                "PtoVta": self.config.punto_venta,
+                "CbteTipo": tipo_comprobante
+            }
+        }
+        response = self._make_request("requests", payload)
+        ultimo = response.get("CbteNro", None)
+        if ultimo is None:
+            result = response.get("FECompUltimoAutorizadoResult", {})
+            ultimo = result.get("CbteNro", 0)
+        logger.info("[AFIP] Último comprobante real (fresco): %d", ultimo)
+        return ultimo
 
     def get_ultimo_comprobante(self, tipo_comprobante: int = FACTURA_B) -> int:
         """
@@ -437,28 +538,48 @@ class AfipSDKClient:
                     all_codes = []
 
                 if '10016' in all_codes:
-                    logger.warning("[AFIP] Error 10016 en Factura B (Nº %d) - probando números siguientes...", proximo_nro)
+                    # CAUSA RAÍZ: en modo dev el CUIT es compartido entre todos los usuarios de
+                    # AfipSDK → condición de carrera. En prod con CUIT propio esto es raro.
+                    # Solución: re-consultar FECompUltimoAutorizado en CADA reintento para obtener
+                    # siempre el número real más reciente, sin importar cuánto haya saltado.
+                    logger.warning(
+                        "[AFIP] Error 10016 en Factura B (Nº %d) - resync dinámico (max 5 intentos)...",
+                        proximo_nro
+                    )
+                    if self.config.environment == "dev":
+                        logger.warning(
+                            "[AFIP] MODO DEV: CUIT %s compartido entre usuarios AfipSDK. "
+                            "Para facturas reales usar modo PROD con CUIT propio.",
+                            self.config.cuit
+                        )
                     det_key = payload["params"]["FeCAEReq"]["FeDetReq"]["FECAEDetRequest"]
-                    for offset in range(1, 16):  # probar +1 a +15 (ampliado para cubrir desfases grandes)
-                        try_nro = proximo_nro + offset
-                        logger.info("[AFIP] Reintentando Factura B con Nº %d (offset +%d)", try_nro, offset)
-                        det_key["CbteDesde"] = try_nro
-                        det_key["CbteHasta"] = try_nro
-                        try:
+                    try:
+                        for resync_attempt in range(5):
+                            real_ultimo = self._get_ultimo_comprobante_fresh(self.FACTURA_B)
+                            real_proximo = real_ultimo + 1
+                            logger.info(
+                                "[AFIP] Resync B intento %d/5: último=%d → intentando Nº %d",
+                                resync_attempt + 1, real_ultimo, real_proximo
+                            )
+                            det_key["CbteDesde"] = real_proximo
+                            det_key["CbteHasta"] = real_proximo
+                            det_key["CbteFch"] = fecha_str
                             response2 = self._make_request("requests", payload)
                             result2 = response2.get("FECAESolicitarResult", {})
                             fe_det2 = (result2.get("FeDetResp", {}).get("FECAEDetResponse", []) or [{}])[0]
                             cae2 = fe_det2.get("CAE", "")
                             cae_vto2 = fe_det2.get("CAEFchVto", "")
                             if fe_det2.get("Resultado") == "A" and cae2:
-                                logger.info("[AFIP] Resync Factura B exitoso - CAE: %s, Nº: %d", cae2, try_nro)
+                                logger.info(
+                                    "[AFIP] Resync Factura B exitoso - CAE: %s, Nº: %d (intento %d)",
+                                    cae2, real_proximo, resync_attempt + 1
+                                )
                                 return AfipResponse(
                                     success=True, cae=cae2,
                                     cae_vencimiento=cae_vto2,
-                                    numero_comprobante=try_nro,
+                                    numero_comprobante=real_proximo,
                                     raw_response=response2
                                 )
-                            # Si no fue aprobado, verificar si sigue siendo 10016
                             errs2 = result2.get("Errors", {}).get("Err", [])
                             if isinstance(errs2, dict):
                                 errs2 = [errs2]
@@ -468,11 +589,13 @@ class AfipSDKClient:
                             codes2 = [str(x.get('Code', '')) for x in errs2] + \
                                      [str(x.get('Code', '')) for x in obs2]
                             if '10016' not in codes2:
-                                logger.error("[AFIP] Error diferente a 10016, abortando resync")
-                                break  # Error diferente, no seguir incrementando
-                        except Exception as ex_retry:
-                            logger.error("[AFIP] Error en reintento +%d: %s", offset, ex_retry)
-                            break
+                                logger.error("[AFIP] Error diferente a 10016, abortando resync: %s", codes2)
+                                break
+                            logger.warning(
+                                "[AFIP] Nº %d tomado por otro proceso, re-consultando...", real_proximo
+                            )
+                    except Exception as ex_resync:
+                        logger.error("[AFIP] Error en resync Factura B: %s", ex_resync)
 
                 if err_list:
                     error_msg = "; ".join([f"[{e.get('Code')}] {e.get('Msg', '')}" for e in err_list])
@@ -655,25 +778,42 @@ class AfipSDKClient:
                     all_codes = []
 
                 if '10016' in all_codes:
-                    logger.warning("[AFIP] Error 10016 en Factura A (Nº %d) - probando números siguientes...", proximo_nro)
+                    logger.warning(
+                        "[AFIP] Error 10016 en Factura A (Nº %d) - resync dinámico (max 5 intentos)...",
+                        proximo_nro
+                    )
+                    if self.config.environment == "dev":
+                        logger.warning(
+                            "[AFIP] MODO DEV: CUIT %s compartido entre usuarios AfipSDK. "
+                            "Para facturas reales usar modo PROD con CUIT propio.",
+                            self.config.cuit
+                        )
                     det_key = payload["params"]["FeCAEReq"]["FeDetReq"]["FECAEDetRequest"]
-                    for offset in range(1, 16):  # ampliado a +15
-                        try_nro = proximo_nro + offset
-                        logger.info("[AFIP] Reintentando Factura A con Nº %d (offset +%d)", try_nro, offset)
-                        det_key["CbteDesde"] = try_nro
-                        det_key["CbteHasta"] = try_nro
-                        try:
+                    try:
+                        for resync_attempt in range(5):
+                            real_ultimo = self._get_ultimo_comprobante_fresh(self.FACTURA_A)
+                            real_proximo = real_ultimo + 1
+                            logger.info(
+                                "[AFIP] Resync A intento %d/5: último=%d → intentando Nº %d",
+                                resync_attempt + 1, real_ultimo, real_proximo
+                            )
+                            det_key["CbteDesde"] = real_proximo
+                            det_key["CbteHasta"] = real_proximo
+                            det_key["CbteFch"] = fecha_str
                             response2 = self._make_request("requests", payload)
                             result2 = response2.get("FECAESolicitarResult", {})
                             fe_det2 = (result2.get("FeDetResp", {}).get("FECAEDetResponse", []) or [{}])[0]
                             cae2 = fe_det2.get("CAE", "")
                             cae_vto2 = fe_det2.get("CAEFchVto", "")
                             if fe_det2.get("Resultado") == "A" and cae2:
-                                logger.info("[AFIP] Resync Factura A exitoso - CAE: %s, Nº: %d", cae2, try_nro)
+                                logger.info(
+                                    "[AFIP] Resync Factura A exitoso - CAE: %s, Nº: %d (intento %d)",
+                                    cae2, real_proximo, resync_attempt + 1
+                                )
                                 return AfipResponse(
                                     success=True, cae=cae2,
                                     cae_vencimiento=cae_vto2,
-                                    numero_comprobante=try_nro,
+                                    numero_comprobante=real_proximo,
                                     raw_response=response2
                                 )
                             errs2 = result2.get("Errors", {}).get("Err", [])
@@ -685,10 +825,13 @@ class AfipSDKClient:
                             codes2 = [str(x.get('Code', '')) for x in errs2] + \
                                      [str(x.get('Code', '')) for x in obs2]
                             if '10016' not in codes2:
+                                logger.error("[AFIP] Error diferente a 10016, abortando resync: %s", codes2)
                                 break
-                        except Exception as ex_retry:
-                            logger.error("[AFIP] Error en reintento Factura A +%d: %s", offset, ex_retry)
-                            break
+                            logger.warning(
+                                "[AFIP] Nº %d tomado por otro proceso, re-consultando...", real_proximo
+                            )
+                    except Exception as ex_resync:
+                        logger.error("[AFIP] Error en resync Factura A: %s", ex_resync)
 
                 if err_list:
                     error_msg = "; ".join([f"[{e.get('Code')}] {e.get('Msg', '')}" for e in err_list])
@@ -802,13 +945,38 @@ def crear_cliente_afip(config_dict: dict, sucursal: str = "") -> Optional[AfipSD
     only_card = config_dict.get("only_card_payments",
                                 config_dict.get("only_card", True))
 
+    # Certificado y clave privada para producción
+    af = config_dict.get("afipsdk") or {}
+    cert_content = af.get("cert", "")
+    key_content = af.get("key", "")
+
+    # Cargar desde archivos si son rutas
+    if cert_content and not cert_content.startswith("-----"):
+        try:
+            with open(cert_content, "r", encoding="utf-8-sig") as f:
+                cert_content = f.read().strip()
+            logger.info("Certificado leído desde %s (%d bytes)", cert_content[:50], len(cert_content))
+        except Exception as e:
+            logger.warning("No se pudo leer certificado desde %s: %s", cert_content, e)
+            cert_content = ""
+    if key_content and not key_content.startswith("-----"):
+        try:
+            with open(key_content, "r", encoding="utf-8-sig") as f:
+                key_content = f.read().strip()
+            logger.info("Clave privada leída (%d bytes)", len(key_content))
+        except Exception as e:
+            logger.warning("No se pudo leer clave privada desde %s: %s", key_content, e)
+            key_content = ""
+
     config = AfipConfig(
         access_token=access_token,
         environment=environment,
         cuit=config_dict.get("cuit", ""),
         punto_venta=pv,
         enabled=config_dict.get("enabled", False),
-        only_card_payments=bool(only_card)
+        only_card_payments=bool(only_card),
+        cert=cert_content,
+        key=key_content
     )
 
     if not config.access_token or not config.cuit:

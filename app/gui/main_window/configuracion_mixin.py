@@ -17,7 +17,7 @@ from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QFormLayout, QHBoxLayout, QGridLayout, QGroupBox, QLabel, QPushButton,
     QCheckBox, QTextEdit, QSpinBox, QLineEdit, QScrollArea, QSizePolicy,
-    QFrame, QTabWidget
+    QFrame, QTabWidget, QFileDialog
 )
 from app.gui.backup_config import BackupConfigPanel
 from app.gui.common import ICON_SIZE, MIN_BTN_HEIGHT, icon
@@ -699,6 +699,30 @@ class ConfiguracionMixin:
         self.cfg_edt_fiscal_api_key.setPlaceholderText("API Key / token de AfipSDK")
         self.cfg_edt_fiscal_api_key.setText(af.get("api_key", ""))
         lay_fisc_form.addRow("API key AfipSDK:", self.cfg_edt_fiscal_api_key)
+
+        # Certificado digital (requerido para producción)
+        cert_row = QHBoxLayout()
+        self.cfg_edt_fiscal_cert = QLineEdit(gb_fisc)
+        self.cfg_edt_fiscal_cert.setPlaceholderText("Ruta al archivo .crt (requerido para producción)")
+        self.cfg_edt_fiscal_cert.setText(af.get("cert", ""))
+        cert_row.addWidget(self.cfg_edt_fiscal_cert)
+        btn_cert = QPushButton("Examinar...")
+        btn_cert.setMaximumWidth(100)
+        btn_cert.clicked.connect(lambda: self._seleccionar_archivo_afip(self.cfg_edt_fiscal_cert, "Certificado (*.crt *.pem)"))
+        cert_row.addWidget(btn_cert)
+        lay_fisc_form.addRow("Certificado (.crt):", cert_row)
+
+        # Clave privada (requerido para producción)
+        key_row = QHBoxLayout()
+        self.cfg_edt_fiscal_key = QLineEdit(gb_fisc)
+        self.cfg_edt_fiscal_key.setPlaceholderText("Ruta al archivo .key (requerido para producción)")
+        self.cfg_edt_fiscal_key.setText(af.get("key", ""))
+        key_row.addWidget(self.cfg_edt_fiscal_key)
+        btn_key = QPushButton("Examinar...")
+        btn_key.setMaximumWidth(100)
+        btn_key.clicked.connect(lambda: self._seleccionar_archivo_afip(self.cfg_edt_fiscal_key, "Clave privada (*.key *.pem)"))
+        key_row.addWidget(btn_key)
+        lay_fisc_form.addRow("Clave privada (.key):", key_row)
 
         self.cfg_edt_fiscal_url_test = QLineEdit(gb_fisc)
         self.cfg_edt_fiscal_url_test.setPlaceholderText("URL base sandbox (AfipSDK)")
@@ -1454,6 +1478,8 @@ class ConfiguracionMixin:
         af = fisc.get("afipsdk") or {}
         try:
             af["api_key"] = (self.cfg_edt_fiscal_api_key.text() or "").strip()
+            af["cert"] = (self.cfg_edt_fiscal_cert.text() or "").strip()
+            af["key"] = (self.cfg_edt_fiscal_key.text() or "").strip()
             af["base_url_test"] = (self.cfg_edt_fiscal_url_test.text() or "").strip()
             af["base_url_prod"] = (self.cfg_edt_fiscal_url_prod.text() or "").strip()
         except Exception:
@@ -1823,6 +1849,12 @@ class ConfiguracionMixin:
             QMessageBox.warning(self, "QR", "Instale la librería 'qrcode':\npip install qrcode[pil]")
         except Exception as ex:
             QMessageBox.warning(self, "QR", f"Error generando QR: {ex}")
+
+    def _seleccionar_archivo_afip(self, line_edit, filtro):
+        """Abre diálogo para seleccionar archivo de certificado/clave."""
+        path, _ = QFileDialog.getOpenFileName(self, "Seleccionar archivo", "", filtro)
+        if path:
+            line_edit.setText(path)
 
     def _consultar_ultimo_comprobante_afip(self):
         """Consulta el último número de comprobante autorizado en AFIP (por sucursal si corresponde)."""
