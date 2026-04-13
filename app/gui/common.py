@@ -22,8 +22,8 @@ for _p in _candidates:
         break
 else:
     BASE_ICONS_PATH = str(_candidates[-1])
-MIN_BTN_HEIGHT = 60
-ICON_SIZE = QSize(32, 32)
+MIN_BTN_HEIGHT = 38
+ICON_SIZE = QSize(24, 24)
 # --- Live Search (Ventas) ---
 LIVE_SEARCH_FONT_PT = 14          # tamaño de letra del popup
 LIVE_SEARCH_ROW_PAD = 8           # padding vertical por ítem

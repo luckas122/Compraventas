@@ -51,7 +51,7 @@ class VentasFinalizacionMixin:
         except Exception:
             total = 0.0
 
-        dlg = PagoTarjetaDialog(total_actual=total, parent=self)
+        dlg = PagoTarjetaDialog(total_actual=total, parent=self, session=self.session)
         if dlg.exec_() == QDialog.Accepted:
             datos = dlg.get_datos()
             if datos:
@@ -129,13 +129,14 @@ class VentasFinalizacionMixin:
         if is_efectivo:
             from app.gui.dialogs import PagoEfectivoDialog
 
-            dlg = PagoEfectivoDialog(total_actual=total_actual, parent=self)
+            dlg = PagoEfectivoDialog(total_actual=total_actual, parent=self, session=self.session)
             if dlg.exec_() != QDialog.Accepted:
                 return
 
             datos_efectivo = dlg.get_datos()
             if not datos_efectivo:
                 return
+            self._datos_efectivo = datos_efectivo
 
             # Aplicar descuento del diálogo
             _d_pct = datos_efectivo.get("descuento_pct", 0)
@@ -160,7 +161,7 @@ class VentasFinalizacionMixin:
                 datos_tarjeta = self._datos_tarjeta
             else:
                 from app.gui.dialogs import PagoTarjetaDialog
-                dlg_t = PagoTarjetaDialog(total_actual=total_actual, parent=self)
+                dlg_t = PagoTarjetaDialog(total_actual=total_actual, parent=self, session=self.session)
                 if dlg_t.exec_() != QDialog.Accepted:
                     return
 
@@ -199,16 +200,29 @@ class VentasFinalizacionMixin:
             modo_pago=modo,
             cuotas=cuotas
         )
+        # Guardar vendedor
+        venta.vendedor = getattr(self, 'current_username', '') or ''
         # Guardar tipo de comprobante y CUIT del cliente
         if _tipo_cbte_guardar:
             venta.tipo_comprobante = _tipo_cbte_guardar
-        _cuit_cliente_guardar = ""
-        if self._datos_tarjeta:
-            _cuit_cliente_guardar = self._datos_tarjeta.get("cuit_cliente", "")
+        # Guardar datos del comprador (CUIT, nombre, domicilio, localidad)
+        _datos_comprador = {}
+        if getattr(self, '_datos_tarjeta', None):
+            _datos_comprador = self._datos_tarjeta
         elif hasattr(self, "_datos_efectivo") and self._datos_efectivo:
-            _cuit_cliente_guardar = self._datos_efectivo.get("cuit_cliente", "")
-        if _cuit_cliente_guardar:
-            venta.cuit_cliente = _cuit_cliente_guardar
+            _datos_comprador = self._datos_efectivo
+        if _datos_comprador.get("cuit_cliente"):
+            venta.cuit_cliente = _datos_comprador["cuit_cliente"]
+        if _datos_comprador.get("nombre_cliente"):
+            venta.nombre_cliente = _datos_comprador["nombre_cliente"]
+        if _datos_comprador.get("domicilio_cliente"):
+            venta.domicilio_cliente = _datos_comprador["domicilio_cliente"]
+        if _datos_comprador.get("localidad_cliente"):
+            venta.localidad_cliente = _datos_comprador["localidad_cliente"]
+        if _datos_comprador.get("codigo_postal_cliente"):
+            venta.codigo_postal_cliente = _datos_comprador["codigo_postal_cliente"]
+        if _datos_comprador.get("condicion_cliente"):
+            venta.condicion_cliente = _datos_comprador["condicion_cliente"]
 
         # Agregar items
         for r in range(self.table_cesta.rowCount()):
@@ -287,6 +301,27 @@ class VentasFinalizacionMixin:
         if modo == 'Efectivo':
             QMessageBox.information(self, 'Vuelto', f'Vuelto: ${self.vuelto:.2f}')
 
+        # --- Asignar numero_ticket (sin CAE) o dejar para numero_ticket_cae (con CAE) ---
+        _va_a_tener_cae = False
+        if efectivo_emitir_afip:
+            _va_a_tener_cae = True
+        elif modo == 'Tarjeta' and _tipo_cbte_guardar:
+            try:
+                from app.config import load as _load_cfg_check
+                _fisc_check = (_load_cfg_check().get("fiscal") or {})
+                if _fisc_check.get("enabled", False):
+                    _va_a_tener_cae = True
+            except Exception:
+                pass
+        if not _va_a_tener_cae:
+            # Venta sin CAE: asignar numero_ticket de la secuencia de sin-CAE
+            venta.numero_ticket = self.venta_repo.siguiente_ticket(venta.sucursal)
+            try:
+                self.session.commit()
+            except Exception:
+                pass
+        # Si va a tener CAE, numero_ticket queda en 0; numero_ticket_cae se asigna en _afip_emitir_si_corresponde
+
         # Integracion AFIP / ARCA (solo si esta habilitada en Configuracion)
         # Para efectivo con AFIP, pasar los datos especificos
         if modo == 'Efectivo' and efectivo_emitir_afip:
@@ -329,6 +364,24 @@ class VentasFinalizacionMixin:
             if resp_print == QMessageBox.Yes:
                 self.imprimir_ticket(venta.id)
             # Si No/Escape → no imprime, nada se encola en el spooler
+
+        # Auto-guardar cliente en BD local (después de que la venta está commiteada)
+        if _datos_comprador.get("cuit_cliente"):
+            try:
+                from app.gui.compradores import CompradorService
+                CompradorService(self.session).guardar_o_actualizar(
+                    cuit=_datos_comprador["cuit_cliente"],
+                    nombre=_datos_comprador.get("nombre_cliente", ""),
+                    domicilio=_datos_comprador.get("domicilio_cliente", ""),
+                    localidad=_datos_comprador.get("localidad_cliente", ""),
+                    codigo_postal=_datos_comprador.get("codigo_postal_cliente", ""),
+                    condicion=_datos_comprador.get("condicion_cliente", ""),
+                )
+                # Refrescar tabla de Clientes si existe
+                if hasattr(self, 'cargar_lista_compradores'):
+                    self.cargar_lista_compradores()
+            except Exception as e:
+                logger.warning("Error al guardar cliente: %s", e)
 
         # Limpiar UI
         self.nueva_venta()
@@ -494,6 +547,13 @@ class VentasFinalizacionMixin:
             venta.afip_cae_vencimiento = response.cae_vencimiento
             venta.afip_numero_comprobante = response.numero_comprobante
             venta.afip_error = None
+            # Asignar numero_ticket_cae (secuencia independiente para ventas con CAE)
+            try:
+                from app.repository import VentaRepo
+                _repo = VentaRepo(self.session)
+                venta.numero_ticket_cae = _repo.siguiente_ticket_cae(venta.sucursal)
+            except Exception as e:
+                logger.error("[AFIP] Error al asignar numero_ticket_cae: %s", e)
             try:
                 self.session.commit()
             except Exception as e:

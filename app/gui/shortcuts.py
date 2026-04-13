@@ -13,7 +13,7 @@ class SectionMap:
     mapping: Dict[str, str]
 
 DEFAULT_SECTION_MAP = {
-    "productos": {"agregar": "A", "editar": "E", "eliminar": "Delete", "imprimir_codigo": "I"},
+    "productos": {"agregar": "A", "editar": "E", "eliminar": "Delete", "imprimir_codigo": "I", "consultar_precio": "P"},
     "ventas":    {"finalizar": "V", "consultar_precio": "P", "devolucion": "D", "whatsapp": "W", "imprimir": "F", "guardar_borrador": "G", "abrir_borradores": "B", "sumar": "+", "restar": "-", "editar_cantidad": "C", "descuento_item": "X", "vaciar_cesta": "Z"},
 }
 
@@ -317,6 +317,9 @@ class ShortcutManager(QObject):
             from PyQt5.QtWidgets import QLineEdit
             if not isinstance(obj, QLineEdit):
                 return False
+            # Solo interceptar en la barra de búsqueda de ventas
+            if obj is not getattr(self.w, 'input_venta_buscar', None):
+                return False
 
             key_text = event.text()
             # Fallback por key code para +/- (event.text() puede variar con Shift/teclado)
@@ -370,7 +373,7 @@ class ShortcutManager(QObject):
             if self._section_mode_enabled and not key.startswith("nav."):
                 # Revisar autofocus: si está en config, respetar; si no, default True
                 autofocus_map = getattr(self, '_autofocus_map', {})
-                is_autofocus = autofocus_map.get(key, True)  # default True
+                is_autofocus = autofocus_map.get(key, False)  # default False: no robar teclas en inputs
                 if not is_autofocus:
                     from PyQt5.QtWidgets import QLineEdit, QTextEdit, QPlainTextEdit
                     fw = QApplication.focusWidget()

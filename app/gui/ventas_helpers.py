@@ -104,22 +104,32 @@ def imprimir_ticket(venta, sucursal, direcciones: dict, parent=None, preview=Fal
         has_cae = bool(getattr(venta, "afip_cae", None))
         tipo_cbte = (getattr(venta, "tipo_comprobante", "") or "").upper()
 
-        # Resolver template con prioridad específica → genérica
+        # Resolver template: método_pago + comprobante → comprobante → método_pago → efectivo
         slot_key = ""
-        if "FACTURA_A" in tipo_cbte and tk.get("template_factura_a"):
-            slot_key = tk["template_factura_a"]
-        elif "FACTURA_B" in tipo_cbte and tk.get("template_factura_b"):
-            slot_key = tk["template_factura_b"]
-        elif has_cae and is_tarjeta and tk.get("template_cae_tarjeta"):
-            slot_key = tk["template_cae_tarjeta"]
-        elif has_cae and not is_tarjeta and tk.get("template_cae_efectivo"):
-            slot_key = tk["template_cae_efectivo"]
-        elif tk.get("template_consumidor_final") and not has_cae and not tipo_cbte:
-            slot_key = tk["template_consumidor_final"]
+        pago_prefix = "template_tarjeta" if is_tarjeta else "template_efectivo"
 
-        # Fallback genérico por forma de pago
+        # 1) Específico: método_pago + tipo_comprobante
+        if "FACTURA_A" in tipo_cbte and "MONO" not in tipo_cbte:
+            slot_key = tk.get(f"{pago_prefix}_factura_a", "")
+        elif "FACTURA_B_MONO" in tipo_cbte:
+            slot_key = tk.get(f"{pago_prefix}_factura_b_mono", "")
+        elif "FACTURA_B" in tipo_cbte:
+            slot_key = tk.get(f"{pago_prefix}_factura_b", "")
+
+        # 2) Buscar en asignaciones personalizadas
         if not slot_key:
-            slot_key = tk.get("template_tarjeta", "slot3") if is_tarjeta else tk.get("template_efectivo", "slot1")
+            for ca in tk.get("custom_assignments", []):
+                ca_match = (ca.get("match") or ca.get("name") or "").upper()
+                if ca_match and ca_match in tipo_cbte and ca.get("slot"):
+                    slot_key = ca["slot"]
+                    break
+
+        # 3) Fallback: método de pago genérico
+        if not slot_key:
+            if is_tarjeta:
+                slot_key = tk.get("template_tarjeta", "")
+            if not slot_key:
+                slot_key = tk.get("template_efectivo", "slot1")
 
         template_override = slots.get(slot_key, "")
 
@@ -696,9 +706,10 @@ def _compute_ticket_height_mm(venta, prn, width_mm=75.0, template_override: str 
                     line_count += 1
             total += line_count * h_n
 
-            # Agregar espacio para CAE si existe (se dibuja automáticamente)
+            # Agregar espacio para CAE solo si la plantilla no tiene contenido (legacy)
+            _has_cae_tpl = "{{cae}}" in template_text
             afip_cae = getattr(venta, "afip_cae", None)
-            if afip_cae:
+            if afip_cae and not _has_cae_tpl and not template_text.strip():
                 total += GAP_MM + SEP_MM  # gap + line
                 total += h_h  # título "COMPROBANTE ELECTRÓNICO AFIP"
                 total += GAP_MM * 0.5
@@ -756,6 +767,17 @@ def _ticket_strings():
 
 # ======= Plantilla: helpers =======
 
+def _tipo_cbte_display(tipo_raw):
+    """Convierte tipo_comprobante interno a texto legible para el ticket."""
+    _map = {
+        "FACTURA_A": "Factura A",
+        "FACTURA_B": "Factura B",
+        "FACTURA_B_MONO": "Factura B",
+        "NOTA_CREDITO_A": "Nota de Crédito A",
+        "NOTA_CREDITO_B": "Nota de Crédito B",
+    }
+    return _map.get((tipo_raw or "").upper().strip(), str(tipo_raw or ""))
+
 def _money(x):
     """Formatea un valor numérico como moneda argentina: $1.234,56"""
     try:
@@ -797,8 +819,11 @@ def _tpl_context(venta, sucursal, direcciones):
     abonado = getattr(venta, "pagado", None)
     vuelto  = getattr(venta, "vuelto", None)
 
-    # Encabezado
-    num = getattr(venta, "numero_ticket", None) or getattr(venta, "id", None)
+    # Encabezado - número de ticket según tipo
+    if getattr(venta, "afip_cae", None) and getattr(venta, "numero_ticket_cae", None):
+        num = venta.numero_ticket_cae
+    else:
+        num = getattr(venta, "numero_ticket", None) or getattr(venta, "id", None)
     fch = getattr(venta, "fecha", None)
     if fch:
         try:
@@ -823,6 +848,7 @@ def _tpl_context(venta, sucursal, direcciones):
 
     ctx = {
         "ticket.numero":     str(num or ""),
+        "ticket.numero_cae": str(getattr(venta, "numero_ticket_cae", "") or ""),
         "ticket.fecha_hora": dtxt,
         "sucursal":          str(sucursal or ""),
         "direccion":         dir_txt,
@@ -843,11 +869,18 @@ def _tpl_context(venta, sucursal, direcciones):
         "iva.base":          _money(iva_base),
         "iva.cuota":         _money(iva_cuota),
         "iva.porcentaje":    "21%",
-        "vendedor":          "",
+        "vendedor":          str(getattr(venta, "_vendedor", "") or getattr(venta, "vendedor", "") or ""),
         # Datos AFIP individuales
         "afip.cae":          str(getattr(venta, "afip_cae", "") or ""),
         "afip.vencimiento":  str(getattr(venta, "afip_cae_vencimiento", "") or ""),
         "afip.comprobante":  str(getattr(venta, "afip_numero_comprobante", "") or ""),
+        "comprobante.numero": str(getattr(venta, "afip_numero_comprobante", "") or ""),
+        "comprobante.tipo":  _tipo_cbte_display(getattr(venta, "tipo_comprobante", "") or ""),
+        # Datos del comprador
+        "comprador.nombre":    str(getattr(venta, "nombre_cliente", "") or ""),
+        "comprador.cuit":      str(getattr(venta, "cuit_cliente", "") or ""),
+        "comprador.domicilio": str(getattr(venta, "domicilio_cliente", "") or ""),
+        "comprador.localidad": str(getattr(venta, "localidad_cliente", "") or ""),
     }
 
     # Valores numéricos para expresiones {{= ... }}
@@ -865,6 +898,69 @@ def _tpl_context(venta, sucursal, direcciones):
     }
 
     return ctx, ctx_numeric, items
+
+
+# ---------------------------------------------------------------------
+# Impresión de Nota de Crédito
+# ---------------------------------------------------------------------
+class _NCProxy:
+    """Proxy que presenta una Nota de Crédito como si fuera una venta para imprimir_ticket()."""
+    def __init__(self, venta, nc_cae, nc_numero, nc_tipo):
+        self._venta = venta
+        self.afip_cae = nc_cae
+        self.afip_numero_comprobante = nc_numero
+        self.tipo_comprobante = nc_tipo
+        # Copiar campos de la venta original
+        for attr in ("total", "fecha", "numero_ticket", "numero_ticket_cae", "modo_pago", "cuotas",
+                     "sucursal", "subtotal", "interes", "descuento",
+                     "cuit_cliente", "nombre_cliente", "domicilio_cliente",
+                     "localidad_cliente", "afip_cae_vencimiento", "_vendedor"):
+            setattr(self, attr, getattr(venta, attr, None))
+        # Sobreescribir vencimiento NC con el del response si es distinto
+        self.items = getattr(venta, "items", [])
+
+    def __getattr__(self, name):
+        return getattr(self._venta, name)
+
+
+def imprimir_nota_credito(venta, nc_cae, nc_numero, sucursal, direcciones, parent=None):
+    """Imprime el ticket de una Nota de Crédito reutilizando imprimir_ticket().
+
+    Args:
+        venta: la Venta original sobre la que se emitió la NC
+        nc_cae: CAE de la Nota de Crédito
+        nc_numero: número de comprobante de la NC
+        sucursal: sucursal desde la que se emitió
+        direcciones: dict de direcciones por sucursal
+        parent: widget padre para diálogos
+    """
+    from app.config import load as load_config
+    tipo_cbte_original = (getattr(venta, "tipo_comprobante", "") or "").upper()
+    if "FACTURA_A" in tipo_cbte_original and "MONO" not in tipo_cbte_original:
+        nc_tipo = "NOTA_CREDITO_A"
+    else:
+        nc_tipo = "NOTA_CREDITO_B"
+
+    proxy = _NCProxy(venta, nc_cae, nc_numero, nc_tipo)
+
+    # Buscar template asignado para NC
+    cfg = load_config()
+    tk = cfg.get("ticket", {})
+    slots = tk.get("slots", {})
+    tpl_key_cfg = f"template_nota_credito_{'a' if nc_tipo == 'NOTA_CREDITO_A' else 'b'}"
+    slot_key = tk.get(tpl_key_cfg, "")
+    template_override = slots.get(slot_key, "") if slot_key else ""
+
+    # Si no hay template de NC, usar el de la factura original como fallback
+    if not template_override:
+        if "FACTURA_A" in tipo_cbte_original:
+            slot_key = tk.get("template_tarjeta_factura_a", "") or tk.get("template_efectivo_factura_a", "")
+        else:
+            slot_key = tk.get("template_tarjeta_factura_b", "") or tk.get("template_efectivo_factura_b", "") or tk.get("template_efectivo", "slot1")
+        template_override = slots.get(slot_key, "")
+
+    return imprimir_ticket(proxy, sucursal, direcciones, parent=parent, template_override=template_override)
+
 
 def _generate_afip_qr_pixmap(venta, sucursal):
     """Genera QPixmap con QR de factura electrónica AFIP/ARCA.
@@ -892,7 +988,7 @@ def _generate_afip_qr_pixmap(venta, sucursal):
         pto_vta = int(pv_map.get(sucursal) or fiscal.get("punto_venta", 1))
 
         # Tipo comprobante AFIP
-        _TIPO_MAP = {"FACTURA_A": 1, "FACTURA_B": 6}
+        _TIPO_MAP = {"FACTURA_A": 1, "FACTURA_B": 6, "NOTA_CREDITO_A": 3, "NOTA_CREDITO_B": 8}
         tipo_cbte = str(getattr(venta, 'tipo_comprobante', '') or '').upper()
         tipo_cmp = _TIPO_MAP.get(tipo_cbte, 6)  # default Factura B
 
@@ -1120,11 +1216,9 @@ def _tpl_render_lines(template_text, ctx, ctx_numeric=None, items=None, venta=No
                 pass
         return out
 
-    # Expansión de {{items_sin_iva}} - Items con IVA discriminado (para Factura A)
+    # Expansión de {{items_sin_iva}} - Mismo formato que items pero con precio sin IVA (÷1.21)
     def _expand_items_sin_iva():
         out = []
-        total_neto = 0.0
-        total_iva = 0.0
         for it in (items or []):
             try:
                 if isinstance(it, dict):
@@ -1136,30 +1230,24 @@ def _tpl_render_lines(template_text, ctx, ctx_numeric=None, items=None, venta=No
                     cant = float(getattr(it, "cantidad", 1) or 1)
                     pu = float(getattr(it, "precio_unit", None) or getattr(it, "precio_unitario", None) or getattr(it, "precio", 0.0) or 0.0)
                     prod_obj = getattr(it, "producto", None)
-                    nom = str(getattr(prod_obj, "nombre", "") or "") if prod_obj else str(getattr(it, "nombre", "") or "")
+                    if prod_obj:
+                        nom = str(getattr(prod_obj, "nombre", "") or "")
+                    else:
+                        nom = str(getattr(it, "nombre", "") or "")
                     cod = str(getattr(it, "codigo", "") or getattr(it, "codigo_barra", "") or "")
 
-                base_unit = round(pu / 1.21, 2)
-                iva_unit = round(pu - base_unit, 2)
-                tot_base = round(cant * base_unit, 2)
-                tot_iva = round(cant * iva_unit, 2)
-                total_neto += tot_base
-                total_iva += tot_iva
+                pu_sin_iva = round(pu / 1.21, 2)
+                tot = cant * pu_sin_iva
 
+                if len(nom) > 35:
+                    nom = nom[:35] + "…"
                 if nom:
-                    if len(nom) > 35:
-                        nom = nom[:35] + "…"
                     out.append(nom)
                 if cod:
                     out.append(f"Código: {cod}")
-                out.append(f"{int(cant)} × {_money(base_unit)}  Neto: {_money(tot_base)}  IVA: {_money(tot_iva)}")
+                out.append(f"Cant: {int(cant)} × { _money(pu_sin_iva) }      { _money(tot) }")
             except Exception:
                 pass
-        if out:
-            out.append("")
-            out.append(f"Total Neto:     {_money(total_neto)}")
-            out.append(f"IVA 21%:        {_money(total_iva)}")
-            out.append(f"TOTAL:          {_money(total_neto + total_iva)}")
         return out
 
     # Expansión de {{iva.discriminado}} — todas las ventas con CAE (configurable)
@@ -1387,7 +1475,7 @@ def _tpl_draw_block(p, px, draw_text, draw_image, line, gap, f_norm, f_head, ven
     afip_cae_venc = getattr(venta, "afip_cae_vencimiento", None)
     afip_num_cbte = getattr(venta, "afip_numero_comprobante", None)
 
-    if afip_cae and not has_cae_placeholder:
+    if afip_cae and not has_cae_placeholder and not template_text.strip():
         from PyQt5.QtCore import Qt, QRect
         # Función auxiliar para draw_lr (necesaria para mostrar CAE)
         def draw_lr_local(left, right, font):

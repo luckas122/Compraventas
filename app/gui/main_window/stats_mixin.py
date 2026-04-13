@@ -97,8 +97,18 @@ class StatsMixin:
 
         hdr = self.table_historial.horizontalHeader()
         hf = hdr.font(); hf.setBold(True); hdr.setFont(hf)
-        hdr.setSectionResizeMode(QHeaderView.Stretch)
-        hdr.setSectionResizeMode(10, QHeaderView.ResizeToContents)  # acciones al ancho del contenido
+        hdr.setSectionResizeMode(QHeaderView.Interactive)
+        hdr.setStretchLastSection(True)
+        self.table_historial.setColumnWidth(0, 80)   # Nº Ticket
+        self.table_historial.setColumnWidth(1, 120)  # Fecha
+        self.table_historial.setColumnWidth(2, 90)   # Sucursal
+        self.table_historial.setColumnWidth(3, 70)   # Forma
+        self.table_historial.setColumnWidth(4, 60)   # Cuotas
+        self.table_historial.setColumnWidth(5, 80)   # Total
+        self.table_historial.setColumnWidth(6, 70)   # Interés
+        self.table_historial.setColumnWidth(7, 80)   # Descuento
+        self.table_historial.setColumnWidth(8, 80)   # Pagado
+        self.table_historial.setColumnWidth(9, 70)   # Vuelto
         lay.addWidget(self.table_historial)
 
         # ----------------- Resumen -----------------
@@ -235,10 +245,11 @@ class StatsMixin:
         self.table_top_productos.verticalHeader().setVisible(False)
 
         hdr = self.table_top_productos.horizontalHeader()
-        hdr.setSectionResizeMode(0, QHeaderView.Stretch)  # Nombre
-        hdr.setSectionResizeMode(1, QHeaderView.ResizeToContents)  # Código
-        hdr.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # Cantidad
-        hdr.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # Total
+        hdr.setSectionResizeMode(QHeaderView.Interactive)
+        hdr.setStretchLastSection(True)
+        self.table_top_productos.setColumnWidth(0, 250)  # Producto
+        self.table_top_productos.setColumnWidth(1, 130)  # Código
+        self.table_top_productos.setColumnWidth(2, 120)  # Cantidad
 
         self.table_top_productos.setMaximumHeight(350)
         top_layout.addWidget(self.table_top_productos)
@@ -584,10 +595,11 @@ class StatsMixin:
                 table.setItem(i, 3, QTableWidgetItem(f"${data['promedio']:,.2f}"))
 
             hdr = table.horizontalHeader()
-            hdr.setSectionResizeMode(0, QHeaderView.Stretch)
-            hdr.setSectionResizeMode(1, QHeaderView.ResizeToContents)
-            hdr.setSectionResizeMode(2, QHeaderView.ResizeToContents)
-            hdr.setSectionResizeMode(3, QHeaderView.ResizeToContents)
+            hdr.setSectionResizeMode(QHeaderView.Interactive)
+            hdr.setStretchLastSection(True)
+            table.setColumnWidth(0, 150)  # Sucursal
+            table.setColumnWidth(1, 130)  # Total Facturado
+            table.setColumnWidth(2, 90)   # Cantidad
 
             table.setMaximumHeight(150)
             self.stats_comparativa_layout.addWidget(table)

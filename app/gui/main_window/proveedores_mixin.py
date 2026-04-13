@@ -42,7 +42,14 @@ class ProveedoresMixin:
         self.table_proveedores=QTableWidget(); self.table_proveedores.setColumnCount(6)
         self.table_proveedores.setHorizontalHeaderLabels(['Sel','ID','Nombre','Teléfono','Cuenta','CBU'])
         self.table_proveedores.setSortingEnabled(True)
-        self.table_proveedores.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        _hdr_prov = self.table_proveedores.horizontalHeader()
+        _hdr_prov.setSectionResizeMode(QHeaderView.Interactive)
+        _hdr_prov.setStretchLastSection(True)
+        self.table_proveedores.setColumnWidth(0, 28)   # Sel
+        self.table_proveedores.setColumnWidth(1, 40)   # ID
+        self.table_proveedores.setColumnWidth(2, 200)  # Nombre
+        self.table_proveedores.setColumnWidth(3, 120)  # Teléfono
+        self.table_proveedores.setColumnWidth(4, 150)  # Cuenta
         l.addLayout(form); l.addWidget(self.table_proveedores); w.setLayout(l)
         self.table_proveedores.cellDoubleClicked.connect(self._on_prov_dblclick)  # NUEVO
 

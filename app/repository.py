@@ -160,13 +160,17 @@ class VentaRepo:
     def commit(self):
         self.session.commit()
 
-    # Siguiente número de ticket para la sucursal (secuencia independiente por sucursal)
-    # Consulta también pagos_proveedores para evitar colisión
+    # Siguiente número de ticket para ventas SIN CAE (secuencia independiente por sucursal)
+    # Solo cuenta ventas que NO tienen afip_cae y cuyo numero_ticket > 0
     def siguiente_ticket(self, sucursal: str) -> int:
         max_ticket = 0
         last_venta = (
             self.session.query(Venta)
-            .filter(Venta.sucursal == sucursal, Venta.numero_ticket.isnot(None))
+            .filter(
+                Venta.sucursal == sucursal,
+                Venta.numero_ticket > 0,
+                Venta.afip_cae.is_(None)
+            )
             .order_by(Venta.numero_ticket.desc())
             .first()
         )
@@ -185,17 +189,26 @@ class VentaRepo:
             pass
         return max_ticket + 1
 
-    
+    def siguiente_ticket_cae(self, sucursal: str) -> int:
+        """Siguiente número de ticket CAE para la sucursal (secuencia independiente)."""
+        last = (
+            self.session.query(Venta)
+            .filter(Venta.sucursal == sucursal, Venta.numero_ticket_cae.isnot(None))
+            .order_by(Venta.numero_ticket_cae.desc())
+            .first()
+        )
+        return (last.numero_ticket_cae + 1) if (last and last.numero_ticket_cae) else 1
+
     # ====== CREAR VENTA CON total=0.0 ======
+    # numero_ticket=0 es placeholder; se asigna el definitivo en finalizar_venta()
     def crear_venta(self, sucursal: str, modo_pago: str, cuotas: int | None):
-        numero_ticket = self.siguiente_ticket(sucursal)
         v = Venta(
             sucursal=sucursal,
             fecha=datetime.now(),
             modo_pago=modo_pago,
             cuotas=cuotas,
-            total=0.0,                 # <- CLAVE
-            numero_ticket=numero_ticket
+            total=0.0,
+            numero_ticket=0
         )
         self.session.add(v)
         self.session.flush()  # asegura v.id
@@ -401,11 +414,15 @@ class PagoProveedorRepo:
         self.session = session
 
     def siguiente_ticket(self, sucursal: str) -> int:
-        """Siguiente ticket compartiendo numeracion con VentaRepo (secuencia independiente por sucursal)."""
+        """Siguiente ticket compartiendo numeración con ventas SIN CAE (secuencia independiente por sucursal)."""
         max_ticket = 0
         last_venta = (
             self.session.query(Venta)
-            .filter(Venta.sucursal == sucursal, Venta.numero_ticket.isnot(None))
+            .filter(
+                Venta.sucursal == sucursal,
+                Venta.numero_ticket > 0,
+                Venta.afip_cae.is_(None)
+            )
             .order_by(Venta.numero_ticket.desc())
             .first()
         )

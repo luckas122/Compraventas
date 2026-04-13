@@ -50,6 +50,12 @@ class UsuariosMixin:
         self.table_usuarios = QTableWidget()
         self.table_usuarios.setColumnCount(3)
         self.table_usuarios.setHorizontalHeaderLabels(['ID','Usuario','Admin'])
+        from PyQt5.QtWidgets import QHeaderView
+        _hdr_u = self.table_usuarios.horizontalHeader()
+        _hdr_u.setSectionResizeMode(QHeaderView.Interactive)
+        _hdr_u.setStretchLastSection(True)
+        self.table_usuarios.setColumnWidth(0, 50)   # ID
+        self.table_usuarios.setColumnWidth(1, 200)  # Usuario
         self.table_usuarios.cellClicked.connect(self.cargar_usuario)
         layout.addWidget(self.table_usuarios)
 

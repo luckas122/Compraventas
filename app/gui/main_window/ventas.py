@@ -138,13 +138,13 @@ class VentasMixin:
 
         hdr = self.table_cesta.horizontalHeader()
         hf = hdr.font(); hf.setBold(True); hdr.setFont(hf)
-        # Código/Nombre visibles y cómodos; el resto a contenido
-        hdr.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # Código
-        hdr.setSectionResizeMode(1, QHeaderView.Stretch)           # Nombre
-        hdr.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # Cant
-        hdr.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # P.Unit
-        hdr.setSectionResizeMode(4, QHeaderView.ResizeToContents)  # Total
-        hdr.setSectionResizeMode(5, QHeaderView.ResizeToContents)  # Acciones
+        hdr.setSectionResizeMode(QHeaderView.Interactive)
+        hdr.setStretchLastSection(True)
+        self.table_cesta.setColumnWidth(0, 120)  # Código
+        self.table_cesta.setColumnWidth(1, 250)  # Nombre
+        self.table_cesta.setColumnWidth(2, 80)   # Cant
+        self.table_cesta.setColumnWidth(3, 100)  # P.Unit
+        self.table_cesta.setColumnWidth(4, 100)  # Total
         
         self.table_cesta.verticalHeader().setVisible(False)
         self.table_cesta.verticalHeader().setDefaultSectionSize(40)  # alto de fila suficiente
@@ -266,10 +266,19 @@ class VentasMixin:
         self.table_ventas_dia.setFont(fvd)
 
         hdr2 = self.table_ventas_dia.horizontalHeader()
-        hdr2.setSectionResizeMode(QHeaderView.Stretch)
-        hdr2.setStretchLastSection(False)
-        hdr2.setSectionResizeMode(11, QHeaderView.ResizeToContents)  # Acciones
-        self.table_ventas_dia.setColumnWidth(11, 180)
+        hdr2.setSectionResizeMode(QHeaderView.Interactive)
+        hdr2.setStretchLastSection(True)
+        self.table_ventas_dia.setColumnWidth(0, 80)   # Nº Ticket
+        self.table_ventas_dia.setColumnWidth(1, 70)   # Hora
+        self.table_ventas_dia.setColumnWidth(2, 100)  # Sucursal
+        self.table_ventas_dia.setColumnWidth(3, 90)   # Total
+        self.table_ventas_dia.setColumnWidth(4, 100)  # Forma Pago
+        self.table_ventas_dia.setColumnWidth(5, 65)   # Cuotas
+        self.table_ventas_dia.setColumnWidth(6, 70)   # Interés
+        self.table_ventas_dia.setColumnWidth(7, 85)   # Descuento
+        self.table_ventas_dia.setColumnWidth(8, 100)  # Monto x cuota
+        self.table_ventas_dia.setColumnWidth(9, 80)   # Pagado
+        self.table_ventas_dia.setColumnWidth(10, 80)  # Vuelto
         self.table_ventas_dia.setIconSize(QSize(20, 20))
         self.table_ventas_dia.verticalHeader().setDefaultSectionSize(28)
 
@@ -1314,9 +1323,9 @@ class VentasMixin:
                 self.spin_cuotas.setValue(1)
             if hasattr(self, '_update_cuota_label'):
                 self._update_cuota_label(0)
-            # Limpiar datos del diálogo de tarjeta
-            if hasattr(self, '_datos_tarjeta'):
-                self._datos_tarjeta = None
+            # Limpiar datos de diálogos de pago
+            self._datos_tarjeta = None
+            self._datos_efectivo = None
         except Exception:
             pass
         

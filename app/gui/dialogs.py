@@ -190,10 +190,11 @@ class DevolucionDialog(QDialog):
         # Encabezado en negrita y tamaños de columna
         hdr = self.table_dev.horizontalHeader()
         hf = hdr.font(); hf.setBold(True); hdr.setFont(hf)
-        hdr.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # Código
-        hdr.setSectionResizeMode(1, QHeaderView.Stretch)           # Nombre (el más grande)
-        hdr.setSectionResizeMode(2, QHeaderView.ResizeToContents)  # Cantidad
-        hdr.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # Precio
+        hdr.setSectionResizeMode(QHeaderView.Interactive)
+        hdr.setStretchLastSection(True)
+        self.table_dev.setColumnWidth(0, 120)  # Código
+        self.table_dev.setColumnWidth(1, 250)  # Nombre
+        self.table_dev.setColumnWidth(2, 80)   # Cantidad
         self.table_dev.resizeColumnsToContents()
 
         # Abrir el diálogo del tamaño del contenido
@@ -284,20 +285,13 @@ class ProductosDialog(QDialog):
         self.table.verticalHeader().setVisible(False)          # Sin números de fila
 
         hdr = self.table.horizontalHeader()
-        hdr.setSectionResizeMode(0, QHeaderView.Fixed)
-        self.table.setColumnWidth(0, 5)   # Sel (check)
-        hdr.setSectionResizeMode(1, QHeaderView.Fixed)
-        self.table.setColumnWidth(1, 20)   # ID
-        hdr.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(QHeaderView.Interactive)
+        hdr.setStretchLastSection(True)
+        self.table.setColumnWidth(0, 36)   # Sel
+        self.table.setColumnWidth(1, 40)   # ID
         self.table.setColumnWidth(2, 120)  # Código
-        hdr.setSectionResizeMode(3, QHeaderView.Stretch)       # Nombre
-        hdr.setSectionResizeMode(4, QHeaderView.Fixed)
+        self.table.setColumnWidth(3, 250)  # Nombre
         self.table.setColumnWidth(4, 72)   # Precio
-        hdr.setSectionResizeMode(5, QHeaderView.Fixed) # Categoría
-        self.table.setColumnWidth(5, 100)
-        hdr = self.table.horizontalHeader()
-        hdr.setSectionResizeMode(0, QHeaderView.Fixed)
-        self.table.setColumnWidth(0, 36)  # un poco más ancho para el check
         
         root.addWidget(self.table)
         self.table.itemChanged.connect(self._on_item_changed)
@@ -1075,9 +1069,10 @@ class PagoTarjetaDialog(QDialog):
     Enter navega al siguiente campo.
     """
 
-    def __init__(self, total_actual=0.0, parent=None):
+    def __init__(self, total_actual=0.0, parent=None, session=None):
         super().__init__(parent)
         self.total_actual = total_actual
+        self._session = session
         self._result = None
         self._updating_discount = False
         self.setWindowTitle("Pago con Tarjeta")
@@ -1173,7 +1168,44 @@ class PagoTarjetaDialog(QDialog):
         validator = QRegExpValidator(regex)
         self.edt_cuit.setValidator(validator)
 
-        form.addRow(self.lbl_cuit, self.edt_cuit)
+        # Layout CUIT + botón cargar
+        cuit_row = QHBoxLayout()
+        cuit_row.addWidget(self.edt_cuit)
+        self.btn_consultar_cuit = QPushButton("Cargar")
+        self.btn_consultar_cuit.setToolTip("Cargar datos del comprador desde la base de datos local")
+        self.btn_consultar_cuit.setAutoDefault(False)
+        self.btn_consultar_cuit.clicked.connect(self._consultar_cuit)
+        cuit_row.addWidget(self.btn_consultar_cuit)
+        cuit_widget = QWidget()
+        cuit_widget.setLayout(cuit_row)
+        cuit_row.setContentsMargins(0, 0, 0, 0)
+        form.addRow(self.lbl_cuit, cuit_widget)
+
+        # Campos adicionales del comprador (Factura A y B Monotributo)
+        self.lbl_nombre = QLabel("Nombre y Apellido:")
+        self.edt_nombre = QLineEdit()
+        self.edt_nombre.setPlaceholderText("Nombre y Apellido del comprador")
+        form.addRow(self.lbl_nombre, self.edt_nombre)
+
+        self.lbl_domicilio = QLabel("Domicilio:")
+        self.edt_domicilio = QLineEdit()
+        self.edt_domicilio.setPlaceholderText("Dirección del comprador")
+        form.addRow(self.lbl_domicilio, self.edt_domicilio)
+
+        self.lbl_localidad = QLabel("Localidad:")
+        self.edt_localidad = QLineEdit()
+        self.edt_localidad.setPlaceholderText("Ciudad / Localidad")
+        form.addRow(self.lbl_localidad, self.edt_localidad)
+
+        self.lbl_codigo_postal = QLabel("Código Postal:")
+        self.edt_codigo_postal = QLineEdit()
+        self.edt_codigo_postal.setPlaceholderText("Código postal")
+        form.addRow(self.lbl_codigo_postal, self.edt_codigo_postal)
+
+        self.lbl_condicion = QLabel("Condición Fiscal:")
+        self.edt_condicion = QComboBox()
+        self.edt_condicion.addItems(["", "Responsable Inscripto", "Monotributista", "Consumidor Final", "Exento"])
+        form.addRow(self.lbl_condicion, self.edt_condicion)
 
         layout.addLayout(form)
 
@@ -1256,16 +1288,52 @@ class PagoTarjetaDialog(QDialog):
         self._updating_discount = False
 
     def _on_tipo_cbte_changed(self):
-        """Muestra/oculta el campo CUIT según el tipo de comprobante."""
+        """Muestra/oculta los campos del comprador según el tipo de comprobante."""
         tipo = self.cmb_tipo_cbte.currentData()
         necesita_cuit = tipo in ("FACTURA_A", "FACTURA_B_MONO")
 
         self.lbl_cuit.setVisible(necesita_cuit)
         self.edt_cuit.setVisible(necesita_cuit)
+        self.btn_consultar_cuit.setVisible(necesita_cuit)
+        self.lbl_nombre.setVisible(necesita_cuit)
+        self.edt_nombre.setVisible(necesita_cuit)
+        self.lbl_domicilio.setVisible(necesita_cuit)
+        self.edt_domicilio.setVisible(necesita_cuit)
+        self.lbl_localidad.setVisible(necesita_cuit)
+        self.edt_localidad.setVisible(necesita_cuit)
+        self.lbl_codigo_postal.setVisible(necesita_cuit)
+        self.edt_codigo_postal.setVisible(necesita_cuit)
+        self.lbl_condicion.setVisible(necesita_cuit)
+        self.edt_condicion.setVisible(necesita_cuit)
 
         if necesita_cuit:
             self.edt_cuit.setFocus()
             self.edt_cuit.selectAll()
+
+    def _consultar_cuit(self):
+        """Busca datos del comprador en la base de datos local por CUIT."""
+        cuit = self.edt_cuit.text().strip()
+        if not cuit or len(cuit) != 11:
+            QMessageBox.warning(self, "CUIT", "Ingrese un CUIT/CUIL válido de 11 dígitos.")
+            return
+        if not self._session:
+            QMessageBox.warning(self, "Error", "No hay sesión de base de datos disponible.")
+            return
+        try:
+            from app.gui.compradores import CompradorService
+            comp = CompradorService(self._session).buscar_por_cuit(cuit)
+            if comp:
+                self.edt_nombre.setText(comp.nombre or "")
+                self.edt_domicilio.setText(comp.domicilio or "")
+                self.edt_localidad.setText(comp.localidad or "")
+                self.edt_codigo_postal.setText(comp.codigo_postal or "")
+                idx = self.edt_condicion.findText(comp.condicion or "")
+                self.edt_condicion.setCurrentIndex(idx if idx >= 0 else 0)
+            else:
+                QMessageBox.information(self, "Cliente",
+                    "CUIT no registrado.\nComplete los datos y se guardarán automáticamente al confirmar la venta.")
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Error al buscar cliente:\n{e}")
 
     def _actualizar_resumen(self):
         """Actualiza el resumen de totales con interés y descuento."""
@@ -1309,13 +1377,19 @@ Descuento: -${descuento_monto:,.2f}<br>
                 self.edt_cuit.setFocus()
                 return
 
+        _es_comprador = tipo in ("FACTURA_A", "FACTURA_B_MONO")
         self._result = {
             "cuotas": self.spin_cuotas.value(),
             "interes_pct": self.spin_interes.value(),
             "descuento_pct": self.spin_descuento_pct.value(),
             "descuento_monto": self.spin_descuento_monto.value(),
             "tipo_comprobante": tipo,
-            "cuit_cliente": self.edt_cuit.text().strip() if tipo in ("FACTURA_A", "FACTURA_B_MONO") else ""
+            "cuit_cliente": self.edt_cuit.text().strip() if _es_comprador else "",
+            "nombre_cliente": self.edt_nombre.text().strip() if _es_comprador else "",
+            "domicilio_cliente": self.edt_domicilio.text().strip() if _es_comprador else "",
+            "localidad_cliente": self.edt_localidad.text().strip() if _es_comprador else "",
+            "codigo_postal_cliente": self.edt_codigo_postal.text().strip() if _es_comprador else "",
+            "condicion_cliente": self.edt_condicion.currentText() if _es_comprador else "",
         }
 
         self.accept()
@@ -1337,11 +1411,12 @@ class PagoEfectivoDialog(QDialog):
     Enter navega al siguiente campo.
     """
 
-    def __init__(self, total_actual=0.0, parent=None):
+    def __init__(self, total_actual=0.0, parent=None, session=None):
         super().__init__(parent)
         self.total_actual = total_actual
         self._total_con_descuento = total_actual
         self._result = None
+        self._session = session
         self._updating_discount = False  # evitar bucle entre % y $
         self.setWindowTitle("Pago en Efectivo")
         self.setMinimumWidth(450)
@@ -1462,7 +1537,44 @@ class PagoEfectivoDialog(QDialog):
         validator = QRegExpValidator(regex)
         self.edt_cuit.setValidator(validator)
 
-        afip_layout.addRow(self.lbl_cuit, self.edt_cuit)
+        # Layout CUIT + botón cargar
+        cuit_row2 = QHBoxLayout()
+        cuit_row2.addWidget(self.edt_cuit)
+        self.btn_consultar_cuit = QPushButton("Cargar")
+        self.btn_consultar_cuit.setToolTip("Cargar datos del comprador desde la base de datos local")
+        self.btn_consultar_cuit.setAutoDefault(False)
+        self.btn_consultar_cuit.clicked.connect(self._consultar_cuit)
+        cuit_row2.addWidget(self.btn_consultar_cuit)
+        cuit_widget2 = QWidget()
+        cuit_widget2.setLayout(cuit_row2)
+        cuit_row2.setContentsMargins(0, 0, 0, 0)
+        afip_layout.addRow(self.lbl_cuit, cuit_widget2)
+
+        # Campos adicionales del comprador (Factura A y B Monotributo)
+        self.lbl_nombre = QLabel("Nombre y Apellido:")
+        self.edt_nombre = QLineEdit()
+        self.edt_nombre.setPlaceholderText("Nombre y Apellido del comprador")
+        afip_layout.addRow(self.lbl_nombre, self.edt_nombre)
+
+        self.lbl_domicilio = QLabel("Domicilio:")
+        self.edt_domicilio = QLineEdit()
+        self.edt_domicilio.setPlaceholderText("Dirección del comprador")
+        afip_layout.addRow(self.lbl_domicilio, self.edt_domicilio)
+
+        self.lbl_localidad = QLabel("Localidad:")
+        self.edt_localidad = QLineEdit()
+        self.edt_localidad.setPlaceholderText("Ciudad / Localidad")
+        afip_layout.addRow(self.lbl_localidad, self.edt_localidad)
+
+        self.lbl_codigo_postal = QLabel("Código Postal:")
+        self.edt_codigo_postal = QLineEdit()
+        self.edt_codigo_postal.setPlaceholderText("Código postal")
+        afip_layout.addRow(self.lbl_codigo_postal, self.edt_codigo_postal)
+
+        self.lbl_condicion = QLabel("Condición Fiscal:")
+        self.edt_condicion = QComboBox()
+        self.edt_condicion.addItems(["", "Responsable Inscripto", "Monotributista", "Consumidor Final", "Exento"])
+        afip_layout.addRow(self.lbl_condicion, self.edt_condicion)
 
         self.afip_widget.setVisible(False)
         layout.addWidget(self.afip_widget)
@@ -1569,16 +1681,52 @@ class PagoEfectivoDialog(QDialog):
         self.adjustSize()
 
     def _on_tipo_cbte_changed(self):
-        """Muestra/oculta el campo CUIT según el tipo de comprobante."""
+        """Muestra/oculta los campos del comprador según el tipo de comprobante."""
         tipo = self.cmb_tipo_cbte.currentData()
         necesita_cuit = tipo in ("FACTURA_A", "FACTURA_B_MONO")
 
         self.lbl_cuit.setVisible(necesita_cuit)
         self.edt_cuit.setVisible(necesita_cuit)
+        self.btn_consultar_cuit.setVisible(necesita_cuit)
+        self.lbl_nombre.setVisible(necesita_cuit)
+        self.edt_nombre.setVisible(necesita_cuit)
+        self.lbl_domicilio.setVisible(necesita_cuit)
+        self.edt_domicilio.setVisible(necesita_cuit)
+        self.lbl_localidad.setVisible(necesita_cuit)
+        self.edt_localidad.setVisible(necesita_cuit)
+        self.lbl_codigo_postal.setVisible(necesita_cuit)
+        self.edt_codigo_postal.setVisible(necesita_cuit)
+        self.lbl_condicion.setVisible(necesita_cuit)
+        self.edt_condicion.setVisible(necesita_cuit)
 
         if necesita_cuit and self.afip_widget.isVisible():
             self.edt_cuit.setFocus()
             self.edt_cuit.selectAll()
+
+    def _consultar_cuit(self):
+        """Busca datos del comprador en la base de datos local por CUIT."""
+        cuit = self.edt_cuit.text().strip()
+        if not cuit or len(cuit) != 11:
+            QMessageBox.warning(self, "CUIT", "Ingrese un CUIT/CUIL válido de 11 dígitos.")
+            return
+        if not self._session:
+            QMessageBox.warning(self, "Error", "No hay sesión de base de datos disponible.")
+            return
+        try:
+            from app.gui.compradores import CompradorService
+            comp = CompradorService(self._session).buscar_por_cuit(cuit)
+            if comp:
+                self.edt_nombre.setText(comp.nombre or "")
+                self.edt_domicilio.setText(comp.domicilio or "")
+                self.edt_localidad.setText(comp.localidad or "")
+                self.edt_codigo_postal.setText(comp.codigo_postal or "")
+                idx = self.edt_condicion.findText(comp.condicion or "")
+                self.edt_condicion.setCurrentIndex(idx if idx >= 0 else 0)
+            else:
+                QMessageBox.information(self, "Cliente",
+                    "CUIT no registrado.\nComplete los datos y se guardarán automáticamente al confirmar la venta.")
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"Error al buscar cliente:\n{e}")
 
     def _aceptar(self):
         """Valida y acepta el diálogo."""
@@ -1617,6 +1765,7 @@ class PagoEfectivoDialog(QDialog):
                     return
                 cuit_cliente = cuit
 
+        _es_comprador = tipo_comprobante in ("FACTURA_A", "FACTURA_B_MONO")
         self._result = {
             "abonado": abonado,
             "vuelto": vuelto,
@@ -1624,7 +1773,12 @@ class PagoEfectivoDialog(QDialog):
             "descuento_monto": self.spin_descuento_monto.value(),
             "emitir_afip": emitir_afip,
             "tipo_comprobante": tipo_comprobante,
-            "cuit_cliente": cuit_cliente
+            "cuit_cliente": cuit_cliente,
+            "nombre_cliente": self.edt_nombre.text().strip() if _es_comprador else "",
+            "domicilio_cliente": self.edt_domicilio.text().strip() if _es_comprador else "",
+            "localidad_cliente": self.edt_localidad.text().strip() if _es_comprador else "",
+            "codigo_postal_cliente": self.edt_codigo_postal.text().strip() if _es_comprador else "",
+            "condicion_cliente": self.edt_condicion.currentText() if _es_comprador else "",
         }
 
         self.accept()

@@ -158,9 +158,11 @@ class HistorialVentasWidget(QWidget):
 
         self.cmb_sucursal = NoScrollComboBox()
         self.cmb_sucursal.addItem("Todas", None)
-        for s in ("Sarmiento", "Salta"):
+        from app.config import load as _load_cfg_suc
+        _suc_cfg = (_load_cfg_suc().get("business") or {}).get("sucursales") or {}
+        for s in sorted(_suc_cfg.keys()):
             self.cmb_sucursal.addItem(s, s)
-        if self.sucursal_actual and self.sucursal_actual in ("Sarmiento", "Salta"):
+        if self.sucursal_actual and self.cmb_sucursal.findText(self.sucursal_actual) >= 0:
             self.cmb_sucursal.setCurrentText(self.sucursal_actual)
 
         self.cmb_forma = NoScrollComboBox()
@@ -218,10 +220,22 @@ class HistorialVentasWidget(QWidget):
             "Cuotas","Interés", "Descuento", "Monto x cuota", "Total", "Pagado", "Vuelto", "CAE", "Vto CAE", "Comentario", "ID"
         ])
         hdr = self.tbl.horizontalHeader()
-        # Fecha/Hora y Comentario expanden; el resto ajusta al contenido
-        hdr.setSectionResizeMode(QHeaderView.ResizeToContents)
-        hdr.setSectionResizeMode(1, QHeaderView.Stretch)   # Fecha/Hora - necesita espacio
-        hdr.setSectionResizeMode(13, QHeaderView.Stretch)  # Comentario - necesita espacio
+        hdr.setSectionResizeMode(QHeaderView.Interactive)
+        hdr.setStretchLastSection(True)
+        self.tbl.setColumnWidth(0, 80)   # Nº Ticket
+        self.tbl.setColumnWidth(1, 140)  # Fecha/Hora
+        self.tbl.setColumnWidth(2, 90)   # Sucursal
+        self.tbl.setColumnWidth(3, 90)   # Forma Pago
+        self.tbl.setColumnWidth(4, 60)   # Cuotas
+        self.tbl.setColumnWidth(5, 70)   # Interés
+        self.tbl.setColumnWidth(6, 80)   # Descuento
+        self.tbl.setColumnWidth(7, 100)  # Monto x cuota
+        self.tbl.setColumnWidth(8, 90)   # Total
+        self.tbl.setColumnWidth(9, 80)   # Pagado
+        self.tbl.setColumnWidth(10, 70)  # Vuelto
+        self.tbl.setColumnWidth(11, 130) # CAE
+        self.tbl.setColumnWidth(12, 100) # Vto CAE
+        self.tbl.setColumnWidth(13, 120) # Comentario
         # ID oculto
         self.tbl.setColumnHidden(14, True)
         self.tbl.verticalHeader().setVisible(False)
@@ -655,7 +669,8 @@ class HistorialVentasWidget(QWidget):
 
             # Obtener datos por sucursal
             sucursales_data = {}
-            for sucursal in ["Sarmiento", "Salta"]:
+            _suc_rep = sorted((_load_cfg_suc().get("business") or {}).get("sucursales") or {})
+            for sucursal in _suc_rep:
                 ventas = self._obtener_ventas_rango(dt_min, dt_max, sucursal=sucursal)
                 if forma_txt in ("efectivo", "tarjeta"):
                     ventas = [v for v in ventas if v.modo_pago.lower() == forma_txt]
@@ -837,7 +852,10 @@ class HistorialVentasWidget(QWidget):
         q = (self.txt_buscar.text() or "").strip().lower()
         if q:
             def _match(v):
-                nro = str(getattr(v, "numero_ticket", "") or getattr(v, "id", ""))
+                if getattr(v, 'afip_cae', None) and getattr(v, 'numero_ticket_cae', None):
+                    nro = str(v.numero_ticket_cae)
+                else:
+                    nro = str(getattr(v, "numero_ticket", "") or getattr(v, "id", ""))
                 return q in nro.lower()
             ventas = [v for v in ventas if _match(v)]
 
@@ -875,8 +893,11 @@ class HistorialVentasWidget(QWidget):
             row = self.tbl.rowCount()
             self.tbl.insertRow(row)
 
-            # Campos base
-            nro = str(getattr(v, "numero_ticket", "") or getattr(v, "id", ""))
+            # Campos base - mostrar numero_ticket_cae para ventas con CAE
+            if getattr(v, 'afip_cae', None) and getattr(v, 'numero_ticket_cae', None):
+                nro = str(v.numero_ticket_cae)
+            else:
+                nro = str(getattr(v, "numero_ticket", "") or getattr(v, "id", ""))
             fch = getattr(v, "fecha", None)
             hora = fch.strftime("%Y-%m-%d %H:%M") if fch else ""
             suc = getattr(v, "sucursal", "") or ""
@@ -1190,6 +1211,24 @@ class HistorialVentasWidget(QWidget):
                     f"Nota de Crédito emitida exitosamente.\n\n"
                     f"CAE: {response.cae}\nNº: {response.numero_comprobante}"
                 )
+                # Preguntar si imprimir
+                resp_print = QMessageBox.question(
+                    self, "Imprimir",
+                    "¿Desea imprimir el comprobante de la Nota de Crédito?",
+                    QMessageBox.Yes | QMessageBox.No
+                )
+                if resp_print == QMessageBox.Yes:
+                    try:
+                        from app.gui.ventas_helpers import imprimir_nota_credito
+                        from app.config import load as _load_cfg_nc
+                        _cfg_nc = _load_cfg_nc()
+                        _dirs = (_cfg_nc.get("sucursales") or {}).get("direcciones") or {}
+                        imprimir_nota_credito(
+                            venta, response.cae, response.numero_comprobante,
+                            sucursal, _dirs, parent=self
+                        )
+                    except Exception as ex_print:
+                        QMessageBox.warning(self, "Error", f"Error al imprimir NC: {ex_print}")
                 self.refrescar()
             else:
                 QMessageBox.warning(
@@ -1244,6 +1283,14 @@ class HistorialVentasWidget(QWidget):
                 if hasattr(venta, 'afip_numero_comprobante') and response.numero_comprobante:
                     venta.afip_numero_comprobante = response.numero_comprobante
                 venta.afip_error = None
+                # Asignar numero_ticket_cae si no tiene
+                if not getattr(venta, 'numero_ticket_cae', None):
+                    try:
+                        from app.repository import VentaRepo
+                        _repo = VentaRepo(self.session)
+                        venta.numero_ticket_cae = _repo.siguiente_ticket_cae(venta.sucursal)
+                    except Exception:
+                        pass
                 self.session.commit()
                 QMessageBox.information(self, "AFIP", f"CAE obtenido: {response.cae}")
                 # Refrescar tabla
@@ -1720,7 +1767,14 @@ class _VentaDetalleDialog(QDialog):
 
         tbl = QTableWidget(0, 6)
         tbl.setHorizontalHeaderLabels(["Código", "Nombre", "Cantidad", "P. Unit.", "Total línea", "Venta ID"])
-        tbl.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        _hdr_det = tbl.horizontalHeader()
+        _hdr_det.setSectionResizeMode(QHeaderView.Interactive)
+        _hdr_det.setStretchLastSection(True)
+        tbl.setColumnWidth(0, 120)  # Código
+        tbl.setColumnWidth(1, 200)  # Nombre
+        tbl.setColumnWidth(2, 80)   # Cantidad
+        tbl.setColumnWidth(3, 90)   # P. Unit.
+        tbl.setColumnWidth(4, 100)  # Total línea
         tbl.verticalHeader().setVisible(False)
         lay.addWidget(tbl)
 
@@ -1834,6 +1888,14 @@ class _VentaDetalleDialog(QDialog):
                 venta.afip_cae = response.cae
                 venta.afip_cae_vencimiento = response.cae_vencimiento
                 venta.afip_error = None
+                # Asignar numero_ticket_cae si no tiene
+                if not getattr(venta, 'numero_ticket_cae', None):
+                    try:
+                        from app.repository import VentaRepo
+                        _repo = VentaRepo(session)
+                        venta.numero_ticket_cae = _repo.siguiente_ticket_cae(venta.sucursal)
+                    except Exception:
+                        pass
                 session.commit()
                 QMessageBox.information(self, "AFIP", f"CAE obtenido exitosamente: {response.cae}")
                 self.accept()  # Close dialog

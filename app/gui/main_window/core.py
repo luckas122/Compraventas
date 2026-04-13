@@ -17,6 +17,7 @@ from app.gui.main_window.ventas_ticket_mixin import VentasTicketMixin
 from app.gui.main_window.ventas_finalizacion_mixin import VentasFinalizacionMixin
 from app.gui.main_window.filters  import LimitedFilterProxy
 from app.gui.main_window.proveedores_mixin import ProveedoresMixin
+from app.gui.main_window.compradores_mixin import CompradoresMixin
 from app.gui.main_window.usuarios_mixin import UsuariosMixin
 from app.gui.main_window.configuracion_mixin import ConfiguracionMixin
 from app.gui.main_window.ticket_templates_mixin import TicketTemplatesMixin
@@ -65,6 +66,7 @@ from app.gui.qt_helpers import freeze_table
 from pathlib import Path
 from PyQt5.QtMultimedia import QSoundEffect
 from app.gui.proveedores import ProveedorService  # NUEVO
+from app.gui.compradores import CompradorService
 from datetime import date, datetime,timedelta
 from app.gui.historialventas import HistorialVentasWidget
 # Importar helpers y diálogos desde el paquete nuevo
@@ -76,7 +78,7 @@ from app.firebase_sync import FirebaseSyncManager
 
 #---------------------------------------------------------------------------------------------------------------------
 
-class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizacionMixin, ProveedoresMixin, UsuariosMixin, ConfiguracionMixin, TicketTemplatesMixin, ReportesMixin, BackupsMixin, SyncNotificationsMixin, StatsMixin, QMainWindow):
+class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizacionMixin, ProveedoresMixin, CompradoresMixin, UsuariosMixin, ConfiguracionMixin, TicketTemplatesMixin, ReportesMixin, BackupsMixin, SyncNotificationsMixin, StatsMixin, QMainWindow):
 
     def __init__(self, es_admin=True, username=""):
         from app.gui.ventas_helpers import build_product_completer
@@ -127,10 +129,10 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
             'Salta':     'Salta 1694, Gerli'
         })
 
-        if _pref in ("Sarmiento", "Salta"):
+        sucursales = list(self.direcciones.keys())
+        if _pref in sucursales:
             self.sucursal = _pref
         else:
-            sucursales = ["Sarmiento", "Salta"]
             suc, ok = QInputDialog.getItem(self, 'Sucursal', 'Seleccione sucursal:', sucursales, 0, False)
             if not ok:
                 sys.exit(0)
@@ -139,6 +141,7 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
         # Sesión y repositorios
         self.session    = SessionLocal()
         self.proveedores = ProveedorService(self.session)  # NUEVO
+        self.compradores_svc = CompradorService(self.session)
         self.prod_repo = prod_repo(self.session, Producto)
         
         self.venta_repo = VentaRepo(self.session)
@@ -164,8 +167,11 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
         tabs.addTab(self.tab_proveedores(), icon('proveedor.png'), 'Proveedores')
         tabs.setTabToolTip(1, 'Proveedores')
 
+        tabs.addTab(self.tab_compradores(), icon('clientes.svg'), 'Clientes')
+        tabs.setTabToolTip(2, 'Clientes')
+
         tabs.addTab(self.tab_ventas(), icon('ventas.svg'), 'Ventas')
-        tabs.setTabToolTip(2, 'Ventas')
+        tabs.setTabToolTip(3, 'Ventas')
 
         self.historial = HistorialVentasWidget(self.session, sucursal_actual=None, parent=self, es_admin=self.es_admin)
 
@@ -277,6 +283,7 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
                 "productos.editar":           self._productos_editar_por_codigo,   # NUEVO: pide código y edita
                 "productos.eliminar":         self.eliminar_productos,
                 "productos.imprimir_codigo":  self.imprimir_codigos,
+                "productos.consultar_precio": self._consultar_precio_popup,
 
                 # --- Ventas (letras) ---
                 "ventas.finalizar":           self._shortcut_finalizar_venta_dialog,
@@ -1049,7 +1056,8 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
             mapping_guess = {
                 "productos": 0,
                 "proveedores": 1,
-                "ventas": 2,
+                "clientes": 2,
+                "ventas": 3,
             }
             ix = mapping_guess.get(logical_name, None)
             if ix is not None:

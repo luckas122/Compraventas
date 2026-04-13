@@ -12,6 +12,16 @@ class Usuario(Base):
     password_hash = Column(String, nullable=False)
     es_admin = Column(Boolean, default=False, nullable=False)
 
+class Comprador(Base):
+    __tablename__ = 'compradores'
+    id = Column(Integer, primary_key=True)
+    cuit = Column(String, unique=True, nullable=False)
+    nombre = Column(String, nullable=True)
+    domicilio = Column(String, nullable=True)
+    localidad = Column(String, nullable=True)
+    codigo_postal = Column(String, nullable=True)
+    condicion = Column(String, nullable=True)
+
 class Producto(Base):
     __tablename__ = 'productos'
 
@@ -48,7 +58,8 @@ class Venta(Base):
     pagado          = Column(Float, nullable=True)
     vuelto          = Column(Float, nullable=True)
     items      = relationship("VentaItem", back_populates="venta")
-    numero_ticket = Column(Integer, index=True, nullable=False)  # secuencia independiente por sucursal
+    numero_ticket = Column(Integer, index=True, nullable=False)  # secuencia independiente por sucursal (ventas sin CAE)
+    numero_ticket_cae = Column(Integer, index=True, nullable=True)  # secuencia independiente por sucursal (ventas con CAE)
     # Campos AFIP
     afip_cae = Column(String, nullable=True)
     afip_cae_vencimiento = Column(String, nullable=True)
@@ -56,6 +67,12 @@ class Venta(Base):
     afip_error = Column(String, nullable=True)  # Guarda error si AFIP falló (para reintentar después)
     tipo_comprobante = Column(String, nullable=True)  # FACTURA_A, FACTURA_B, FACTURA_B_MONO
     cuit_cliente = Column(String, nullable=True)  # CUIT/CUIL del comprador (Factura A y B Mono)
+    nombre_cliente = Column(String, nullable=True)  # Nombre y Apellido del comprador
+    domicilio_cliente = Column(String, nullable=True)  # Domicilio del comprador
+    localidad_cliente = Column(String, nullable=True)  # Localidad del comprador
+    codigo_postal_cliente = Column(String, nullable=True)  # Código postal del comprador
+    condicion_cliente = Column(String, nullable=True)  # Condición fiscal del comprador
+    vendedor = Column(String, nullable=True)  # Username del vendedor que realizó la venta
     nota_credito_cae = Column(String, nullable=True)  # CAE de la nota de crédito emitida
     nota_credito_numero = Column(Integer, nullable=True)  # Nº comprobante de la nota de crédito
 

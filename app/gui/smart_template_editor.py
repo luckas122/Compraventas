@@ -32,7 +32,8 @@ PLACEHOLDER_CATEGORIES = {
         "business.direccion": "Direccion de la sucursal",
     },
     "Ticket": {
-        "ticket.numero": "Numero de ticket",
+        "ticket.numero": "Numero de ticket (ventas sin CAE)",
+        "ticket.numero_cae": "Numero de ticket (ventas con CAE)",
         "ticket.fecha_hora": "Fecha y hora de la venta",
         "sucursal": "Nombre de la sucursal",
         "vendedor": "Nombre del vendedor",
@@ -58,13 +59,21 @@ PLACEHOLDER_CATEGORIES = {
         "afip.cae": "Numero de CAE",
         "afip.vencimiento": "Vencimiento del CAE",
         "afip.comprobante": "Numero de comprobante AFIP",
+        "comprobante.numero": "N de comprobante (solo CAE)",
+        "comprobante.tipo": "Tipo de comprobante (Factura A/B, NC, etc.)",
+    },
+    "Comprador": {
+        "comprador.nombre": "Nombre y Apellido del comprador",
+        "comprador.cuit": "CUIT/CUIL del comprador",
+        "comprador.domicilio": "Domicilio del comprador",
+        "comprador.localidad": "Localidad del comprador",
     },
     "Contenido": {
         "items": "Lista de articulos vendidos",
         "cae": "Bloque completo CAE (titulo + datos)",
         "qrcae": "QR de factura electronica AFIP",
         "iva.discriminado": "Bloque IVA discriminado",
-        "items_sin_iva": "Artículos con IVA discriminado (Factura A)",
+        "items_sin_iva": "Articulos con precio sin IVA (neto)",
         "hr": "Linea separadora horizontal",
     },
     "Imagenes": {

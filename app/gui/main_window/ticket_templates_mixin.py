@@ -37,19 +37,22 @@ class TicketTemplatesMixin:
             mark = " •" if txt else " (vacía)"
             self.cfg_tpl_slot.addItem(label + mark, key)
 
-    # Mapeo de claves de config → atributo del combo en self
+    # Mapeo de claves de config → atributo del combo en self (fijos)
     _TPL_COMBO_MAP = {
         "template_efectivo": "cfg_tpl_efectivo",
         "template_tarjeta": "cfg_tpl_tarjeta",
-        "template_factura_a": "cfg_tpl_factura_a",
-        "template_factura_b": "cfg_tpl_factura_b",
-        "template_cae_efectivo": "cfg_tpl_cae_efectivo",
-        "template_cae_tarjeta": "cfg_tpl_cae_tarjeta",
-        "template_consumidor_final": "cfg_tpl_consumidor_final",
+        "template_efectivo_factura_a": "cfg_tpl_efectivo_factura_a",
+        "template_efectivo_factura_b": "cfg_tpl_efectivo_factura_b",
+        "template_efectivo_factura_b_mono": "cfg_tpl_efectivo_factura_b_mono",
+        "template_tarjeta_factura_a": "cfg_tpl_tarjeta_factura_a",
+        "template_tarjeta_factura_b": "cfg_tpl_tarjeta_factura_b",
+        "template_tarjeta_factura_b_mono": "cfg_tpl_tarjeta_factura_b_mono",
+        "template_nota_credito_a": "cfg_tpl_nota_credito_a",
+        "template_nota_credito_b": "cfg_tpl_nota_credito_b",
     }
 
     def _tpl_build_payment_combos(self):
-        """Construye los combos para seleccionar plantilla por forma de pago / tipo."""
+        """Construye los combos fijos + dinámicos para seleccionar plantilla."""
         from app.config import load as load_config
         cfg = load_config()
         tk = (cfg.get("ticket") or {})
@@ -68,18 +71,17 @@ class TicketTemplatesMixin:
             except Exception:
                 pass
 
-        # Limpiar y rellenar todos los combos
+        # Limpiar y rellenar todos los combos fijos
         for cfg_key, combo in all_combos:
             combo.clear()
-            # Los nuevos combos tienen opción "(Sin asignar)" excepto efectivo/tarjeta
-            if cfg_key not in ("template_efectivo", "template_tarjeta"):
+            if cfg_key != "template_efectivo":
                 combo.addItem("(Sin asignar)", "")
             for key in tuple(f"slot{i}" for i in range(1, 11)):
                 label = slot_names.get(key, f"Plantilla {key[-1]}")
                 combo.addItem(label, key)
 
         # Seleccionar valores desde config
-        defaults = {"template_efectivo": "slot1", "template_tarjeta": "slot3"}
+        defaults = {"template_efectivo": "slot1"}
         for cfg_key, combo in all_combos:
             saved = tk.get(cfg_key, defaults.get(cfg_key, ""))
             for i in range(combo.count()):
@@ -91,6 +93,125 @@ class TicketTemplatesMixin:
         for _, combo in all_combos:
             combo.currentIndexChanged.connect(self._tpl_save_payment_selection)
 
+        # Construir combos dinámicos (custom_assignments)
+        self._tpl_rebuild_custom_combos()
+
+    def _tpl_rebuild_custom_combos(self):
+        """Reconstruye los combos de asignaciones personalizadas desde config."""
+        from app.config import load as load_config
+        cfg = load_config()
+        tk = (cfg.get("ticket") or {})
+        slot_names = (tk.get("slot_names") or {})
+        customs = tk.get("custom_assignments", [])
+
+        layout = getattr(self, "_custom_assignments_layout", None)
+        if layout is None:
+            return
+
+        # Limpiar widgets existentes
+        while layout.count():
+            child = layout.takeAt(0)
+            w = child.widget()
+            if w:
+                w.deleteLater()
+
+        self._custom_combos = {}
+
+        for ca in customs:
+            name = ca.get("name", "")
+            key = ca.get("key", "")
+            saved_slot = ca.get("slot", "")
+            if not name or not key:
+                continue
+
+            from PyQt5.QtWidgets import QHBoxLayout, QLabel, QPushButton, QWidget
+            from app.gui.qt_helpers import NoScrollComboBox
+            row_w = QWidget()
+            row_lay = QHBoxLayout(row_w)
+            row_lay.setContentsMargins(0, 0, 0, 0)
+
+            lbl = QLabel(f"{name}:")
+            combo = NoScrollComboBox()
+            combo.addItem("(Sin asignar)", "")
+            for skey in tuple(f"slot{i}" for i in range(1, 11)):
+                label = slot_names.get(skey, f"Plantilla {skey[-1]}")
+                combo.addItem(label, skey)
+
+            # Seleccionar valor guardado
+            for i in range(combo.count()):
+                if combo.itemData(i) == saved_slot:
+                    combo.setCurrentIndex(i)
+                    break
+
+            combo.currentIndexChanged.connect(self._tpl_save_payment_selection)
+
+            btn_del = QPushButton("✕")
+            btn_del.setFixedWidth(30)
+            btn_del.setToolTip(f"Eliminar '{name}'")
+            btn_del.setProperty("custom_key", key)
+            btn_del.clicked.connect(lambda checked, k=key: self._tpl_remove_custom_assignment(k))
+
+            row_lay.addWidget(lbl, 1)
+            row_lay.addWidget(combo, 2)
+            row_lay.addWidget(btn_del)
+
+            layout.addWidget(row_w)
+            self._custom_combos[key] = combo
+
+    def _tpl_add_custom_assignment(self):
+        """Agrega una nueva categoría de asignación personalizada."""
+        from PyQt5.QtWidgets import QInputDialog
+        from app.config import load as load_config, save as save_config
+
+        name, ok = QInputDialog.getText(self, "Nueva categoría", "Nombre de la categoría:")
+        if not ok or not name.strip():
+            return
+
+        name = name.strip()
+        cfg = load_config()
+        tk = cfg.get("ticket") or {}
+        customs = tk.get("custom_assignments", [])
+
+        # Generar key única
+        idx = len(customs) + 1
+        key = f"template_custom_{idx}"
+        while any(c.get("key") == key for c in customs):
+            idx += 1
+            key = f"template_custom_{idx}"
+
+        customs.append({"name": name, "key": key, "slot": ""})
+        tk["custom_assignments"] = customs
+        cfg["ticket"] = tk
+        save_config(cfg)
+
+        self._tpl_rebuild_custom_combos()
+        self.statusBar().showMessage(f"Categoría '{name}' agregada", 2000)
+
+    def _tpl_remove_custom_assignment(self, key):
+        """Elimina una categoría personalizada."""
+        from PyQt5.QtWidgets import QMessageBox
+        from app.config import load as load_config, save as save_config
+
+        cfg = load_config()
+        tk = cfg.get("ticket") or {}
+        customs = tk.get("custom_assignments", [])
+
+        name = next((c["name"] for c in customs if c.get("key") == key), key)
+        if QMessageBox.question(
+            self, "Eliminar categoría",
+            f"¿Eliminar la categoría '{name}'?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        ) != QMessageBox.Yes:
+            return
+
+        customs = [c for c in customs if c.get("key") != key]
+        tk["custom_assignments"] = customs
+        cfg["ticket"] = tk
+        save_config(cfg)
+
+        self._tpl_rebuild_custom_combos()
+        self.statusBar().showMessage(f"Categoría '{name}' eliminada", 2000)
+
     def _tpl_save_payment_selection(self):
         """Guarda automáticamente la selección de plantilla por tipo de operación."""
         from app.config import load as load_config, save as save_config
@@ -99,14 +220,25 @@ class TicketTemplatesMixin:
             cfg = load_config()
             tk = cfg.get("ticket") or {}
 
+            # Guardar combos fijos
             for cfg_key, attr in self._TPL_COMBO_MAP.items():
                 combo = getattr(self, attr, None)
                 if combo is not None:
                     tk[cfg_key] = combo.currentData() or ""
 
+            # Guardar combos custom
+            customs = tk.get("custom_assignments", [])
+            custom_combos = getattr(self, "_custom_combos", {})
+            for ca in customs:
+                key = ca.get("key", "")
+                combo = custom_combos.get(key)
+                if combo is not None:
+                    ca["slot"] = combo.currentData() or ""
+            tk["custom_assignments"] = customs
+
             cfg["ticket"] = tk
             save_config(cfg)
-            self.statusBar().showMessage("Seleccion de plantilla guardada", 1500)
+            self.statusBar().showMessage("Selección de plantilla guardada", 1500)
         except Exception:
             pass
 

@@ -202,6 +202,9 @@ class VentasTicketMixin:
             except Exception:
                 v.cuotas = getattr(v, "cuotas", 0) or 0
 
+            # Vendedor (para placeholder {{vendedor}})
+            v._vendedor = getattr(self, "current_username", "") or ""
+
             # 3) Imprimir con el helper unificado
             from app.gui.ventas_helpers import imprimir_ticket as _print
             _print(v, self.sucursal, self.direcciones, parent=self, preview=False)
@@ -241,8 +244,11 @@ class VentasTicketMixin:
 
 
     def _write_ticket_image(self, venta_id, path_image):
-        """Escribe el ticket como imagen PNG (ancho 75 mm, alto dinámico, 300 DPI)."""
-        from PyQt5.QtGui import QImage, QPainter
+        """Escribe el ticket como imagen PNG (ancho 75 mm, alto dinámico).
+        Usa un canvas sobredimensionado y luego recorta al contenido real
+        para evitar que el ticket aparezca cortado.
+        """
+        from PyQt5.QtGui import QImage, QPainter, qRgb
         from PyQt5.QtCore import QRect, Qt
         from app.gui.ventas_helpers import _draw_ticket, _compute_ticket_height_mm
 
@@ -255,17 +261,16 @@ class VentasTicketMixin:
 
         dpi = 300
         width_mm = 75.0
-        # prn=None → _compute_ticket_height_mm usa 300 DPI por defecto
+        # Estimar alto y multiplicar x3 para tener margen de sobra
         height_mm = _compute_ticket_height_mm(v, None, width_mm=width_mm)
-        height_mm += 10.0  # margen inferior
+        height_mm = max(height_mm * 3, 300.0)
 
-        # Convertir mm a px: px = mm * dpi / 25.4
         width_px = int(round(width_mm * dpi / 25.4))
         height_px = int(round(height_mm * dpi / 25.4))
 
+        # 1) Dibujar en canvas grande
         img = QImage(width_px, height_px, QImage.Format_RGB32)
         img.fill(Qt.white)
-        # Establecer DPI en metadata (300 DPI = 11811.02 dots/meter)
         dpm = int(round(dpi / 25.4 * 1000))
         img.setDotsPerMeterX(dpm)
         img.setDotsPerMeterY(dpm)
@@ -277,7 +282,23 @@ class VentasTicketMixin:
         finally:
             p.end()
 
-        if not img.save(path_image, "PNG"):
+        # 2) Recortar: buscar la última fila no-blanca + margen
+        white = qRgb(255, 255, 255)
+        last_content_y = 0
+        for y in range(height_px - 1, -1, -1):
+            for x in range(width_px):
+                if img.pixel(x, y) != white:
+                    last_content_y = y
+                    break
+            if last_content_y:
+                break
+        margin_px = int(round(8.0 * dpi / 25.4))  # 8mm de margen inferior
+        crop_h = min(last_content_y + margin_px, height_px)
+        cropped = img.copy(0, 0, width_px, crop_h)
+        cropped.setDotsPerMeterX(dpm)
+        cropped.setDotsPerMeterY(dpm)
+
+        if not cropped.save(path_image, "PNG"):
             raise IOError(f"No se pudo guardar la imagen en {path_image}")
 
     def exportar_ticket_pdf(self):
@@ -363,31 +384,14 @@ class VentasTicketMixin:
         except Exception:
             clipboard_ok = False
 
-        # 6) Abrir Explorer con el archivo seleccionado (fallback)
-        try:
-            if sys.platform.startswith("win"):
-                subprocess.Popen(f'explorer /select,"{img_path}"')
-            elif sys.platform == "darwin":
-                subprocess.run(["open", "-R", img_path])
-            else:
-                subprocess.run(["xdg-open", os.path.dirname(img_path)])
-        except Exception:
-            try:
-                os.startfile(os.path.dirname(img_path))
-            except Exception:
-                pass
-
         if clipboard_ok:
             QMessageBox.information(self, "WhatsApp",
                 f"Ticket guardado en:\n{img_path}\n\n"
                 "La imagen se copio al portapapeles.\n"
-                "Pega con Ctrl+V en el chat de WhatsApp Web.\n\n"
-                "Tambien se abrio el Explorador por si preferis arrastrarlo.")
+                "Pega con Ctrl+V en el chat de WhatsApp Web.")
         else:
             QMessageBox.information(self, "WhatsApp",
-                f"Ticket guardado en:\n{img_path}\n\n"
-                "Se abrio el Explorador con el archivo seleccionado.\n"
-                "Arrastra la imagen al chat de WhatsApp.")
+                f"Ticket guardado en:\n{img_path}")
 
 
     #--- Ventas del dia / Acciones por ID
@@ -490,7 +494,11 @@ class VentasTicketMixin:
                     row = tbl.rowCount()
                     tbl.insertRow(row)
 
-                    nro = str(getattr(v, 'numero_ticket', '') or getattr(v, 'id', ''))
+                    # Mostrar numero_ticket_cae para ventas con CAE, numero_ticket para sin CAE
+                    if getattr(v, 'afip_cae', None) and getattr(v, 'numero_ticket_cae', None):
+                        nro = str(v.numero_ticket_cae)
+                    else:
+                        nro = str(getattr(v, 'numero_ticket', '') or getattr(v, 'id', ''))
                     fch = getattr(v, 'fecha', None)
                     hora = fch.strftime('%H:%M') if fch else ''
 
@@ -731,11 +739,6 @@ class VentasTicketMixin:
                 popup.installEventFilter(self)
             except Exception:
                 pass
-            # Asegurarnos de NO poner completer en Productos
-            prod_input = getattr(self, 'input_buscar', None)
-            if prod_input is not None:
-                prod_input.setCompleter(None)
-
         except Exception as e:
             logger.warning(f"[WARN] No se pudo crear el completer: {e}")
 
@@ -781,6 +784,11 @@ class VentasTicketMixin:
 
             # Actualizar el modelo sin reconstruir todo el completer
             self._completer_model.setStringList(items)
+
+            # También actualizar el completer de la pestaña Productos si existe
+            prod_model = getattr(self, '_completer_productos_model', None)
+            if prod_model is not None:
+                prod_model.setStringList(items)
 
         except Exception as e:
             logger.warning(f"[WARN] refrescar_completer fallo: {e}")

@@ -554,9 +554,12 @@ class SyncNotificationsMixin:
             table.setItem(i, 4, item)
 
         hdr = table.horizontalHeader()
-        hdr.setSectionResizeMode(1, QHeaderView.Stretch)
-        for c in [0, 2, 3, 4]:
-            hdr.setSectionResizeMode(c, QHeaderView.ResizeToContents)
+        hdr.setSectionResizeMode(QHeaderView.Interactive)
+        hdr.setStretchLastSection(True)
+        table.setColumnWidth(0, 120)  # Código
+        table.setColumnWidth(1, 200)  # Nombre
+        table.setColumnWidth(2, 100)  # Precio Local
+        table.setColumnWidth(3, 110)  # Precio Remoto
 
         layout.addWidget(table)
 

@@ -170,13 +170,13 @@ class ConfiguracionMixin:
 
         self.cfg_cmb_sucursal = NoScrollComboBox(gb_suc)
         self.cfg_cmb_sucursal.addItem("Preguntar al iniciar", "ask")
-        self.cfg_cmb_sucursal.addItem("Sarmiento", "Sarmiento")
-        self.cfg_cmb_sucursal.addItem("Salta", "Salta")
+        _sucursales_cfg = (cfg.get("business") or {}).get("sucursales") or {}
+        for _suc_name in sorted(_sucursales_cfg.keys()):
+            self.cfg_cmb_sucursal.addItem(_suc_name, _suc_name)
         start_cfg = (cfg.get("startup") or {})
         cur = start_cfg.get("default_sucursal", "ask")
-        try:
-            ix = ["ask","Sarmiento","Salta"].index(cur)
-        except ValueError:
+        ix = self.cfg_cmb_sucursal.findData(cur)
+        if ix < 0:
             ix = 0
         self.cfg_cmb_sucursal.setCurrentIndex(ix)
         lay_suc.addRow("Al iniciar:", self.cfg_cmb_sucursal)
@@ -351,37 +351,71 @@ class ConfiguracionMixin:
 
         self.cfg_tpl_efectivo = NoScrollComboBox()
         self.cfg_tpl_tarjeta = NoScrollComboBox()
-        self.cfg_tpl_factura_a = NoScrollComboBox()
-        self.cfg_tpl_factura_b = NoScrollComboBox()
-        self.cfg_tpl_cae_efectivo = NoScrollComboBox()
-        self.cfg_tpl_cae_tarjeta = NoScrollComboBox()
-        self.cfg_tpl_consumidor_final = NoScrollComboBox()
+        self.cfg_tpl_efectivo_factura_a = NoScrollComboBox()
+        self.cfg_tpl_efectivo_factura_b = NoScrollComboBox()
+        self.cfg_tpl_efectivo_factura_b_mono = NoScrollComboBox()
+        self.cfg_tpl_tarjeta_factura_a = NoScrollComboBox()
+        self.cfg_tpl_tarjeta_factura_b = NoScrollComboBox()
+        self.cfg_tpl_tarjeta_factura_b_mono = NoScrollComboBox()
+        self.cfg_tpl_nota_credito_a = NoScrollComboBox()
+        self.cfg_tpl_nota_credito_b = NoScrollComboBox()
+
+        lay_payment.addRow("Efectivo (sin CAE):", self.cfg_tpl_efectivo)
+        lay_payment.addRow("Tarjeta (sin comprobante):", self.cfg_tpl_tarjeta)
+        _sep1 = QLabel("── Efectivo + Comprobante ──")
+        _sep1.setStyleSheet("color: #888; font-weight: bold;")
+        lay_payment.addRow(_sep1)
+        lay_payment.addRow("Efectivo + Factura A:", self.cfg_tpl_efectivo_factura_a)
+        lay_payment.addRow("Efectivo + Factura B CF:", self.cfg_tpl_efectivo_factura_b)
+        lay_payment.addRow("Efectivo + Factura B Mono:", self.cfg_tpl_efectivo_factura_b_mono)
+        _sep2 = QLabel("── Tarjeta + Comprobante ──")
+        _sep2.setStyleSheet("color: #888; font-weight: bold;")
+        lay_payment.addRow(_sep2)
+        lay_payment.addRow("Tarjeta + Factura A:", self.cfg_tpl_tarjeta_factura_a)
+        lay_payment.addRow("Tarjeta + Factura B CF:", self.cfg_tpl_tarjeta_factura_b)
+        lay_payment.addRow("Tarjeta + Factura B Mono:", self.cfg_tpl_tarjeta_factura_b_mono)
+        _sep3 = QLabel("── Notas de Crédito ──")
+        _sep3.setStyleSheet("color: #888; font-weight: bold;")
+        lay_payment.addRow(_sep3)
+        lay_payment.addRow("Nota de Crédito A:", self.cfg_tpl_nota_credito_a)
+        lay_payment.addRow("Nota de Crédito B:", self.cfg_tpl_nota_credito_b)
+
+        _lay_asign.addWidget(gb_payment)
+
+        # Sección de categorías personalizadas
+        from PyQt5.QtWidgets import QGroupBox as _GB
+        gb_custom = _GB("Categorías personalizadas")
+        _lay_custom = QVBoxLayout(gb_custom)
+        self._custom_assignments_layout = QVBoxLayout()
+        _lay_custom.addLayout(self._custom_assignments_layout)
+
+        btn_add_cat = QPushButton("+ Agregar categoría...")
+        btn_add_cat.clicked.connect(self._tpl_add_custom_assignment)
+        _lay_custom.addWidget(btn_add_cat)
+
+        _lay_asign.addWidget(gb_custom)
+
+        # Inicializar combos (fijos + custom)
         self._tpl_build_payment_combos()
 
         for _combo in (self.cfg_tpl_efectivo, self.cfg_tpl_tarjeta,
-                       self.cfg_tpl_factura_a, self.cfg_tpl_factura_b,
-                       self.cfg_tpl_cae_efectivo, self.cfg_tpl_cae_tarjeta,
-                       self.cfg_tpl_consumidor_final):
+                       self.cfg_tpl_efectivo_factura_a, self.cfg_tpl_efectivo_factura_b,
+                       self.cfg_tpl_efectivo_factura_b_mono,
+                       self.cfg_tpl_tarjeta_factura_a, self.cfg_tpl_tarjeta_factura_b,
+                       self.cfg_tpl_tarjeta_factura_b_mono,
+                       self.cfg_tpl_nota_credito_a, self.cfg_tpl_nota_credito_b):
             _combo.currentIndexChanged.connect(self._tpl_save_payment_selection)
-
-        lay_payment.addRow("Efectivo (sin CAE):", self.cfg_tpl_efectivo)
-        lay_payment.addRow("Tarjeta (sin CAE):", self.cfg_tpl_tarjeta)
-        lay_payment.addRow("Factura A:", self.cfg_tpl_factura_a)
-        lay_payment.addRow("Factura B:", self.cfg_tpl_factura_b)
-        lay_payment.addRow("CAE + Efectivo:", self.cfg_tpl_cae_efectivo)
-        lay_payment.addRow("CAE + Tarjeta:", self.cfg_tpl_cae_tarjeta)
-        lay_payment.addRow("Consumidor Final:", self.cfg_tpl_consumidor_final)
 
         asign_help = QLabel(
             "Asigná una plantilla diferente para cada tipo de venta. "
             "Cuando se imprime un ticket, la app selecciona automáticamente "
-            "la plantilla según la forma de pago y el tipo de comprobante."
+            "la plantilla según el tipo de comprobante. "
+            "Podés agregar categorías personalizadas para otros tipos."
         )
         asign_help.setWordWrap(True)
         asign_help.setStyleSheet("color: #888; font-size: 9pt;")
-        lay_payment.addRow("", asign_help)
+        _lay_asign.addWidget(asign_help)
 
-        _lay_asign.addWidget(gb_payment)
         _lay_asign.addStretch(1)
         tabs_ticket.addTab(_sub_asign, "Asignación")
 
@@ -859,13 +893,15 @@ class ConfiguracionMixin:
         self.ed_sc_prod_E = QLineEdit((_sec.get("productos", {}) or {}).get("editar", "E"))
         self.ed_sc_prod_D = QLineEdit((_sec.get("productos", {}) or {}).get("eliminar", "Delete"))
         self.ed_sc_prod_I = QLineEdit((_sec.get("productos", {}) or {}).get("imprimir_codigo", "I"))
-        for w_ in (self.ed_sc_prod_A, self.ed_sc_prod_E, self.ed_sc_prod_D, self.ed_sc_prod_I):
+        self.ed_sc_prod_P = QLineEdit((_sec.get("productos", {}) or {}).get("consultar_precio", "P"))
+        for w_ in (self.ed_sc_prod_A, self.ed_sc_prod_E, self.ed_sc_prod_D, self.ed_sc_prod_I, self.ed_sc_prod_P):
             w_.setMaxLength(10)
             w_.setPlaceholderText("A–Z, F1–F12 o Delete")
         lp.addWidget(QLabel("A = Agregar"), 0, 0); lp.addWidget(self.ed_sc_prod_A, 0, 1)
         lp.addWidget(QLabel("E = Editar"), 1, 0);  lp.addWidget(self.ed_sc_prod_E, 1, 1)
         lp.addWidget(QLabel("Supr = Eliminar"), 2, 0); lp.addWidget(self.ed_sc_prod_D, 2, 1)
         lp.addWidget(QLabel("I = Imprimir código"), 3, 0); lp.addWidget(self.ed_sc_prod_I, 3, 1)
+        lp.addWidget(QLabel("P = Consultar precio"), 4, 0); lp.addWidget(self.ed_sc_prod_P, 4, 1)
         lay_acc.addWidget(gb_prod)
 
         # Grupo: Ventas
@@ -998,7 +1034,7 @@ class ConfiguracionMixin:
             self.ed_glob_prod, self.ed_glob_prov, self.ed_glob_vent,
             self.ed_glob_hist, self.ed_glob_conf, self.ed_glob_user,
             # Sección: Productos
-            self.ed_sc_prod_A, self.ed_sc_prod_E, self.ed_sc_prod_D, self.ed_sc_prod_I,
+            self.ed_sc_prod_A, self.ed_sc_prod_E, self.ed_sc_prod_D, self.ed_sc_prod_I, self.ed_sc_prod_P,
             # Sección: Ventas
             self.ed_sc_ven_V, self.ed_sc_ven_P, self.ed_sc_ven_D, self.ed_sc_ven_W, self.ed_sc_ven_F,
             self.ed_sc_ven_G, self.ed_sc_ven_B,
@@ -1032,6 +1068,7 @@ class ConfiguracionMixin:
                 "editar": _normalize(self.ed_sc_prod_E.text(), "E"),
                 "eliminar": _normalize(self.ed_sc_prod_D.text(), "Delete"),
                 "imprimir_codigo": _normalize(self.ed_sc_prod_I.text(), "I"),
+                "consultar_precio": _normalize(self.ed_sc_prod_P.text(), "P"),
             }
             section["ventas"] = {
                 "finalizar": _normalize(self.ed_sc_ven_V.text(), "V"),
@@ -1089,6 +1126,7 @@ class ConfiguracionMixin:
             self.ed_sc_prod_E.setText(DEFAULT_SECTION_MAP["productos"]["editar"])
             self.ed_sc_prod_D.setText(DEFAULT_SECTION_MAP["productos"]["eliminar"])
             self.ed_sc_prod_I.setText(DEFAULT_SECTION_MAP["productos"]["imprimir_codigo"])
+            self.ed_sc_prod_P.setText(DEFAULT_SECTION_MAP["productos"]["consultar_precio"])
             # Sección: Ventas
             self.ed_sc_ven_V.setText(DEFAULT_SECTION_MAP["ventas"]["finalizar"])
             self.ed_sc_ven_P.setText(DEFAULT_SECTION_MAP["ventas"]["consultar_precio"])
@@ -1662,9 +1700,8 @@ class ConfiguracionMixin:
                 background-color: {btn};
                 color: {text};
                 border: 1px solid {border};
-                border-radius: 10px;
-                padding: 6px 12px;
-                min-width: 160px;
+                border-radius: 6px;
+                padding: 4px 8px;
                 min-height: {control_h}px;
             }}
             QPushButton:hover {{

@@ -129,17 +129,39 @@ def _run_migrations():
             from app.models import PagoProveedor
             PagoProveedor.__table__.create(bind=engine)
 
+        # Crear tabla compradores si no existe (v5.5.0)
+        if "compradores" not in inspector.get_table_names():
+            from app.models import Comprador
+            Comprador.__table__.create(bind=engine)
+
         # Agregar tipo_comprobante y campos nota de crédito a ventas
         if "ventas" in inspector.get_table_names():
-            cols = [c["name"] for c in inspector.get_columns("ventas")]
+            # Usar PRAGMA directa para evitar caché del inspector
+            _pragma_cols = conn.execute(text("PRAGMA table_info(ventas)")).fetchall()
+            cols = [row[1] for row in _pragma_cols]
             if "tipo_comprobante" not in cols:
                 conn.execute(text("ALTER TABLE ventas ADD COLUMN tipo_comprobante VARCHAR"))
             if "cuit_cliente" not in cols:
                 conn.execute(text("ALTER TABLE ventas ADD COLUMN cuit_cliente VARCHAR"))
+            if "nombre_cliente" not in cols:
+                conn.execute(text("ALTER TABLE ventas ADD COLUMN nombre_cliente VARCHAR"))
+            if "domicilio_cliente" not in cols:
+                conn.execute(text("ALTER TABLE ventas ADD COLUMN domicilio_cliente VARCHAR"))
+            if "localidad_cliente" not in cols:
+                conn.execute(text("ALTER TABLE ventas ADD COLUMN localidad_cliente VARCHAR"))
             if "nota_credito_cae" not in cols:
                 conn.execute(text("ALTER TABLE ventas ADD COLUMN nota_credito_cae VARCHAR"))
             if "nota_credito_numero" not in cols:
                 conn.execute(text("ALTER TABLE ventas ADD COLUMN nota_credito_numero INTEGER"))
+            if "numero_ticket_cae" not in cols:
+                conn.execute(text("ALTER TABLE ventas ADD COLUMN numero_ticket_cae INTEGER"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ventas_numero_ticket_cae ON ventas (numero_ticket_cae)"))
+            if "vendedor" not in cols:
+                conn.execute(text("ALTER TABLE ventas ADD COLUMN vendedor VARCHAR"))
+            if "codigo_postal_cliente" not in cols:
+                conn.execute(text("ALTER TABLE ventas ADD COLUMN codigo_postal_cliente VARCHAR"))
+            if "condicion_cliente" not in cols:
+                conn.execute(text("ALTER TABLE ventas ADD COLUMN condicion_cliente VARCHAR"))
 
         # Quitar UNIQUE constraint de numero_ticket en ventas (v5.1.0)
         # Cada sucursal tiene su propia secuencia de tickets.
@@ -207,7 +229,13 @@ def _run_migrations():
                         afip_cae_vencimiento VARCHAR,
                         afip_numero_comprobante INTEGER,
                         afip_error VARCHAR,
-                        tipo_comprobante VARCHAR
+                        tipo_comprobante VARCHAR,
+                        cuit_cliente VARCHAR,
+                        nombre_cliente VARCHAR,
+                        domicilio_cliente VARCHAR,
+                        localidad_cliente VARCHAR,
+                        nota_credito_cae VARCHAR,
+                        nota_credito_numero INTEGER
                     )
                 """))
 
@@ -216,7 +244,9 @@ def _run_migrations():
                             "subtotal_base", "interes_pct", "interes_monto",
                             "descuento_pct", "descuento_monto", "pagado", "vuelto",
                             "numero_ticket", "afip_cae", "afip_cae_vencimiento",
-                            "afip_numero_comprobante", "afip_error", "tipo_comprobante"]
+                            "afip_numero_comprobante", "afip_error", "tipo_comprobante",
+                            "cuit_cliente", "nombre_cliente", "domicilio_cliente",
+                            "localidad_cliente", "nota_credito_cae", "nota_credito_numero"]
                 common = [c for c in new_cols if c in old_cols]
                 cols_csv = ", ".join(common)
                 conn.execute(text(f"INSERT INTO ventas ({cols_csv}) SELECT {cols_csv} FROM _ventas_old"))

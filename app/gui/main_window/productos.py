@@ -56,6 +56,24 @@ class ProductosMixin:
         self.input_buscar.setMinimumHeight(30)
         self.input_buscar.setStyleSheet("padding: 4px;")
 
+        # Completer: autocompletado con sugerencias "CÓDIGO - NOMBRE"
+        try:
+            from app.gui.ventas_helpers import build_product_completer
+            comp_prod, model_prod = build_product_completer(self.session, self)
+            self._completer_productos = comp_prod
+            self._completer_productos_model = model_prod
+            self.input_buscar.setCompleter(comp_prod)
+
+            # Debounce para actualizar filtro del completer
+            from PyQt5.QtCore import QTimer as _QTimer
+            self._completer_prod_debounce = _QTimer(self)
+            self._completer_prod_debounce.setSingleShot(True)
+            self._completer_prod_debounce.setInterval(150)
+            self._completer_prod_debounce.timeout.connect(self._update_completer_productos)
+            self.input_buscar.textChanged.connect(lambda t: self._completer_prod_debounce.start())
+        except Exception:
+            pass
+
         # Formulario
         form = QFormLayout()
         self.input_codigo    = QLineEdit()
@@ -114,31 +132,15 @@ class ProductosMixin:
         self.table_productos.customContextMenuRequested.connect(self.menu_contexto_productos)
         self.table_productos.verticalHeader().setVisible(False)
 
-        # Ajustar ancho columnas: checkbox fijo, resto estiran
+        # Ajustar ancho columnas: Interactive para que el usuario pueda redimensionar
         hdr = self.table_productos.horizontalHeader()
-
-        # Columna 0: Checkbox (fijo, angosto)
-        hdr.setSectionResizeMode(0, QHeaderView.Fixed)
-        self.table_productos.setColumnWidth(0, 28)
-
-        # Columna 1: ID (fijo, chico)
-        hdr.setSectionResizeMode(1, QHeaderView.Fixed)
-        self.table_productos.setColumnWidth(1, 48)
-
-        # Columna 2: Código (ajuste por contenido, o fijo si querés)
-        hdr.setSectionResizeMode(2, QHeaderView.Fixed)
-        self.table_productos.setColumnWidth(2, 200)  # solo si querés un mínimo
-
-        # Columna 3: Nombre (expansiva)
-        hdr.setSectionResizeMode(3, QHeaderView.Stretch)
-        
-        # Columna 4: Precio (fijo, chico)
-        hdr.setSectionResizeMode(4, QHeaderView.Fixed)
-        self.table_productos.setColumnWidth(4, 100)
-
-        # Columna 5: Categoría (expansiva)
-        hdr.setSectionResizeMode(5, QHeaderView.Fixed)
-        self.table_productos.setColumnWidth(5, 200)
+        hdr.setSectionResizeMode(QHeaderView.Interactive)
+        hdr.setStretchLastSection(True)
+        self.table_productos.setColumnWidth(0, 28)   # Sel
+        self.table_productos.setColumnWidth(1, 48)   # ID
+        self.table_productos.setColumnWidth(2, 200)  # Código
+        self.table_productos.setColumnWidth(3, 300)  # Nombre
+        self.table_productos.setColumnWidth(4, 100)  # Precio
 
         layout.addWidget(self.table_productos)
         layout.addWidget(self.lbl_paginacion)
@@ -148,6 +150,12 @@ class ProductosMixin:
         self.table_productos.cellDoubleClicked.connect(self.cargar_producto)
 
         w.setLayout(layout)
+
+        # ESC para limpiar todos los campos del formulario y búsqueda
+        from PyQt5.QtWidgets import QShortcut
+        from PyQt5.QtGui import QKeySequence
+        esc_shortcut = QShortcut(QKeySequence(Qt.Key_Escape), w)
+        esc_shortcut.activated.connect(self._limpiar_campos_productos)
 
         # ---- Instalar filtro seguro ----
         try:
@@ -203,15 +211,36 @@ class ProductosMixin:
             except: return QMessageBox.warning(self,'Error','Precio inválido')
             ca = self.input_categoria.text().strip().upper() or None
 
+            editing_id = getattr(self, '_editing_product_id', None)
             existe = self.session.query(Producto).filter_by(codigo_barra=c).first()
+
+            if existe and editing_id == existe.id:
+                # Modo edición: actualizar producto existente
+                datos_viejos = {'nombre': existe.nombre, 'precio': existe.precio, 'categoria': existe.categoria}
+                existe.nombre = n
+                existe.precio = pr
+                existe.categoria = ca
+                self.session.commit()
+                self._sync_push("producto", existe)
+                datos_nuevos = {'nombre': n, 'precio': pr, 'categoria': ca}
+                self.history.append(('edit', datos_viejos, datos_nuevos))
+                self.statusBar().showMessage('Producto actualizado', 3000)
+                self._beep_ok()
+                self._editing_product_id = None
+                self.limpiar_inputs_producto(); self.refrescar_productos()
+                self.refrescar_completer()
+                return
+
             if existe:
-                QMessageBox.information(self,'Ya existe',
-                    f'Código "{c}" ya existe:\nNombre: {existe.nombre}\nPrecio: ${existe.precio:.2f}'
-                    + (f'\nCategoría: {existe.categoria}' if existe.categoria else '')
-                )
+                # Producto existe pero no estamos en modo edición: entrar en modo edición
+                self._editing_product_id = existe.id
                 self.input_nombre.setText(existe.nombre)
-                self.input_precio.setText(str(existe.precio))
+                self.input_precio.setText(f'{existe.precio:.2f}')
                 self.input_categoria.setText(existe.categoria or '')
+                self.statusBar().showMessage(
+                    f'Producto encontrado. Modifique los campos y presione Agregar/Actualizar.', 5000)
+                self.input_nombre.setFocus()
+                self.input_nombre.selectAll()
                 return
 
             nuevo = Producto(codigo_barra=c,nombre=n,precio=pr,categoria=ca)
@@ -223,6 +252,7 @@ class ProductosMixin:
             self.history.append(('add',datos))
             self.statusBar().showMessage('Producto creado',3000)
             self._beep_ok()
+            self._editing_product_id = None
             self.limpiar_inputs_producto(); self.refrescar_productos()
             self.refrescar_completer()
     def eliminar_productos(self):
@@ -444,6 +474,41 @@ class ProductosMixin:
                 QMessageBox.warning(self, 'Exportar', f'No se pudo guardar:\n{e2}')
 
         
+    def _limpiar_campos_productos(self):
+        """Limpia todos los campos de búsqueda y formulario de productos (tecla ESC)."""
+        try:
+            self.input_buscar.clear()
+            self.input_codigo.clear()
+            self.input_nombre.clear()
+            self.input_precio.clear()
+            self.input_categoria.clear()
+            # Resetear modo edición si existe
+            if hasattr(self, '_editing_product_id'):
+                self._editing_product_id = None
+            # Refrescar tabla
+            self.refrescar_productos()
+            # Foco al buscador
+            self.input_buscar.setFocus()
+        except Exception:
+            pass
+
+    def _update_completer_productos(self):
+        """Actualiza el filtro del proxy del completer de productos tras debounce."""
+        try:
+            text = self.input_buscar.text().strip()
+            if len(text) < 2:
+                return
+            comp = getattr(self, '_completer_productos', None)
+            if not comp:
+                return
+            proxy = getattr(comp, '_proxy', None)
+            if proxy:
+                proxy.setFilterWildcard(f"*{text}*")
+                comp.setCompletionPrefix(text)
+                comp.complete()
+        except Exception:
+            pass
+
     def _on_buscar_text_changed(self, txt):
         """Reinicia el debounce timer cada vez que cambia el texto."""
         self._search_timer.start()
@@ -510,6 +575,7 @@ class ProductosMixin:
         if not p:
             return
 
+        self._editing_product_id = pid
         self.input_codigo.setText(p.codigo_barra or '')
         self.input_nombre.setText(p.nombre or '')
         self.input_precio.setText(f'{(p.precio or 0.0):.2f}')
@@ -518,6 +584,7 @@ class ProductosMixin:
         QTimer.singleShot(0, lambda: self.table_productos.clearSelection())
 
     def limpiar_inputs_producto(self):
+        self._editing_product_id = None
         for fld in (self.input_codigo,self.input_nombre,
                     self.input_precio,self.input_categoria):
             fld.clear()
