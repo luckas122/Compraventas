@@ -165,8 +165,11 @@ class HistorialVentasWidget(QWidget):
         if self.sucursal_actual and self.cmb_sucursal.findText(self.sucursal_actual) >= 0:
             self.cmb_sucursal.setCurrentText(self.sucursal_actual)
 
-        self.cmb_forma = NoScrollComboBox()
-        self.cmb_forma.addItems(["Todas", "Efectivo", "Tarjeta"])
+        self.cmb_cae = NoScrollComboBox()
+        self.cmb_cae.addItems(["Todas", "Sin CAE", "Con CAE"])
+
+        self.cmb_pago = NoScrollComboBox()
+        self.cmb_pago.addItems(["Todos", "Efectivo", "Tarjeta"])
 
         self.txt_buscar = QLineEdit()
         self.txt_buscar.setPlaceholderText("Buscar por Nº ticket o texto...")
@@ -174,7 +177,8 @@ class HistorialVentasWidget(QWidget):
         row1.addWidget(QLabel("Desde:")); row1.addWidget(self.dt_desde)
         row1.addWidget(QLabel("Hasta:")); row1.addWidget(self.dt_hasta)
         row1.addWidget(QLabel("Sucursal:")); row1.addWidget(self.cmb_sucursal)
-        row1.addWidget(QLabel("Forma:")); row1.addWidget(self.cmb_forma)
+        row1.addWidget(QLabel("CAE:")); row1.addWidget(self.cmb_cae)
+        row1.addWidget(QLabel("Pago:")); row1.addWidget(self.cmb_pago)
         row1.addWidget(self.txt_buscar)
 
         btn_filtrar = QPushButton("Aplicar filtros")
@@ -211,7 +215,8 @@ class HistorialVentasWidget(QWidget):
         self.dt_desde.dateChanged.connect(lambda *_: self.refrescar())
         self.dt_hasta.dateChanged.connect(lambda *_: self.refrescar())
         self.cmb_sucursal.currentIndexChanged.connect(lambda *_: self.refrescar())
-        self.cmb_forma.currentIndexChanged.connect(lambda *_: self.refrescar())
+        self.cmb_cae.currentIndexChanged.connect(lambda *_: self.refrescar())
+        self.cmb_pago.currentIndexChanged.connect(lambda *_: self.refrescar())
 
         # --- Tabla ---
         self.tbl = QTableWidget(0, 15)
@@ -469,24 +474,32 @@ class HistorialVentasWidget(QWidget):
         # Obtener filtros del tab Listado
         dt_min, dt_max = self._rango_fechas()
         suc = self.cmb_sucursal.currentData()
-        forma_txt = self.cmb_forma.currentText().lower()
+        cae_txt = self.cmb_cae.currentText().lower()
+        pago_txt = self.cmb_pago.currentText().lower()
 
         # Actualizar banner de filtros
         sucursal_nombre = self.cmb_sucursal.currentText()
-        forma_nombre = self.cmb_forma.currentText()
+        cae_nombre = self.cmb_cae.currentText()
+        pago_nombre = self.cmb_pago.currentText()
         filtros_texto = f"📊 Mostrando estadísticas: {dt_min.date().strftime('%d/%m/%Y')} - {dt_max.date().strftime('%d/%m/%Y')}"
         filtros_texto += f"  |  Sucursal: {sucursal_nombre}"
-        filtros_texto += f"  |  Forma de pago: {forma_nombre}"
+        filtros_texto += f"  |  CAE: {cae_nombre}  |  Pago: {pago_nombre}"
         self.stats_filtros_banner.setText(filtros_texto)
 
         # Consultar ventas usando el método correcto
         ventas = self._obtener_ventas_rango(dt_min, dt_max, suc)
         logger.debug("Total ventas encontradas: %d", len(ventas))
 
-        # Filtrar por forma de pago si es necesario
-        if forma_txt in ("efectivo", "tarjeta"):
-            ventas = [v for v in ventas if v.modo_pago.lower() == forma_txt]
-            logger.debug("Ventas después de filtrar por %s: %d", forma_txt, len(ventas))
+        # Filtro CAE (Sin CAE / Con CAE)
+        if cae_txt == "sin cae":
+            ventas = [v for v in ventas if not getattr(v, "afip_cae", None)]
+        elif cae_txt == "con cae":
+            ventas = [v for v in ventas if getattr(v, "afip_cae", None)]
+
+        # Subfiltro forma de pago
+        if pago_txt in ("efectivo", "tarjeta"):
+            ventas = [v for v in ventas if (getattr(v, "modo_pago", "") or "").lower() == pago_txt]
+            logger.debug("Ventas después de filtrar por %s: %d", pago_txt, len(ventas))
 
         # Calcular KPIs
         total = sum(getattr(v, 'total', 0) or 0 for v in ventas)
@@ -510,7 +523,7 @@ class HistorialVentasWidget(QWidget):
         # Mostrar comparativa solo si se seleccionó "Todas" las sucursales
         if suc is None:  # "Todas"
             self.stats_comparativa_group.setVisible(True)
-            self._generar_comparativa_sucursales(dt_min, dt_max, forma_txt)
+            self._generar_comparativa_sucursales(dt_min, dt_max, pago_txt)
         else:
             self.stats_comparativa_group.setVisible(False)
 
@@ -822,7 +835,8 @@ class HistorialVentasWidget(QWidget):
     def refrescar(self):
         dt_min, dt_max = self._rango_fechas()
         suc = self.cmb_sucursal.currentData()
-        forma_txt = self.cmb_forma.currentText().lower()
+        cae_txt = self.cmb_cae.currentText().lower()
+        pago_txt = self.cmb_pago.currentText().lower()
 
         # Del repo si existe listar_por_rango; si no, fallback por fecha día a día
         ventas = []
@@ -841,12 +855,18 @@ class HistorialVentasWidget(QWidget):
         except Exception:
             ventas = []
 
-        # Filtro por forma
-        if forma_txt != "todas":
+        # Filtro CAE (Sin CAE / Con CAE)
+        if cae_txt == "sin cae":
+            ventas = [v for v in ventas if not getattr(v, "afip_cae", None)]
+        elif cae_txt == "con cae":
+            ventas = [v for v in ventas if getattr(v, "afip_cae", None)]
+
+        # Subfiltro forma de pago (siempre evaluado, AND con CAE)
+        if pago_txt in ("efectivo", "tarjeta"):
             def _forma(v):
                 raw = (getattr(v, "forma_pago", "") or getattr(v, "modo_pago", "") or getattr(v, "modo", "") or "").lower()
                 return "tarjeta" if raw.startswith("tarj") else "efectivo"
-            ventas = [v for v in ventas if _forma(v) == forma_txt]
+            ventas = [v for v in ventas if _forma(v) == pago_txt]
 
         # Filtro por texto
         q = (self.txt_buscar.text() or "").strip().lower()
@@ -888,6 +908,7 @@ class HistorialVentasWidget(QWidget):
         total = 0.0
         tot_efectivo = 0.0
         tot_tarjeta  = 0.0
+        total_cae = 0.0  # Total con CAE (excluye NC)
 
         for v in self._ventas_cache:
             row = self.tbl.rowCount()
@@ -915,11 +936,18 @@ class HistorialVentasWidget(QWidget):
             except Exception:
                 tot = 0.0
 
-            total += tot
-            if forma == "Tarjeta":
-                tot_tarjeta += tot
-            else:
-                tot_efectivo += tot
+            # Si la venta fue anulada por Nota de Crédito, no suma al total ni subtotales
+            tiene_nc = bool(getattr(v, "nota_credito_cae", None))
+            tiene_cae = bool(getattr(v, "afip_cae", None))
+
+            if not tiene_nc:
+                total += tot
+                if forma == "Tarjeta":
+                    tot_tarjeta += tot
+                else:
+                    tot_efectivo += tot
+                if tiene_cae:
+                    total_cae += tot
 
             try:
                 interes = float(_get_any(v, ["interes_monto", "interes", "monto_interes"], 0.0) or 0.0)
@@ -1030,8 +1058,14 @@ class HistorialVentasWidget(QWidget):
         from PyQt5.QtGui import QColor, QBrush
         red_brush = QBrush(QColor(220, 30, 30))
         tot_pagos = 0.0
+        iva_compras = 0.0   # suma de (monto * 21/121) sobre pagos marcados con IVA
         pagos_cache = getattr(self, '_pagos_cache', []) or []
         for p in pagos_cache:
+            if bool(getattr(p, 'incluye_iva', False)):
+                try:
+                    iva_compras += float(p.monto or 0.0) * 21.0 / 121.0
+                except Exception:
+                    pass
             row = self.tbl.rowCount()
             self.tbl.insertRow(row)
             fch = getattr(p, 'fecha', None)
@@ -1059,8 +1093,10 @@ class HistorialVentasWidget(QWidget):
 
         # Resumen inferior
         pagos_txt = f" — Pagos: -${tot_pagos:.2f}" if tot_pagos > 0 else ""
+        iva_ventas = total_cae * 21.0 / 121.0   # IVA embebido sobre Total CAE
         self.lbl_resumen.setText(
-            f"{len(self._ventas_cache)} ventas — Efectivo ${tot_efectivo:.2f} — Tarjeta ${tot_tarjeta:.2f} — Total ${total:.2f}{pagos_txt}"
+            f"{len(self._ventas_cache)} ventas — Efectivo ${tot_efectivo:.2f} — Tarjeta ${tot_tarjeta:.2f} — Total ${total:.2f}"
+            f" — Total CAE ${total_cae:.2f} — IVA Ventas ${iva_ventas:.2f} — IVA Compras ${iva_compras:.2f}{pagos_txt}"
         )
 
         # Ocultar ID (última columna)

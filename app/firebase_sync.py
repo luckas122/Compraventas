@@ -25,7 +25,7 @@ import requests
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
-from app.models import Venta, VentaItem, Producto, Proveedor, VentaLog
+from app.models import Venta, VentaItem, Producto, Proveedor, VentaLog, PagoProveedor
 from app.config import load as load_config, save as save_config, _get_app_data_dir
 
 logger = logging.getLogger("firebase_sync")
@@ -290,6 +290,44 @@ class FirebaseSyncManager:
         else:
             self._log(f"Producto '{producto.codigo_barra}' ({accion}): {key}")
 
+    def push_productos_batch(self, productos) -> bool:
+        """Publica varios productos en un solo PATCH (1 HTTP request).
+        Usado tras importar Excel para evitar N requests seriados.
+        """
+        if not productos:
+            return True
+        sync_cfg = self._get_sync_config()
+        if not sync_cfg.get("sync_productos", True):
+            return True
+        ts_base = int(time.time() * 1000)
+        batch = {}
+        data_by_key = {}
+        for i, prod in enumerate(productos):
+            key = self._generate_push_key()
+            data = {
+                "codigo_barra": prod.codigo_barra,
+                "nombre": prod.nombre,
+                "precio": prod.precio,
+                "categoria": prod.categoria,
+                "telefono": getattr(prod, "telefono", None),
+                "numero_cuenta": getattr(prod, "numero_cuenta", None),
+                "cbu": getattr(prod, "cbu", None),
+            }
+            batch[key] = {
+                "sucursal_origen": self.sucursal_local,
+                "timestamp": ts_base + i,
+                "accion": "upsert",
+                "data": data,
+            }
+            data_by_key[key] = data
+        ok = self._batch_patch("cambios/productos", batch)
+        if not ok:
+            # Fallback: encolar offline uno por uno
+            for key, data in data_by_key.items():
+                self._enqueue_change("productos", "upsert", data)
+        self._log(f"Batch push productos: {len(productos)} ({'OK' if ok else 'FAIL->queue'})")
+        return ok
+
     def push_producto_eliminado(self, codigo_barra: str):
         """Publica la eliminacion de un producto en Firebase."""
         sync_cfg = self._get_sync_config()
@@ -362,6 +400,7 @@ class FirebaseSyncManager:
                 "monto": float(getattr(pago, 'monto', 0) or 0),
                 "metodo_pago": getattr(pago, 'metodo_pago', 'Efectivo'),
                 "pago_de_caja": bool(getattr(pago, 'pago_de_caja', False)),
+                "incluye_iva": bool(getattr(pago, 'incluye_iva', False)),
                 "nota": getattr(pago, 'nota', '') or '',
             }
         }
@@ -523,10 +562,10 @@ class FirebaseSyncManager:
         Descarga y aplica cambios nuevos desde Firebase.
         Retorna {"ventas": N, "productos": N, "proveedores": N, "errores": N}
         """
-        result = {"ventas": 0, "productos": 0, "proveedores": 0, "errores": 0}
+        result = {"ventas": 0, "productos": 0, "proveedores": 0, "pagos_proveedores": 0, "errores": 0}
         last_keys = self._get_last_processed_keys()
 
-        for tipo in ["ventas", "productos", "proveedores"]:
+        for tipo in ["ventas", "productos", "proveedores", "pagos_proveedores"]:
             entity_last_key = last_keys.get(tipo)
             count, errors, new_last = self._pull_entity(tipo, entity_last_key)
             result[tipo] = count
@@ -669,6 +708,8 @@ class FirebaseSyncManager:
             if accion == "delete":
                 return self._apply_proveedor_delete(data)
             return self._apply_proveedor(data, timestamp)
+        elif tipo == "pagos_proveedores":
+            return self._apply_pago_proveedor(data)
         return False
 
     # ─── Aplicar cambios a SQLite local ───────────────────────────────
@@ -917,6 +958,64 @@ class FirebaseSyncManager:
             return True
         return False
 
+    def _apply_pago_proveedor(self, data: dict) -> bool:
+        """Inserta un pago a proveedor recibido desde Firebase (otra sucursal o dashboard)."""
+        proveedor_nombre = (data.get("proveedor_nombre") or "").strip()
+        monto = data.get("monto")
+        if not proveedor_nombre or monto is None:
+            self._log(f"  _apply_pago_proveedor SKIP: datos incompletos")
+            return False
+
+        sucursal = (data.get("sucursal") or self.sucursal_local or "").strip()
+        numero_ticket = data.get("numero_ticket")
+
+        # Deduplicación: mismo ticket + sucursal ya existe
+        if numero_ticket:
+            existing = self.session.query(PagoProveedor).filter_by(
+                numero_ticket=numero_ticket, sucursal=sucursal
+            ).first()
+            if existing:
+                self._log(f"  _apply_pago_proveedor SKIP: ticket #{numero_ticket} suc={sucursal} ya existe")
+                return False
+
+        try:
+            fecha = datetime.fromisoformat(data["fecha"]) if data.get("fecha") else datetime.now()
+        except (ValueError, TypeError):
+            fecha = datetime.now()
+
+        # Vincular proveedor por nombre si existe
+        prov = self.session.query(Proveedor).filter(Proveedor.nombre == proveedor_nombre).first()
+
+        # Asignar numero_ticket local si no viene
+        if not numero_ticket:
+            last = (self.session.query(PagoProveedor)
+                    .filter(PagoProveedor.sucursal == sucursal,
+                            PagoProveedor.numero_ticket.isnot(None))
+                    .order_by(PagoProveedor.numero_ticket.desc())
+                    .first())
+            numero_ticket = (last.numero_ticket + 1) if last else 1
+
+        pago = PagoProveedor(
+            sucursal=sucursal,
+            proveedor_id=prov.id if prov else None,
+            proveedor_nombre=proveedor_nombre,
+            fecha=fecha,
+            monto=float(monto),
+            metodo_pago=data.get("metodo_pago", "Efectivo"),
+            pago_de_caja=bool(data.get("pago_de_caja", False)),
+            incluye_iva=bool(data.get("incluye_iva", False)),
+            numero_ticket=numero_ticket,
+            nota=data.get("nota") or None,
+        )
+        self.session.add(pago)
+        try:
+            self.session.commit()
+        except IntegrityError:
+            self.session.rollback()
+            return False
+        self._log(f"Pago prov #{numero_ticket} a {proveedor_nombre} recibido (${monto}, suc={sucursal})")
+        return True
+
     # ─── Orquestacion ─────────────────────────────────────────────────
 
     def ejecutar_sincronizacion_completa(self) -> Dict:
@@ -939,7 +1038,8 @@ class FirebaseSyncManager:
         recibidos = 0
         try:
             result = self.pull_changes()
-            recibidos = result.get("ventas", 0) + result.get("productos", 0) + result.get("proveedores", 0)
+            recibidos = (result.get("ventas", 0) + result.get("productos", 0)
+                         + result.get("proveedores", 0) + result.get("pagos_proveedores", 0))
             if result.get("errores", 0) > 0:
                 errores_list.append(f"{result['errores']} errores al aplicar cambios")
         except Exception as e:

@@ -44,3 +44,12 @@ desktop.ini
 *.db.backup_tmp.sqlite
 app/backups/
 nul
+
+# --- Artefactos de instalador (no versionar binarios) ---
+installer_output/
+dashboard/*.Setup.exe
+dashboard/index.zip
+
+# --- Claude Code local ---
+.claude/scheduled_tasks.lock
+.claude/settings.local.json

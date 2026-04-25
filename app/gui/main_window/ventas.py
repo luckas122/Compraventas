@@ -56,10 +56,12 @@ class VentasMixin:
         self.input_venta_buscar.setMinimumHeight(LIVE_SEARCH_INPUT_HEIGHT)
         self.input_venta_buscar.setStyleSheet("font-size: 16px;")
 
-        # Scanner auto-add: timer que detecta cuando el scanner terminó de escribir
+        # Scanner auto-add: timer que detecta cuando el scanner terminó de escribir.
+        # 300 ms evita falsos positivos mientras se tipea a mano; los scanners
+        # siguen disparando rápido porque no pausan entre teclas.
         self._scanner_timer = QTimer()
         self._scanner_timer.setSingleShot(True)
-        self._scanner_timer.setInterval(100)
+        self._scanner_timer.setInterval(300)
         self._scanner_timer.timeout.connect(self._check_scanner_auto_add)
         self.input_venta_buscar.textChanged.connect(lambda: self._scanner_timer.start())
 
@@ -300,13 +302,23 @@ class VentasMixin:
 #----Cesta (agregar/editar/quitar y totales)---
 
     def _check_scanner_auto_add(self):
-        """Auto-agrega producto si el texto coincide con un código exacto (scanner)."""
+        """Auto-agrega producto si el texto coincide con un código exacto (scanner).
+
+        Si el texto es un código numérico "completo" (>=8 dígitos) y NO existe
+        en la DB, dispara igual a `agregar_a_cesta()` — la lógica interna detecta
+        que no hay match y abre automáticamente el popup de alta, sin que el
+        usuario tenga que presionar Enter.
+        """
         try:
             text = self.input_venta_buscar.text().strip()
             if not text or len(text) < 3:
                 return
             prod = self.prod_repo.buscar_por_codigo(text)
             if prod:
+                self.agregar_a_cesta()
+                return
+            # Código numérico largo sin match → abrir popup de alta sin Enter
+            if text.isdigit() and len(text) >= 8:
                 self.agregar_a_cesta()
         except Exception:
             pass
@@ -349,21 +361,74 @@ class VentasMixin:
                 if not prod and term.isdigit():
                     prod = self.prod_repo.buscar_por_codigo(term)
 
-                # 3) Si aún no, buscar por nombre con fuzzy matching
-                if not prod:
+                # 3) Si aún no, buscar por nombre con fuzzy matching.
+                #    IMPORTANTE: NO aplicar fuzzy a términos numéricos — los códigos
+                #    de barras son identificadores exactos. Si un código escaneado
+                #    no existe, debe caer al popup de alta (no matchear uno "parecido").
+                if not prod and not term.isdigit() and not (code and code.isdigit()):
                     qtxt = name_hint or term
                     prod = self._buscar_producto_fuzzy(qtxt)
 
                 if not prod:
-                    resp = QMessageBox.question(
-                        self, 'No encontrado',
-                        f'Producto "{term}" no hallado.\n¿Deseas agregarlo como nuevo?',
-                        QMessageBox.Yes | QMessageBox.No)
-                    if resp == QMessageBox.Yes:
-                        prod = self._agregar_producto_rapido(term)
-                        if not prod:
+                    # Producto inexistente: ir directo al popup de alta (sin paso intermedio Sí/No)
+                    prod = self._agregar_producto_rapido(term)
+                    if not prod:
+                        return  # usuario canceló el alta
+
+                # --- Si el precio es 0, pedir corrección antes de agregar a la cesta ---
+                try:
+                    precio_actual = float(getattr(prod, 'precio', 0.0) or 0.0)
+                except Exception:
+                    precio_actual = 0.0
+                if precio_actual <= 0:
+                    try:
+                        from app.gui.dialogs import QuickEditProductoDialog
+                        dlg = QuickEditProductoDialog(prod, self)
+                        dlg.setWindowTitle(f'Precio requerido - {prod.nombre}')
+                        if dlg.exec_() != QDialog.Accepted:
+                            return  # usuario canceló, no agregar a cesta
+                        tup = dlg.datos() or (prod.nombre, 0.0, prod.categoria)
+                        nom, precio_nuevo, cat = tup[0], tup[1], tup[2]
+                        if precio_nuevo <= 0:
+                            QMessageBox.warning(self, 'Precio inválido',
+                                                'El precio debe ser mayor a 0 para agregar a la cesta.')
                             return
-                    else:
+                        # Persistir cambios en DB
+                        viejos = {
+                            'nombre': prod.nombre,
+                            'precio': prod.precio,
+                            'categoria': prod.categoria,
+                        }
+                        prod.nombre = nom
+                        prod.precio = precio_nuevo
+                        prod.categoria = cat
+                        if hasattr(prod, 'version'):
+                            prod.version = (prod.version or 1) + 1
+                        self.session.commit()
+                        # Log de cambios
+                        try:
+                            for k, v_old, v_new in [
+                                ('nombre', viejos['nombre'], nom),
+                                ('precio', viejos['precio'], precio_nuevo),
+                                ('categoria', viejos['categoria'] or '', cat or ''),
+                            ]:
+                                if str(v_old or '') != str(v_new or ''):
+                                    self._log_product_change(prod, k, v_old, v_new,
+                                                             'Ventas - Precio 0 corregido')
+                        except Exception:
+                            pass
+                        # Sync individual
+                        try:
+                            self._sync_push("producto", prod)
+                        except Exception:
+                            pass
+                        # Refrescar autocompletado
+                        try:
+                            self.refrescar_completer()
+                        except Exception:
+                            pass
+                    except Exception as e:
+                        QMessageBox.warning(self, 'Error', f'No se pudo actualizar precio: {e}')
                         return
 
                 # --- Fusionar si el producto ya está en la tabla (mismo código) ---
@@ -439,13 +504,29 @@ class VentasMixin:
         )
         if nuevo and not hasattr(nuevo, '_from_existing'):
             self.statusBar().showMessage(f'Producto "{nuevo.nombre}" creado', 3000)
+            # Log del alta desde ventas
+            try:
+                self._log_product_change(
+                    nuevo, 'producto', '',
+                    f'{nuevo.codigo_barra} / {nuevo.nombre} / ${nuevo.precio}',
+                    'Ventas - Nuevo producto al vuelo'
+                )
+            except Exception:
+                pass
         return nuevo
 
     def _buscar_producto_fuzzy(self, query):
         """
         Busca productos usando fuzzy matching (tolerante a errores de tipeo).
         Retorna el mejor match si supera el umbral de similitud.
+
+        NOTA: No aplica a códigos de barras puramente numéricos; esos deben
+        matchear de forma exacta (ver agregar_a_cesta). Se retorna None en ese
+        caso para evitar falsos positivos del scanner.
         """
+        q = (query or "").strip()
+        if not q or q.isdigit():
+            return None
         try:
             from rapidfuzz import fuzz, process
         except ImportError:
@@ -556,7 +637,7 @@ class VentasMixin:
         btn_minus.setToolTip('Quitar 1 unidad')
         btn_minus.setFixedSize(24, 24)
         btn_minus.setFocusPolicy(Qt.NoFocus)
-        btn_minus.clicked.connect(lambda _, row=r: self._cambiar_cantidad(row, -1))
+        btn_minus.clicked.connect(lambda _c=False, w=widget: self._cambiar_cantidad(self._row_of_cesta_widget(w), -1))
         lay.addWidget(btn_minus)
 
         # Botón + (incrementar cantidad)
@@ -564,7 +645,7 @@ class VentasMixin:
         btn_plus.setToolTip('Agregar 1 unidad')
         btn_plus.setFixedSize(24, 24)
         btn_plus.setFocusPolicy(Qt.NoFocus)
-        btn_plus.clicked.connect(lambda _, row=r: self._cambiar_cantidad(row, +1))
+        btn_plus.clicked.connect(lambda _c=False, w=widget: self._cambiar_cantidad(self._row_of_cesta_widget(w), +1))
         lay.addWidget(btn_plus)
 
         # Botón Editar cantidad
@@ -573,16 +654,16 @@ class VentasMixin:
         btn_edit.setToolTip('Editar cantidad')
         btn_edit.setFixedSize(24, 24)
         btn_edit.setFocusPolicy(Qt.NoFocus)
-        btn_edit.clicked.connect(lambda _, row=r: self.editar_cantidad(row))
+        btn_edit.clicked.connect(lambda _c=False, w=widget: self.editar_cantidad(self._row_of_cesta_widget(w)))
         lay.addWidget(btn_edit)
 
-        # Botón Descuento (% por ítem)
+        # Botón Descuento (% o $ por ítem)
         btn_desc = QPushButton()
         btn_desc.setIcon(icon('discount.svg'))
-        btn_desc.setToolTip('Descuento (%) solo a este producto')
+        btn_desc.setToolTip('Descuento (% o $) solo a este producto (no modifica el precio)')
         btn_desc.setFixedSize(24, 24)
         btn_desc.setFocusPolicy(Qt.NoFocus)
-        btn_desc.clicked.connect(lambda _, row=r: self._descuento_en_fila(row))
+        btn_desc.clicked.connect(lambda _c=False, w=widget: self._descuento_en_fila(self._row_of_cesta_widget(w)))
         lay.addWidget(btn_desc)
 
         # Botón Borrar
@@ -591,7 +672,7 @@ class VentasMixin:
         btn_del.setToolTip('Borrar')
         btn_del.setFixedSize(24, 24)
         btn_del.setFocusPolicy(Qt.NoFocus)
-        btn_del.clicked.connect(lambda _, row=r: self.quitar_producto(row))
+        btn_del.clicked.connect(lambda _c=False, w=widget: self.quitar_producto(self._row_of_cesta_widget(w)))
         lay.addWidget(btn_del)
 
         row_h = self.table_cesta.verticalHeader().defaultSectionSize()
@@ -621,7 +702,7 @@ class VentasMixin:
     def _cambiar_cantidad(self, row: int, delta: int):
         """Incrementa o decrementa la cantidad en la fila."""
         tbl = self.table_cesta
-        if row >= tbl.rowCount():
+        if row is None or row < 0 or row >= tbl.rowCount():
             return
 
         try:
@@ -687,6 +768,8 @@ class VentasMixin:
             if not it:
                 return
             row = it[0].row()
+        if row < 0 or row >= tbl.rowCount() or tbl.item(row, 2) is None:
+            return
 
         # Cantidad actual
         try:
@@ -737,49 +820,143 @@ class VentasMixin:
         self.actualizar_total()     
         
     
+    def _row_of_cesta_widget(self, widget) -> int:
+        """Resuelve dinámicamente la fila que contiene el widget de acciones (col 5).
+        Evita el bug de row stale capturado en los lambda al crear la fila."""
+        tbl = getattr(self, 'table_cesta', None)
+        if tbl is None or widget is None:
+            return -1
+        for r in range(tbl.rowCount()):
+            if tbl.cellWidget(r, 5) is widget:
+                return r
+        return -1
+
     def _descuento_en_fila(self, row: int):
-        from PyQt5.QtWidgets import QInputDialog, QTableWidgetItem
-        # 1) pedir porcentaje
-        pct, ok = QInputDialog.getDouble(
-            self, 'Descuento por producto', 'Porcentaje (0–100):', 0.0, 0.0, 100.0, 2
+        from PyQt5.QtWidgets import (
+            QTableWidgetItem, QDialog, QVBoxLayout, QHBoxLayout, QLabel,
+            QRadioButton, QDoubleSpinBox, QDialogButtonBox,
         )
-        if not ok:
+
+        # 0) guards: row stale / items ausentes
+        if row is None or row < 0 or row >= self.table_cesta.rowCount():
+            return
+        cant_item = self.table_cesta.item(row, 2)
+        pu_item   = self.table_cesta.item(row, 3)
+        if cant_item is None or pu_item is None:
             return
 
-        # 2) cantidad
+        # 1) cantidad
         try:
-            cant = float(self.table_cesta.item(row, 2).text())
+            cant = float(cant_item.text())
         except Exception:
             cant = 1.0
 
-        # 3) precio base guardado en UserRole de la col 3
-        pu_item = self.table_cesta.item(row, 3)
-        if pu_item is None:
-            return
+        # 2) precio base guardado en UserRole de la col 3
         base = pu_item.data(Qt.UserRole)
         if base is None:
             try:
-                base = float(str(pu_item.text()).replace("$","").strip())
+                base = float(str(pu_item.text()).replace("$", "").strip())
             except Exception:
                 base = 0.0
             pu_item.setData(Qt.UserRole, base)
+        try:
+            base = float(base)
+        except Exception:
+            base = 0.0
+        if base <= 0:
+            return
 
-        # 4) guardar % por-ítem en UserRole+1 (NO tocamos el texto de la celda)
-        pu_item.setData(Qt.UserRole + 1, float(pct))
-        # opcional: señalizar en tooltip
-        pu_item.setToolTip(f"Precio base: ${base:.2f}\nDescuento ítem: {pct:.2f}%")
+        total_fila = base * max(cant, 0.0)
 
-        # 5) total de la fila con descuento por-ítem aplicado
-        eff = round(base * (1.0 - float(pct)/100.0), 2)
-        it_total = self.table_cesta.item(row, 4)
-        if it_total is None:
-            it_total = QTableWidgetItem()
-            self.table_cesta.setItem(row, 4, it_total)
-        it_total.setText(f"{eff * cant:.2f}")
-        for c in (3, 4):
-            it = self.table_cesta.item(row, c)
-            if it:
-                it.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        # 3) diálogo con dos modos: Porcentaje (%) o Monto fijo ($)
+        dlg = QDialog(self)
+        dlg.setWindowTitle('Descuento por producto')
+        lay = QVBoxLayout(dlg)
+        lay.addWidget(QLabel(
+            f"Precio base: ${base:.2f}   ·   Cant: {cant:g}   ·   Total fila: ${total_fila:.2f}\n"
+            f"(El descuento se aplica solo a esta venta, no modifica el precio del producto.)"
+        ))
+
+        rb_pct = QRadioButton("Porcentaje (%)")
+        rb_mon = QRadioButton("Monto fijo ($)")
+        rb_pct.setChecked(True)
+
+        row_pct = QHBoxLayout()
+        row_pct.addWidget(rb_pct)
+        spin_pct = QDoubleSpinBox()
+        spin_pct.setRange(0.0, 100.0)
+        spin_pct.setDecimals(2)
+        spin_pct.setSingleStep(1.0)
+        spin_pct.setSuffix(" %")
+        # precargar pct previo si existía
+        try:
+            prev_pct = float(pu_item.data(Qt.UserRole + 1) or 0.0)
+        except Exception:
+            prev_pct = 0.0
+        spin_pct.setValue(prev_pct)
+        row_pct.addWidget(spin_pct)
+        lay.addLayout(row_pct)
+
+        row_mon = QHBoxLayout()
+        row_mon.addWidget(rb_mon)
+        spin_mon = QDoubleSpinBox()
+        spin_mon.setRange(0.0, max(total_fila, 0.01))
+        spin_mon.setDecimals(2)
+        spin_mon.setSingleStep(10.0)
+        spin_mon.setPrefix("$ ")
+        row_mon.addWidget(spin_mon)
+        lay.addLayout(row_mon)
+
+        def _sync_enabled():
+            spin_pct.setEnabled(rb_pct.isChecked())
+            spin_mon.setEnabled(rb_mon.isChecked())
+        rb_pct.toggled.connect(lambda _=False: _sync_enabled())
+        rb_mon.toggled.connect(lambda _=False: _sync_enabled())
+        _sync_enabled()
+
+        btns = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        btns.accepted.connect(dlg.accept)
+        btns.rejected.connect(dlg.reject)
+        lay.addWidget(btns)
+
+        if dlg.exec_() != QDialog.Accepted:
+            return
+
+        # 4) resolver pct final (siempre guardamos pct en UserRole+1)
+        if rb_mon.isChecked():
+            monto = float(spin_mon.value() or 0.0)
+            if total_fila > 0:
+                pct = max(0.0, min(100.0, (monto / total_fila) * 100.0))
+            else:
+                pct = 0.0
+            tooltip = (f"Precio base: ${base:.2f}\n"
+                       f"Descuento: ${monto:.2f} (≈ {pct:.2f}%)")
+        else:
+            pct = max(0.0, min(100.0, float(spin_pct.value() or 0.0)))
+            tooltip = (f"Precio base: ${base:.2f}\n"
+                       f"Descuento ítem: {pct:.2f}%")
+
+        # Bloquear signals antes de modificar items programáticamente
+        self._cesta_updating = True
+        try:
+            self.table_cesta.blockSignals(True)
+            pu_item.setData(Qt.UserRole + 1, float(pct))
+            pu_item.setToolTip(tooltip)
+
+            # 5) total de la fila con descuento por-ítem aplicado
+            eff = round(base * (1.0 - pct / 100.0), 2)
+            it_total = self.table_cesta.item(row, 4)
+            if it_total is None:
+                it_total = QTableWidgetItem()
+                self.table_cesta.setItem(row, 4, it_total)
+            it_total.setText(f"{eff * cant:.2f}")
+            for c in (3, 4):
+                it = self.table_cesta.item(row, c)
+                if it:
+                    it.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        finally:
+            self.table_cesta.blockSignals(False)
+            self._cesta_updating = False
 
         # 6) actualizar totales generales/cuotas
         self.actualizar_total()
@@ -795,6 +972,8 @@ class VentasMixin:
             if not items:
                 return
             row = items[0].row()
+        if row < 0 or row >= self.table_cesta.rowCount():
+            return
         self.table_cesta.removeRow(row)
         self.actualizar_total()
         # Si quedó vacía, reiniciar ajustes globales y UI
@@ -1112,16 +1291,16 @@ class VentasMixin:
         btn_edit.setToolTip('Editar precio')
         btn_edit.setFixedSize(24, 24)
         btn_edit.setFocusPolicy(Qt.NoFocus)
-        btn_edit.clicked.connect(lambda _, row=r: self._editar_precio_en_fila(row))
+        btn_edit.clicked.connect(lambda _c=False, w=widget: self._editar_precio_en_fila(self._row_of_cesta_widget(w)))
         lay.addWidget(btn_edit)
 
         # Botón Descuento
         btn_desc = QPushButton()
         btn_desc.setIcon(icon('discount.svg'))
-        btn_desc.setToolTip('Descuento (%) solo a este producto')
+        btn_desc.setToolTip('Descuento (% o $) solo a este producto')
         btn_desc.setFixedSize(24, 24)
         btn_desc.setFocusPolicy(Qt.NoFocus)
-        btn_desc.clicked.connect(lambda _, row=r: self._descuento_en_fila(row))
+        btn_desc.clicked.connect(lambda _c=False, w=widget: self._descuento_en_fila(self._row_of_cesta_widget(w)))
         lay.addWidget(btn_desc)
 
         # Botón Borrar
@@ -1129,15 +1308,26 @@ class VentasMixin:
         btn_del.setIcon(icon('delete.svg'))
         btn_del.setToolTip('Borrar')
         btn_del.setFixedSize(24, 24)
-        btn_del.clicked.connect(lambda _, row=r: self.quitar_producto(row))
+        btn_del.clicked.connect(lambda _c=False, w=widget: self.quitar_producto(self._row_of_cesta_widget(w)))
         lay.addWidget(btn_del)
 
         self.table_cesta.setCellWidget(r, 5, widget)
 
 
     def actualizar_total(self):
+        # Bloquear signals de la tabla durante updates programáticos.
+        # Evita recursion en _on_cesta_item_changed y RuntimeError por items reemplazados.
+        self._cesta_updating = True
+        try:
+            self.table_cesta.blockSignals(True)
+            self._actualizar_total_inner()
+        finally:
+            self.table_cesta.blockSignals(False)
+            self._cesta_updating = False
+
+    def _actualizar_total_inner(self):
         subtotal_base = 0.0
-        descuento_items_monto = 0.0   # ← NUEVO
+        descuento_items_monto = 0.0
 
         # Sumar SIEMPRE con precio base guardado en UserRole
         for r in range(self.table_cesta.rowCount()):
@@ -1278,6 +1468,7 @@ class VentasMixin:
                 monto=datos['monto'],
                 metodo_pago=datos['metodo_pago'],
                 pago_de_caja=datos['pago_de_caja'],
+                incluye_iva=datos.get('incluye_iva', False),
                 nota=datos['nota']
             )
             QMessageBox.information(

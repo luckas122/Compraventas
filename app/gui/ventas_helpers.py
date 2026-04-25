@@ -706,9 +706,15 @@ def _compute_ticket_height_mm(venta, prn, width_mm=75.0, template_override: str 
                     line_count += 1
             total += line_count * h_n
 
-            # Agregar espacio para CAE solo si la plantilla no tiene contenido (legacy)
+            # Reservar espacio para el QR AFIP. Se auto-añade cuando la plantilla
+            # incluye {{cae}} y hay CAE real, o cuando tiene {{qrcae}} explícito.
             _has_cae_tpl = "{{cae}}" in template_text
+            _has_qrcae_tpl = "{{qrcae}}" in template_text
             afip_cae = getattr(venta, "afip_cae", None)
+            if afip_cae and (_has_qrcae_tpl or _has_cae_tpl):
+                total += 35.0 + GAP_MM  # QR AFIP: min 35mm (match con _tpl_draw_block) + gap
+
+            # Agregar espacio para CAE solo si la plantilla no tiene contenido (legacy)
             if afip_cae and not _has_cae_tpl and not template_text.strip():
                 total += GAP_MM + SEP_MM  # gap + line
                 total += h_h  # título "COMPROBANTE ELECTRÓNICO AFIP"
@@ -1057,7 +1063,10 @@ def _generate_afip_qr_pixmap(venta, sucursal):
         return pm
 
     except ImportError:
-        logger.warning("[QRCAE] Libreria 'qrcode' no instalada")
+        logger.error(
+            "[QRCAE] Libreria 'qrcode' no instalada. "
+            "Agregar 'qrcode[pil]>=7.4.2' a requirements.txt y reinstalar."
+        )
         return None
     except Exception as ex:
         logger.error("[QRCAE] Error generando QR AFIP: %s", ex, exc_info=True)
@@ -1301,6 +1310,14 @@ def _tpl_render_lines(template_text, ctx, ctx_numeric=None, items=None, venta=No
                         lines.append({"text": l, "align": Qt.AlignCenter, "bold": True, "italic": False, "is_rule": False})
                     else:  # resto de datos
                         lines.append({"text": l, "align": Qt.AlignLeft, "bold": False, "italic": False, "is_rule": False})
+                # Auto-añadir QR AFIP al final del bloque CAE (restaurar comportamiento previo a v6.0.0)
+                # Solo si la plantilla NO incluye explícitamente {{qrcae}} (para evitar duplicado).
+                if "{{qrcae}}" not in template_text:
+                    lines.append({
+                        "text": "", "align": Qt.AlignCenter,
+                        "bold": False, "italic": False,
+                        "is_rule": False, "is_qrcae": True,
+                    })
             continue
 
         # Bloque IVA discriminado (solo Factura A)
@@ -1439,9 +1456,14 @@ def _tpl_draw_block(p, px, draw_text, draw_image, line, gap, f_norm, f_head, ven
         # QR CAE AFIP
         if ln.get("is_qrcae"):
             if _qrcae_pixmap is not None:
-                # QR AFIP: mínimo 25mm para legibilidad, sin suavizado
+                # QR AFIP: mínimo 35mm para legibilidad, sin suavizado
                 qr_size = max(img_size_mm, 35.0)
                 draw_image(_qrcae_pixmap, size_mm=qr_size, smooth=True)
+            else:
+                logger.warning(
+                    "[QRCAE] No se dibujó el QR AFIP: pixmap=None. "
+                    "Revisar logs previos: falta 'qrcode', CUIT vacío, o CAE inválido."
+                )
             continue
 
         # Dibujar imagen si es linea de imagen

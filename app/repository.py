@@ -1,5 +1,5 @@
 from datetime import datetime, date, time,timedelta
-from sqlalchemy import func, and_, or_, delete
+from sqlalchemy import func, and_, or_, delete, cast, String
 from sqlalchemy.orm import joinedload
 from werkzeug.security import generate_password_hash, check_password_hash
 import pandas as pd
@@ -93,21 +93,33 @@ class prod_repo:
         return self.session.query(Producto).all()
 
     def buscar(self, texto: str, limit: int = 500):
-        """Busca productos por codigo, nombre o categoria usando SQL LIKE.
-        Mucho mas rapido que cargar 13K objetos y filtrar en Python."""
-        patron = f"%{texto}%"
-        return (
-            self.session.query(Producto)
-            .filter(
-                or_(
-                    Producto.nombre.ilike(patron),
-                    Producto.codigo_barra.ilike(patron),
-                    Producto.categoria.ilike(patron),
-                )
+        """Busca productos por codigo, nombre, categoria o precio usando SQL LIKE.
+        Soporta multiples terminos separados por coma o espacio (AND).
+        Ej: "kevin,deo,250" -> productos que contengan kevin Y deo Y 250.
+        """
+        import re
+        terminos = [t.strip() for t in re.split(r'[,\s]+', texto or '') if t.strip()]
+        if not terminos:
+            return []
+        q = self.session.query(Producto)
+        for t in terminos:
+            patron = f"%{t}%"
+            # Precio: si el termino es numero, permitir match como texto (cast a string)
+            precio_filter = None
+            try:
+                float(t.replace(',', '.'))
+                precio_filter = cast(Producto.precio, String).ilike(patron)
+            except ValueError:
+                pass
+            cond = or_(
+                Producto.nombre.ilike(patron),
+                Producto.codigo_barra.ilike(patron),
+                Producto.categoria.ilike(patron),
             )
-            .limit(limit)
-            .all()
-        )
+            if precio_filter is not None:
+                cond = or_(cond, precio_filter)
+            q = q.filter(cond)  # AND entre terminos
+        return q.limit(limit).all()
 
     def actualizar_nombre(self, prod_id, nuevo_nombre, expected_version=None):
         prod = self.obtener(prod_id)
@@ -439,7 +451,8 @@ class PagoProveedorRepo:
         return max_ticket + 1
 
     def crear_pago(self, sucursal, proveedor_id, proveedor_nombre, monto,
-                   metodo_pago='Efectivo', pago_de_caja=False, nota=None):
+                   metodo_pago='Efectivo', pago_de_caja=False, nota=None,
+                   incluye_iva=False):
         numero_ticket = self.siguiente_ticket(sucursal)
         pago = PagoProveedor(
             sucursal=sucursal,
@@ -449,6 +462,7 @@ class PagoProveedorRepo:
             monto=monto,
             metodo_pago=metodo_pago,
             pago_de_caja=pago_de_caja,
+            incluye_iva=incluye_iva,
             numero_ticket=numero_ticket,
             nota=nota
         )

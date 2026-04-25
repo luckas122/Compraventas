@@ -894,14 +894,37 @@ class ConfiguracionMixin:
         self.ed_sc_prod_D = QLineEdit((_sec.get("productos", {}) or {}).get("eliminar", "Delete"))
         self.ed_sc_prod_I = QLineEdit((_sec.get("productos", {}) or {}).get("imprimir_codigo", "I"))
         self.ed_sc_prod_P = QLineEdit((_sec.get("productos", {}) or {}).get("consultar_precio", "P"))
-        for w_ in (self.ed_sc_prod_A, self.ed_sc_prod_E, self.ed_sc_prod_D, self.ed_sc_prod_I, self.ed_sc_prod_P):
+        self.ed_sc_prod_EP = QLineEdit((_sec.get("productos", {}) or {}).get("editar_precio_buscado", "Ñ"))
+        for w_ in (self.ed_sc_prod_A, self.ed_sc_prod_E, self.ed_sc_prod_D, self.ed_sc_prod_I, self.ed_sc_prod_P, self.ed_sc_prod_EP):
             w_.setMaxLength(10)
-            w_.setPlaceholderText("A–Z, F1–F12 o Delete")
+            w_.setPlaceholderText("A–Z, F1–F12 o Delete (vacío = deshabilitado)")
         lp.addWidget(QLabel("A = Agregar"), 0, 0); lp.addWidget(self.ed_sc_prod_A, 0, 1)
         lp.addWidget(QLabel("E = Editar"), 1, 0);  lp.addWidget(self.ed_sc_prod_E, 1, 1)
         lp.addWidget(QLabel("Supr = Eliminar"), 2, 0); lp.addWidget(self.ed_sc_prod_D, 2, 1)
         lp.addWidget(QLabel("I = Imprimir código"), 3, 0); lp.addWidget(self.ed_sc_prod_I, 3, 1)
         lp.addWidget(QLabel("P = Consultar precio"), 4, 0); lp.addWidget(self.ed_sc_prod_P, 4, 1)
+        lp.addWidget(QLabel("Ñ = Editar precio (buscador)"), 5, 0); lp.addWidget(self.ed_sc_prod_EP, 5, 1)
+
+        # Autofocus checkboxes para Productos (funcionan incluso con foco en el buscador)
+        _af = (_sc.get("autofocus") or {})
+        self._af_checks = {}
+        _af_keys_productos = [
+            ("productos.agregar", "A", 0),
+            ("productos.editar", "E", 1),
+            ("productos.eliminar", "Delete", 2),
+            ("productos.imprimir_codigo", "I", 3),
+            ("productos.consultar_precio", "P", 4),
+            ("productos.editar_precio_buscado", "Ñ", 5),
+        ]
+        for af_key, _lbl, row in _af_keys_productos:
+            chk = QCheckBox("Autofoco")
+            chk.setToolTip("Si activo, funciona incluso con el foco en el buscador")
+            # Default True para Ñ (editar_precio_buscado) para conservar el
+            # comportamiento que traía en Ventas; resto en True por consistencia.
+            chk.setChecked(bool(_af.get(af_key, True)))
+            self._af_checks[af_key] = chk
+            lp.addWidget(chk, row, 2)
+
         lay_acc.addWidget(gb_prod)
 
         # Grupo: Ventas
@@ -923,11 +946,9 @@ class ConfiguracionMixin:
         self.ed_sc_ven_Z = QLineEdit((_sec.get("ventas", {}) or {}).get("vaciar_cesta", "Z"))
         for w_ in (self.ed_sc_ven_V, self.ed_sc_ven_P, self.ed_sc_ven_D, self.ed_sc_ven_W, self.ed_sc_ven_F, self.ed_sc_ven_G, self.ed_sc_ven_B, self.ed_sc_ven_plus, self.ed_sc_ven_minus, self.ed_sc_ven_C, self.ed_sc_ven_X, self.ed_sc_ven_Z):
             w_.setMaxLength(10)
-            w_.setPlaceholderText("Cualquier tecla")
+            w_.setPlaceholderText("Cualquier tecla (vacío = deshabilitado)")
 
-        # Autofocus checkboxes (funciona incluso con foco en buscador)
-        _af = (_sc.get("autofocus") or {})
-        self._af_checks = {}
+        # Autofocus checkboxes de Ventas (self._af_checks y _af ya inicializados en Productos)
         _af_keys = [
             ("ventas.finalizar", "V", 0), ("ventas.consultar_precio", "P", 1),
             ("ventas.devolucion", "D", 2), ("ventas.whatsapp", "W", 3),
@@ -1034,7 +1055,7 @@ class ConfiguracionMixin:
             self.ed_glob_prod, self.ed_glob_prov, self.ed_glob_vent,
             self.ed_glob_hist, self.ed_glob_conf, self.ed_glob_user,
             # Sección: Productos
-            self.ed_sc_prod_A, self.ed_sc_prod_E, self.ed_sc_prod_D, self.ed_sc_prod_I, self.ed_sc_prod_P,
+            self.ed_sc_prod_A, self.ed_sc_prod_E, self.ed_sc_prod_D, self.ed_sc_prod_I, self.ed_sc_prod_P, self.ed_sc_prod_EP,
             # Sección: Ventas
             self.ed_sc_ven_V, self.ed_sc_ven_P, self.ed_sc_ven_D, self.ed_sc_ven_W, self.ed_sc_ven_F,
             self.ed_sc_ven_G, self.ed_sc_ven_B,
@@ -1055,8 +1076,10 @@ class ConfiguracionMixin:
         lay_acc.addWidget(btns)
 
         def _normalize(v: str, default: str) -> str:
-            v = (v or "").strip()
-            return v if v else default
+            # Preserva string vacío para permitir DESHABILITAR un atajo.
+            # El parámetro 'default' se mantiene por compatibilidad pero ya no se aplica:
+            # si el usuario quiere restaurarlo usa el botón "Restaurar valores por defecto".
+            return (v or "").strip()
 
         def _save_shortcuts_from_ui():
             from app.config import load as load_config, save as save_config
@@ -1069,6 +1092,7 @@ class ConfiguracionMixin:
                 "eliminar": _normalize(self.ed_sc_prod_D.text(), "Delete"),
                 "imprimir_codigo": _normalize(self.ed_sc_prod_I.text(), "I"),
                 "consultar_precio": _normalize(self.ed_sc_prod_P.text(), "P"),
+                "editar_precio_buscado": _normalize(self.ed_sc_prod_EP.text(), "Ñ"),
             }
             section["ventas"] = {
                 "finalizar": _normalize(self.ed_sc_ven_V.text(), "V"),
@@ -1127,6 +1151,7 @@ class ConfiguracionMixin:
             self.ed_sc_prod_D.setText(DEFAULT_SECTION_MAP["productos"]["eliminar"])
             self.ed_sc_prod_I.setText(DEFAULT_SECTION_MAP["productos"]["imprimir_codigo"])
             self.ed_sc_prod_P.setText(DEFAULT_SECTION_MAP["productos"]["consultar_precio"])
+            self.ed_sc_prod_EP.setText(DEFAULT_SECTION_MAP["productos"]["editar_precio_buscado"])
             # Sección: Ventas
             self.ed_sc_ven_V.setText(DEFAULT_SECTION_MAP["ventas"]["finalizar"])
             self.ed_sc_ven_P.setText(DEFAULT_SECTION_MAP["ventas"]["consultar_precio"])

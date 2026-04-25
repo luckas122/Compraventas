@@ -484,6 +484,10 @@
             .toast { bottom: 12px; right: 12px; left: 12px; text-align: center; }
         }
     </style>
+    <!-- CDN: Export libraries (PDF + Excel) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.4/jspdf.plugin.autotable.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 </head>
 <body>
 
@@ -523,19 +527,30 @@
         <div class="tabs">
             <div class="tab active" onclick="cambiarTab('ventas')" id="tabVentas">Ventas</div>
             <div class="tab" onclick="cambiarTab('precios')" id="tabPrecios">Precios</div>
+            <div class="tab" onclick="cambiarTab('proveedores')" id="tabProveedores">Proveedores</div>
         </div>
 
         <!-- ==================== TAB VENTAS ==================== -->
         <div id="tabContentVentas">
             <!-- Filters -->
             <div class="filters" style="margin-top:16px;">
-                <label>Fecha:</label>
-                <input type="date" id="filterDate">
+                <label>Desde:</label>
+                <input type="date" id="filterDateDesde">
+                <label>Hasta:</label>
+                <input type="date" id="filterDateHasta">
                 <label>Sucursal:</label>
                 <select id="filterSuc">
                     <option value="">Todas</option>
                 </select>
+                <label>Pago:</label>
+                <select id="filterModo">
+                    <option value="">Todas</option>
+                    <option value="efec">Efectivo</option>
+                    <option value="tarj">Tarjeta</option>
+                </select>
                 <button class="btn btn-outline btn-sm" onclick="cargarDatos()">Actualizar</button>
+                <button class="btn btn-outline btn-sm" onclick="exportarPDF()" title="Exportar a PDF">PDF</button>
+                <button class="btn btn-outline btn-sm" onclick="exportarExcel()" title="Exportar a Excel">Excel</button>
                 <label style="margin-left: auto;">
                     <input type="checkbox" id="autoRefresh" checked>
                     <span id="autoRefreshLabel">Auto-refresh (30s)</span>
@@ -564,22 +579,32 @@
                     <div class="value" id="cantTotal">0</div>
                     <div class="sub" id="cantConCAE">0 con CAE</div>
                 </div>
+                <div class="card" data-card-id="monto_cae" style="border-left: 4px solid #1565c0;">
+                    <div class="label">Monto Ventas con CAE</div>
+                    <div class="value" style="color:#1565c0;" id="montoCAE">$0.00</div>
+                    <div class="sub" id="montoCAESub">Efectivo $0.00 · Tarjeta $0.00</div>
+                </div>
+                <div class="card" data-card-id="cant_cae" style="border-left: 4px solid #2e7d32;">
+                    <div class="label">Cantidad Ventas con CAE</div>
+                    <div class="value" style="color:#2e7d32;" id="cantCAE">0</div>
+                    <div class="sub" id="cantCAESub">Efectivo 0 · Tarjeta 0</div>
+                </div>
             </div>
 
             <!-- Cards IVA -->
             <div class="cards" id="ivaCardsContainer">
                 <div class="card" data-card-id="iva_ventas" style="border-left: 4px solid #7b1fa2;">
-                    <div class="label">IVA Ventas (CAE)</div>
+                    <div class="label">IVA Ventas (Mes)</div>
                     <div class="value" style="color:#7b1fa2;" id="ivaVentas">$0.00</div>
-                    <div class="sub" id="ivaVentasSub">21% sobre ventas con CAE</div>
+                    <div class="sub" id="ivaVentasSub">Acumulado del mes</div>
                 </div>
                 <div class="card" data-card-id="pagos_proveedores" style="border-left: 4px solid #00796b;">
-                    <div class="label">Pagos a Proveedores</div>
+                    <div class="label">Pagos Proveedores (Mes)</div>
                     <div class="value" style="color:#00796b;" id="totalPagos">$0.00</div>
                     <div class="sub" id="cantPagos">0 pagos</div>
                 </div>
                 <div class="card" data-card-id="iva_compras" style="border-left: 4px solid #455a64;">
-                    <div class="label">IVA Compras (Pagos)</div>
+                    <div class="label">IVA Compras (Mes)</div>
                     <div class="value" style="color:#455a64;" id="ivaCompras">$0.00</div>
                     <div class="sub" id="ivaSaldo">Saldo IVA: $0.00</div>
                 </div>
@@ -668,6 +693,74 @@
                 <div id="noProductos" class="no-data">Busca un producto por codigo o nombre para ver resultados.</div>
             </div>
         </div>
+
+        <!-- ==================== TAB PROVEEDORES ==================== -->
+        <div id="tabContentProveedores" class="hidden">
+            <div class="table-container" style="margin-top:16px;">
+                <h3>Registrar pago a proveedor</h3>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:780px;">
+                    <div>
+                        <label style="display:block;font-size:13px;color:#555;">Proveedor</label>
+                        <select id="provSelect" style="width:100%;padding:6px;"></select>
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:13px;color:#555;">Nombre nuevo (si "Otro")</label>
+                        <input type="text" id="provNombreNuevo" placeholder="Nombre del proveedor" style="width:100%;padding:6px;" disabled>
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:13px;color:#555;">Monto ($)</label>
+                        <input type="number" id="provMonto" min="0.01" step="0.01" style="width:100%;padding:6px;">
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:13px;color:#555;">Método de pago</label>
+                        <select id="provMetodo" style="width:100%;padding:6px;">
+                            <option>Efectivo</option>
+                            <option>Tarjeta</option>
+                            <option>Transferencia</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:13px;color:#555;">Sucursal</label>
+                        <select id="provSucursal" style="width:100%;padding:6px;"></select>
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:13px;color:#555;">Nota</label>
+                        <input type="text" id="provNota" placeholder="Opcional" style="width:100%;padding:6px;">
+                    </div>
+                    <label style="display:flex;align-items:center;gap:6px;">
+                        <input type="checkbox" id="provPagoCaja"> Pago de caja (descontar del efectivo)
+                    </label>
+                    <label style="display:flex;align-items:center;gap:6px;">
+                        <input type="checkbox" id="provIncluyeIva"> Incluye IVA (21%)
+                    </label>
+                </div>
+                <div style="margin-top:12px;">
+                    <button class="btn btn-success" onclick="registrarPagoProveedor()">Registrar Pago</button>
+                    <button class="btn btn-outline btn-sm" onclick="cargarPagosProveedores()">Actualizar lista</button>
+                    <span id="provMsg" style="margin-left:12px;font-size:13px;"></span>
+                </div>
+            </div>
+
+            <div class="table-container" style="margin-top:20px;">
+                <h3>Pagos recientes</h3>
+                <table id="pagosProvTable">
+                    <thead>
+                        <tr>
+                            <th>Fecha</th>
+                            <th>Sucursal</th>
+                            <th>Proveedor</th>
+                            <th>Monto</th>
+                            <th>Método</th>
+                            <th>IVA</th>
+                            <th>Caja</th>
+                            <th>Nota</th>
+                        </tr>
+                    </thead>
+                    <tbody id="pagosProvBody"></tbody>
+                </table>
+                <div id="noPagosProv" class="no-data hidden">Sin pagos registrados.</div>
+            </div>
+        </div>
     </div>
 
     <!-- Toast notification -->
@@ -717,14 +810,21 @@
         // Update tab buttons
         document.getElementById('tabVentas').classList.toggle('active', tab === 'ventas');
         document.getElementById('tabPrecios').classList.toggle('active', tab === 'precios');
+        const tP = document.getElementById('tabProveedores');
+        if (tP) tP.classList.toggle('active', tab === 'proveedores');
 
         // Show/hide content
         document.getElementById('tabContentVentas').classList.toggle('hidden', tab !== 'ventas');
         document.getElementById('tabContentPrecios').classList.toggle('hidden', tab !== 'precios');
+        const cP = document.getElementById('tabContentProveedores');
+        if (cP) cP.classList.toggle('hidden', tab !== 'proveedores');
 
         // Lazy-load productos on first visit
         if (tab === 'precios' && !productosCargados) {
             cargarProductos();
+        }
+        if (tab === 'proveedores') {
+            inicializarTabProveedores();
         }
     }
 
@@ -758,8 +858,9 @@
             document.getElementById('dashboard').classList.remove('hidden');
             actualizarStatus('Conectado', true);
 
-            // Setear fecha de hoy
-            document.getElementById('filterDate').value = hoy();
+            // Setear fechas de hoy
+            document.getElementById('filterDateDesde').value = hoy();
+            document.getElementById('filterDateHasta').value = hoy();
 
             // Cargar config del dashboard + datos
             await cargarDashboardConfig();
@@ -794,8 +895,10 @@
 
     // ==================== Cargar datos (Ventas) ====================
     async function cargarDatos() {
-        const fecha = document.getElementById('filterDate').value;
+        const desde = document.getElementById('filterDateDesde').value;
+        const hasta = document.getElementById('filterDateHasta').value;
         const sucFiltro = document.getElementById('filterSuc').value;
+        const modoFiltro = document.getElementById('filterModo').value;
 
         document.getElementById('tableLoading').classList.remove('hidden');
         document.getElementById('ventasTable').classList.add('hidden');
@@ -814,7 +917,10 @@
                 return;
             }
 
-            // Parsear ventas
+            // IVA mensual: calcular con datos crudos ANTES de filtros
+            calcularIVAMensual(data, pagosData);
+
+            // Parsear ventas (con filtros de fecha, sucursal, pago)
             let ventas = [];
             if (data) {
                 for (const [key, entry] of Object.entries(data)) {
@@ -824,8 +930,10 @@
                     const v = entry.data;
                     const vFecha = (v.fecha || '').substring(0, 10);
 
-                    if (fecha && vFecha !== fecha) continue;
+                    if (desde && vFecha < desde) continue;
+                    if (hasta && vFecha > hasta) continue;
                     if (sucFiltro && v.sucursal !== sucFiltro) continue;
+                    if (modoFiltro && !v.modo_pago.toLowerCase().startsWith(modoFiltro)) continue;
 
                     ventas.push({
                         key: key,
@@ -836,6 +944,7 @@
                         modo_pago: v.modo_pago || 'Efectivo',
                         cuotas: parseInt(v.cuotas || 0),
                         cae: v.afip_cae || '',
+                        nota_credito_cae: v.nota_credito_cae || '',
                         items: v.items || [],
                         pagado: parseFloat(v.pagado || 0),
                         vuelto: parseFloat(v.vuelto || 0),
@@ -857,8 +966,10 @@
                     const p = entry.data;
                     const pFecha = (p.fecha || '').substring(0, 10);
 
-                    if (fecha && pFecha !== fecha) continue;
+                    if (desde && pFecha < desde) continue;
+                    if (hasta && pFecha > hasta) continue;
                     if (sucFiltro && p.sucursal !== sucFiltro) continue;
+                    if (modoFiltro) continue; // pagos proveedores no son ventas, excluir al filtrar por modo
 
                     pagosProveedores.push({
                         key: key,
@@ -906,11 +1017,13 @@
         let totalEfectivo = 0, totalTarjeta = 0;
         let cantEf = 0, cantTar = 0, cantCAE = 0;
         let totalVentasReal = 0, totalCAE = 0;
+        let caeEf = 0, caeTar = 0, caeCantEf = 0, caeCantTar = 0;
         const porSucursal = {};
 
-        // Filtrar solo ventas reales (no pagos)
+        // Filtrar solo ventas reales (no pagos) y excluir anuladas por NC
         for (const v of ventas) {
             if (v.esPago) continue;
+            if (v.nota_credito_cae) continue; // anulada: no suma
 
             totalVentasReal += v.total;
             const esTarjeta = v.modo_pago.toLowerCase().startsWith('tarj');
@@ -924,6 +1037,8 @@
             if (v.cae) {
                 cantCAE++;
                 totalCAE += v.total;
+                if (esTarjeta) { caeTar += v.total; caeCantTar++; }
+                else { caeEf += v.total; caeCantEf++; }
             }
 
             // Por sucursal
@@ -938,18 +1053,7 @@
             if (v.cae) porSucursal[suc].cae++;
         }
 
-        // Pagos a proveedores (desde Firebase)
-        let totalPagos = 0, cantPagosCount = pagosProveedores.length;
-        for (const p of pagosProveedores) {
-            totalPagos += Math.abs(p.monto || p.total || 0);
-        }
-
-        const cantVentas = ventas.filter(v => !v.esPago).length;
-
-        // IVA: 21% embebido en precio → iva = total - total / 1.21
-        const ivaVentas = totalCAE > 0 ? (totalCAE - totalCAE / 1.21) : 0;
-        const ivaCompras = totalPagos > 0 ? (totalPagos - totalPagos / 1.21) : 0;
-        const saldoIva = ivaCompras - ivaVentas;
+        const cantVentas = ventas.filter(v => !v.esPago && !v.nota_credito_cae).length;
 
         document.getElementById('totalDia').textContent = `$${totalVentasReal.toFixed(2)}`;
         document.getElementById('totalCantidad').textContent = `${cantVentas} ventas`;
@@ -960,14 +1064,17 @@
         document.getElementById('cantTotal').textContent = cantVentas;
         document.getElementById('cantConCAE').textContent = `${cantCAE} con CAE`;
 
-        // IVA cards
-        document.getElementById('ivaVentas').textContent = `$${ivaVentas.toFixed(2)}`;
-        document.getElementById('ivaVentasSub').textContent = `21% sobre $${totalCAE.toFixed(2)} en ventas con CAE`;
-        document.getElementById('totalPagos').textContent = `$${totalPagos.toFixed(2)}`;
-        document.getElementById('cantPagos').textContent = `${cantPagosCount} pagos`;
-        document.getElementById('ivaCompras').textContent = `$${ivaCompras.toFixed(2)}`;
-        const saldoPrefix = saldoIva < 0 ? '-' : '';
-        document.getElementById('ivaSaldo').textContent = `Saldo IVA: ${saldoPrefix}$${Math.abs(saldoIva).toFixed(2)}`;
+        // Cards CAE
+        const elMontoCAE = document.getElementById('montoCAE');
+        if (elMontoCAE) elMontoCAE.textContent = `$${totalCAE.toFixed(2)}`;
+        const elMontoCAESub = document.getElementById('montoCAESub');
+        if (elMontoCAESub) elMontoCAESub.textContent = `Efectivo $${caeEf.toFixed(2)} · Tarjeta $${caeTar.toFixed(2)}`;
+        const elCantCAE = document.getElementById('cantCAE');
+        if (elCantCAE) elCantCAE.textContent = cantCAE;
+        const elCantCAESub = document.getElementById('cantCAESub');
+        if (elCantCAESub) elCantCAESub.textContent = `Efectivo ${caeCantEf} · Tarjeta ${caeCantTar}`;
+
+        // IVA cards se actualizan en calcularIVAMensual() (acumulado del mes)
 
         // Cards por sucursal
         const container = document.getElementById('sucursalCards');
@@ -985,6 +1092,72 @@
             `;
             i++;
         }
+    }
+
+    // ==================== IVA Mensual Acumulado ====================
+    function calcularIVAMensual(rawVentas, rawPagos) {
+        // Rango: 1ro del mes actual → hoy
+        const ahora = new Date();
+        const anio = ahora.getFullYear();
+        const mes = ahora.getMonth() + 1;
+        const mesDesde = anio + '-' + String(mes).padStart(2, '0') + '-01';
+        const mesHasta = hoy();
+
+        const meses = ['Enero','Febrero','Marzo','Abril','Mayo','Junio',
+                       'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+        const nombreMes = meses[mes - 1];
+        const diaHoy = ahora.getDate();
+
+        // Sumar ventas con CAE del mes
+        let totalCAEMensual = 0;
+        let cantCAEMensual = 0;
+        if (rawVentas) {
+            for (const [key, entry] of Object.entries(rawVentas)) {
+                if (!entry || !entry.data || entry.accion !== 'create') continue;
+                const v = entry.data;
+                const vFecha = (v.fecha || '').substring(0, 10);
+                if (vFecha < mesDesde || vFecha > mesHasta) continue;
+                if (v.afip_cae) {
+                    totalCAEMensual += parseFloat(v.total || 0);
+                    cantCAEMensual++;
+                }
+            }
+        }
+
+        // Sumar pagos proveedores del mes
+        let totalPagosMensual = 0;
+        let cantPagosMensual = 0;
+        let totalPagosIvaMensual = 0;   // sólo pagos con incluye_iva
+        if (rawPagos) {
+            for (const [key, entry] of Object.entries(rawPagos)) {
+                if (!entry || !entry.data || entry.accion !== 'create') continue;
+                const p = entry.data;
+                const pFecha = (p.fecha || '').substring(0, 10);
+                if (pFecha < mesDesde || pFecha > mesHasta) continue;
+                const monto = Math.abs(parseFloat(p.monto || 0));
+                totalPagosMensual += monto;
+                cantPagosMensual++;
+                if (p.incluye_iva) totalPagosIvaMensual += monto;
+            }
+        }
+
+        // Calcular IVA (21% embebido)
+        const ivaVentas = totalCAEMensual > 0 ? (totalCAEMensual - totalCAEMensual / 1.21) : 0;
+        const ivaCompras = totalPagosIvaMensual > 0 ? (totalPagosIvaMensual - totalPagosIvaMensual / 1.21) : 0;
+        const saldoIva = ivaCompras - ivaVentas;
+
+        // Actualizar cards
+        document.getElementById('ivaVentas').textContent = `$${ivaVentas.toFixed(2)}`;
+        document.getElementById('ivaVentasSub').textContent =
+            `${nombreMes} ${anio}: 1/${mes} al ${diaHoy}/${mes} | 21% sobre $${totalCAEMensual.toFixed(2)} (${cantCAEMensual} facturas)`;
+
+        document.getElementById('totalPagos').textContent = `$${totalPagosMensual.toFixed(2)}`;
+        document.getElementById('cantPagos').textContent = `${cantPagosMensual} pagos (mes)`;
+
+        document.getElementById('ivaCompras').textContent = `$${ivaCompras.toFixed(2)}`;
+        const saldoPrefix = saldoIva < 0 ? '-' : '';
+        document.getElementById('ivaSaldo').textContent =
+            `Saldo IVA (${nombreMes}): ${saldoPrefix}$${Math.abs(saldoIva).toFixed(2)}`;
     }
 
     function actualizarTabla(ventas) {
@@ -1473,13 +1646,341 @@
         return div.innerHTML;
     }
 
+    // ==================== Exportar PDF ====================
+    function exportarPDF() {
+        if (typeof window.jspdf === 'undefined') {
+            mostrarToast('Libreria PDF no cargada. Verifica conexion a internet.', true);
+            return;
+        }
+
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+
+        const desde = document.getElementById('filterDateDesde').value || 'Sin limite';
+        const hasta = document.getElementById('filterDateHasta').value || 'Sin limite';
+        const titulo = document.querySelector('.header h1').textContent || 'Dashboard';
+
+        // Titulo
+        doc.setFontSize(16);
+        doc.text(titulo, 14, 20);
+        doc.setFontSize(10);
+        doc.text('Periodo: ' + desde + ' al ' + hasta, 14, 28);
+        doc.text('Generado: ' + new Date().toLocaleString('es-AR'), 14, 34);
+
+        // Resumen
+        doc.setFontSize(12);
+        doc.text('Resumen', 14, 44);
+
+        const resumenData = [
+            ['Total del periodo', document.getElementById('totalDia').textContent],
+            ['Efectivo', document.getElementById('totalEfectivo').textContent],
+            ['Tarjeta', document.getElementById('totalTarjeta').textContent],
+            ['Cantidad de ventas', document.getElementById('cantTotal').textContent],
+            ['IVA Ventas (Mes)', document.getElementById('ivaVentas').textContent],
+            ['Pagos Proveedores (Mes)', document.getElementById('totalPagos').textContent],
+            ['IVA Compras (Mes)', document.getElementById('ivaCompras').textContent],
+        ];
+
+        doc.autoTable({
+            startY: 48,
+            head: [['Concepto', 'Valor']],
+            body: resumenData,
+            theme: 'grid',
+            headStyles: { fillColor: [26, 35, 126] },
+            margin: { left: 14 }
+        });
+
+        // Detalle ventas
+        const ventasSolo = ventasCache.filter(v => !v.esPago);
+        if (ventasSolo.length > 0) {
+            const detalleData = ventasSolo.map(v => [
+                '#' + v.ticket,
+                v.fecha ? v.fecha.substring(0, 10) : '',
+                v.fecha ? v.fecha.substring(11, 16) : '',
+                v.sucursal,
+                '$' + v.total.toFixed(2),
+                v.modo_pago,
+                v.cae ? 'Si' : 'No'
+            ]);
+
+            doc.autoTable({
+                startY: doc.lastAutoTable.finalY + 10,
+                head: [['Ticket', 'Fecha', 'Hora', 'Sucursal', 'Total', 'Pago', 'CAE']],
+                body: detalleData,
+                theme: 'striped',
+                headStyles: { fillColor: [26, 35, 126] },
+                margin: { left: 14 },
+                styles: { fontSize: 8 }
+            });
+        }
+
+        // Pagos proveedores
+        const pagos = ventasCache.filter(v => v.esPago);
+        if (pagos.length > 0) {
+            doc.autoTable({
+                startY: doc.lastAutoTable.finalY + 10,
+                head: [['Ticket', 'Fecha', 'Sucursal', 'Monto', 'Proveedor']],
+                body: pagos.map(p => [
+                    '#' + p.ticket,
+                    p.fecha ? p.fecha.substring(0, 10) : '',
+                    p.sucursal,
+                    '$' + Math.abs(p.total).toFixed(2),
+                    (p.modo_pago || '').replace('PAGO: ', '')
+                ]),
+                theme: 'striped',
+                headStyles: { fillColor: [0, 121, 107] },
+                margin: { left: 14 },
+                styles: { fontSize: 8 }
+            });
+        }
+
+        doc.save('ventas_' + desde + '_' + hasta + '.pdf');
+        mostrarToast('PDF exportado');
+    }
+
+    // ==================== Exportar Excel ====================
+    function exportarExcel() {
+        if (typeof XLSX === 'undefined') {
+            mostrarToast('Libreria Excel no cargada. Verifica conexion a internet.', true);
+            return;
+        }
+
+        const desde = document.getElementById('filterDateDesde').value || 'Sin limite';
+        const hasta = document.getElementById('filterDateHasta').value || 'Sin limite';
+
+        // Hoja 1: Resumen
+        const resumen = [
+            ['Concepto', 'Valor'],
+            ['Periodo', desde + ' al ' + hasta],
+            ['Total del periodo', document.getElementById('totalDia').textContent],
+            ['Efectivo', document.getElementById('totalEfectivo').textContent],
+            ['Tarjeta', document.getElementById('totalTarjeta').textContent],
+            ['Cantidad de ventas', document.getElementById('cantTotal').textContent],
+            ['IVA Ventas (Mes)', document.getElementById('ivaVentas').textContent],
+            ['Pagos Proveedores (Mes)', document.getElementById('totalPagos').textContent],
+            ['IVA Compras (Mes)', document.getElementById('ivaCompras').textContent],
+        ];
+        const ws1 = XLSX.utils.aoa_to_sheet(resumen);
+
+        // Hoja 2: Detalle ventas
+        const ventasSolo = ventasCache.filter(v => !v.esPago);
+        const detalleRows = [['Ticket', 'Fecha', 'Hora', 'Sucursal', 'Total', 'Modo Pago', 'Cuotas', 'CAE', 'Items']];
+        for (const v of ventasSolo) {
+            detalleRows.push([
+                v.ticket,
+                v.fecha ? v.fecha.substring(0, 10) : '',
+                v.fecha ? v.fecha.substring(11, 16) : '',
+                v.sucursal,
+                v.total,
+                v.modo_pago,
+                v.cuotas || 0,
+                v.cae ? 'Si' : 'No',
+                Array.isArray(v.items) ? v.items.length : 0
+            ]);
+        }
+        const ws2 = XLSX.utils.aoa_to_sheet(detalleRows);
+
+        // Hoja 3: Pagos proveedores
+        const pagos = ventasCache.filter(v => v.esPago);
+        const pagosRows = [['Ticket', 'Fecha', 'Sucursal', 'Monto', 'Proveedor', 'Nota']];
+        for (const p of pagos) {
+            pagosRows.push([
+                p.ticket,
+                p.fecha ? p.fecha.substring(0, 10) : '',
+                p.sucursal,
+                Math.abs(p.total),
+                p.proveedor || '',
+                p.nota || ''
+            ]);
+        }
+        const ws3 = XLSX.utils.aoa_to_sheet(pagosRows);
+
+        // Crear workbook
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws1, 'Resumen');
+        XLSX.utils.book_append_sheet(wb, ws2, 'Detalle Ventas');
+        if (pagos.length > 0) {
+            XLSX.utils.book_append_sheet(wb, ws3, 'Pagos Proveedores');
+        }
+
+        XLSX.writeFile(wb, 'ventas_' + desde + '_' + hasta + '.xlsx');
+        mostrarToast('Excel exportado');
+    }
+
     // ==================== Eventos ====================
-    document.getElementById('filterDate').addEventListener('change', cargarDatos);
+    document.getElementById('filterDateDesde').addEventListener('change', cargarDatos);
+    document.getElementById('filterDateHasta').addEventListener('change', cargarDatos);
     document.getElementById('filterSuc').addEventListener('change', cargarDatos);
+    document.getElementById('filterModo').addEventListener('change', cargarDatos);
+
+    // ==================== Proveedores (pagos) ====================
+    let _provTabInit = false;
+
+    async function inicializarTabProveedores() {
+        if (_provTabInit) {
+            cargarPagosProveedores();
+            return;
+        }
+        _provTabInit = true;
+        try {
+            // Proveedores: leer de /cambios/proveedores y obtener unicos
+            const raw = await firebaseGet('cambios/proveedores');
+            const nombres = new Set();
+            if (raw && typeof raw === 'object') {
+                for (const k in raw) {
+                    const e = raw[k];
+                    if (!e || !e.data) continue;
+                    if (e.accion === 'delete') continue;
+                    const n = (e.data.nombre || '').trim();
+                    if (n) nombres.add(n);
+                }
+            }
+            const sel = document.getElementById('provSelect');
+            sel.innerHTML = '';
+            [...nombres].sort().forEach(n => {
+                const o = document.createElement('option');
+                o.value = n;
+                o.textContent = n;
+                sel.appendChild(o);
+            });
+            const oOtro = document.createElement('option');
+            oOtro.value = '__nuevo__';
+            oOtro.textContent = '-- Otro (nuevo) --';
+            sel.appendChild(oOtro);
+            sel.onchange = () => {
+                document.getElementById('provNombreNuevo').disabled = sel.value !== '__nuevo__';
+            };
+
+            // Sucursales: desde filterSuc
+            const sucSel = document.getElementById('provSucursal');
+            sucSel.innerHTML = '';
+            const filterSuc = document.getElementById('filterSuc');
+            if (filterSuc) {
+                for (const opt of filterSuc.options) {
+                    if (!opt.value) continue;
+                    const o = document.createElement('option');
+                    o.value = opt.value;
+                    o.textContent = opt.value;
+                    sucSel.appendChild(o);
+                }
+            }
+            if (!sucSel.options.length) {
+                const o = document.createElement('option');
+                o.value = 'Dashboard';
+                o.textContent = 'Dashboard';
+                sucSel.appendChild(o);
+            }
+        } catch (e) {
+            console.error('Error inicializar proveedores:', e);
+        }
+        cargarPagosProveedores();
+    }
+
+    async function registrarPagoProveedor() {
+        const msg = document.getElementById('provMsg');
+        msg.style.color = '#333';
+        msg.textContent = '';
+        const sel = document.getElementById('provSelect');
+        let nombre = sel.value;
+        if (nombre === '__nuevo__') {
+            nombre = document.getElementById('provNombreNuevo').value.trim();
+            if (!nombre) { msg.style.color = '#c62828'; msg.textContent = 'Ingresá el nombre del proveedor.'; return; }
+        }
+        const monto = parseFloat(document.getElementById('provMonto').value || '0');
+        if (!(monto > 0)) { msg.style.color = '#c62828'; msg.textContent = 'Monto inválido.'; return; }
+        const metodo = document.getElementById('provMetodo').value;
+        const suc = document.getElementById('provSucursal').value || 'Dashboard';
+        const nota = document.getElementById('provNota').value.trim();
+        const pagoCaja = document.getElementById('provPagoCaja').checked;
+        const incluyeIva = document.getElementById('provIncluyeIva').checked;
+
+        const payload = {
+            sucursal_origen: 'dashboard',
+            accion: 'create',
+            timestamp: Date.now(),
+            data: {
+                proveedor_nombre: nombre,
+                monto: monto,
+                metodo_pago: metodo,
+                pago_de_caja: pagoCaja,
+                incluye_iva: incluyeIva,
+                nota: nota,
+                sucursal: suc,
+                fecha: new Date().toISOString()
+            }
+        };
+
+        try {
+            await firebasePost('cambios/pagos_proveedores', payload);
+            msg.style.color = '#2e7d32';
+            msg.textContent = 'Pago registrado. Se replicará en la app en el próximo sync.';
+            document.getElementById('provMonto').value = '';
+            document.getElementById('provNota').value = '';
+            document.getElementById('provPagoCaja').checked = false;
+            document.getElementById('provIncluyeIva').checked = false;
+            cargarPagosProveedores();
+        } catch (e) {
+            msg.style.color = '#c62828';
+            msg.textContent = 'Error: ' + e.message;
+        }
+    }
+
+    async function cargarPagosProveedores() {
+        const tbody = document.getElementById('pagosProvBody');
+        const noData = document.getElementById('noPagosProv');
+        try {
+            const raw = await firebaseGet('cambios/pagos_proveedores');
+            const rows = [];
+            if (raw && typeof raw === 'object') {
+                for (const k in raw) {
+                    const e = raw[k];
+                    if (!e || !e.data) continue;
+                    if (e.accion !== 'create') continue;
+                    const d = e.data;
+                    rows.push({
+                        fecha: d.fecha || '',
+                        sucursal: d.sucursal || '',
+                        proveedor: d.proveedor_nombre || '',
+                        monto: parseFloat(d.monto || 0),
+                        metodo: d.metodo_pago || '',
+                        iva: !!d.incluye_iva,
+                        caja: !!d.pago_de_caja,
+                        nota: d.nota || '',
+                        ts: e.timestamp || 0
+                    });
+                }
+            }
+            rows.sort((a, b) => b.ts - a.ts);
+            const top = rows.slice(0, 100);
+            tbody.innerHTML = '';
+            if (!top.length) {
+                noData.classList.remove('hidden');
+                return;
+            }
+            noData.classList.add('hidden');
+            for (const r of top) {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${(r.fecha || '').substring(0, 19).replace('T', ' ')}</td>
+                    <td>${r.sucursal}</td>
+                    <td>${r.proveedor}</td>
+                    <td>$${r.monto.toFixed(2)}</td>
+                    <td>${r.metodo}</td>
+                    <td>${r.iva ? 'Sí' : '-'}</td>
+                    <td>${r.caja ? 'Sí' : '-'}</td>
+                    <td>${r.nota}</td>
+                `;
+                tbody.appendChild(tr);
+            }
+        } catch (e) {
+            console.error('Error cargando pagos proveedores:', e);
+        }
+    }
 
     // ==================== Init ====================
     window.addEventListener('DOMContentLoaded', () => {
-        document.getElementById('filterDate').value = hoy();
+        document.getElementById('filterDateDesde').value = hoy();
+        document.getElementById('filterDateHasta').value = hoy();
         // Intentar auto-conectar con credenciales guardadas
         if (cargarCredenciales()) {
             conectar();

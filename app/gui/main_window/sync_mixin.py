@@ -634,26 +634,51 @@ class SyncNotificationsMixin:
             self._update_sync_button_text(f"⟳ Sincronizando... {time_str}")
 
     def _sync_push(self, tipo, entity, accion="upsert"):
-        """Helper para publicar un cambio en Firebase desde cualquier mixin."""
+        """Helper para publicar un cambio en Firebase (no-bloqueante)."""
         if not self._firebase_sync:
             return
-        try:
-            if tipo == "venta":
-                self._firebase_sync.push_venta(entity)
-            elif tipo == "venta_mod":
-                self._firebase_sync.push_venta_modificada(entity)
-            elif tipo == "producto":
-                self._firebase_sync.push_producto(entity, accion)
-            elif tipo == "producto_del":
-                self._firebase_sync.push_producto_eliminado(entity)
-            elif tipo == "proveedor":
-                self._firebase_sync.push_proveedor(entity, accion)
-            elif tipo == "proveedor_del":
-                self._firebase_sync.push_proveedor_eliminado(entity)
-            elif tipo == "pago_proveedor":
-                self._firebase_sync.push_pago_proveedor(entity)
-        except Exception as e:
-            self._firebase_sync._log(f"Push {tipo} error: {e}")
+        import threading
+        def _do():
+            try:
+                if tipo == "venta":
+                    self._firebase_sync.push_venta(entity)
+                elif tipo == "venta_mod":
+                    self._firebase_sync.push_venta_modificada(entity)
+                elif tipo == "producto":
+                    self._firebase_sync.push_producto(entity, accion)
+                elif tipo == "producto_del":
+                    self._firebase_sync.push_producto_eliminado(entity)
+                elif tipo == "proveedor":
+                    self._firebase_sync.push_proveedor(entity, accion)
+                elif tipo == "proveedor_del":
+                    self._firebase_sync.push_proveedor_eliminado(entity)
+                elif tipo == "pago_proveedor":
+                    self._firebase_sync.push_pago_proveedor(entity)
+            except Exception as e:
+                self._firebase_sync._log(f"Push {tipo} error: {e}")
+        threading.Thread(target=_do, daemon=True).start()
+
+    def _sync_push_batch(self, tipo, lista):
+        """Helper para publicar un lote de cambios en Firebase en un solo PATCH (no-bloqueante).
+        Mucho más rápido que N llamadas seriadas de _sync_push (p.ej. tras importar Excel).
+        """
+        if not self._firebase_sync or not lista:
+            return
+        import threading
+        def _do():
+            try:
+                if tipo == "producto":
+                    self._firebase_sync.push_productos_batch(lista)
+                else:
+                    # Fallback: si no hay implementación batch, caer al seriado
+                    for ent in lista:
+                        self._firebase_sync._log(f"Batch {tipo} no soportado, push individual")
+            except Exception as e:
+                try:
+                    self._firebase_sync._log(f"Push batch {tipo} error: {e}")
+                except Exception:
+                    pass
+        threading.Thread(target=_do, daemon=True).start()
 
     def _check_pending_config_restore(self):
         """Movido a main.py (pre-login). Este método ya no se usa."""

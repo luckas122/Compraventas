@@ -300,6 +300,9 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
                 "ventas.editar_cantidad":     self._shortcut_editar_cantidad_cesta,  # C editar cantidad
                 "ventas.descuento_item":      self._shortcut_descuento_item_cesta,   # X descuento ítem
                 "ventas.vaciar_cesta":        self._vaciar_cesta,              # Z vaciar cesta
+
+                # --- Productos: atajo Ñ (editar precio del producto seleccionado / buscado) ---
+                "productos.editar_precio_buscado": self._productos_editar_precio_buscado,  # Ñ
             }
             self.shortcut_manager = ShortcutManager(self, callbacks=cb)
             logger.info("[SHORTCUTS] Sistema de atajos inicializado")
@@ -392,42 +395,188 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
     
 
     def editar_precios_masivos(self):
-        """Aplica un porcentaje, monto fijo o valor final a todos los productos seleccionados."""
-        modos = ['Porcentaje', 'Monto fijo', 'Valor final']
-        modo, ok = QInputDialog.getItem(self, 'Modo de edición', 'Seleccione modo:', modos, 0, False)
-        if not ok:
+        """Edición masiva: precio, nombre o categoría de los productos seleccionados."""
+        import datetime as _dt
+
+        # Recoger productos seleccionados (de la tabla visible + set persistente)
+        ids_visibles = set()
+        for r in range(self.table_productos.rowCount()):
+            id_item = self.table_productos.item(r, 1)
+            if id_item and self._is_row_checked(r, self.table_productos):
+                ids_visibles.add(int(id_item.text()))
+
+        all_ids = ids_visibles | getattr(self, '_selected_product_ids', set())
+        if not all_ids:
+            QMessageBox.information(self, 'Edición masiva', 'No hay productos seleccionados.')
             return
-        if modo == 'Porcentaje':
-            val, ok = QInputDialog.getDouble(self, 'Porcentaje', 'Introduce % (10 o -5):', decimals=2)
-        elif modo == 'Valor final':
-            val, ok = QInputDialog.getDouble(self, 'Valor final', 'Nuevo precio para todos:', 0, 0, 999999, 2)
-        else:
-            val, ok = QInputDialog.getDouble(self, 'Monto fijo', 'Introduce importe (+/-):', decimals=2)
+
+        # Elegir qué editar
+        campo, ok = QInputDialog.getItem(
+            self, 'Edición masiva',
+            f'{len(all_ids)} producto(s) seleccionados.\n¿Qué desea editar?',
+            ['Precio', 'Nombre', 'Categoría'], 0, False)
         if not ok:
             return
 
-        filas = [
-            r for r in range(self.table_productos.rowCount())
-            if self._is_row_checked(r, self.table_productos)
-        ]
-        if not filas:
-            QMessageBox.information(self, 'Editar precios', 'No hay productos seleccionados.')
+        productos = [self.session.query(Producto).get(pid) for pid in all_ids]
+        productos = [p for p in productos if p is not None]
+        if not productos:
             return
 
-        for r in filas:
-            pid = int(self.table_productos.item(r, 1).text())
-            prod = self.session.query(Producto).get(pid)
+        # Snapshot ANTES de cambios (para el log)
+        snapshots = {}
+        for prod in productos:
+            snapshots[prod.id] = {
+                'codigo_barra': prod.codigo_barra,
+                'nombre': prod.nombre,
+                'precio': prod.precio,
+                'categoria': prod.categoria or '',
+                'telefono': prod.telefono or '',
+                'numero_cuenta': prod.numero_cuenta or '',
+                'cbu': prod.cbu or '',
+            }
+
+        cambios = 0
+        modo_desc = ''  # Descripción legible de la operación
+
+        if campo == 'Precio':
+            modos = ['Valor final', 'Porcentaje', 'Monto fijo']
+            modo, ok = QInputDialog.getItem(self, 'Modo de edición', 'Seleccione modo:', modos, 0, False)
+            if not ok:
+                return
             if modo == 'Porcentaje':
-                prod.precio *= (1 + val/100.0)
+                val, ok = QInputDialog.getDouble(self, 'Porcentaje', 'Introduce % (ej: 10 o -5):', decimals=2)
+                modo_desc = f'Porcentaje ({"+"+str(val) if val >= 0 else str(val)}%)'
             elif modo == 'Valor final':
-                prod.precio = val
+                val, ok = QInputDialog.getDouble(self, 'Valor final', 'Nuevo precio para todos:', 0, 0, 999999, 2)
+                modo_desc = f'Valor final ({val:.2f})'
             else:
-                prod.precio += val
-            prod.precio = max(prod.precio, 0.0)
-        self.session.commit()
-        self.refrescar_productos()
-        QMessageBox.information(self, 'Completado', f'Actualizados {len(filas)} producto(s).')
-        self.refrescar_completer()
+                val, ok = QInputDialog.getDouble(self, 'Monto fijo', 'Introduce importe (+/-):', decimals=2)
+                modo_desc = f'Monto fijo ({"+"+str(val) if val >= 0 else str(val)})'
+            if not ok:
+                return
+
+            for prod in productos:
+                if modo == 'Porcentaje':
+                    prod.precio *= (1 + val / 100.0)
+                elif modo == 'Valor final':
+                    prod.precio = val
+                else:
+                    prod.precio += val
+                prod.precio = max(prod.precio, 0.0)
+                cambios += 1
+
+        elif campo == 'Nombre':
+            modos_nombre = ['Reemplazar texto', 'Agregar prefijo', 'Agregar sufijo', 'Quitar texto']
+            modo, ok = QInputDialog.getItem(self, 'Editar nombre', 'Seleccione operación:', modos_nombre, 0, False)
+            if not ok:
+                return
+
+            if modo == 'Reemplazar texto':
+                buscar, ok = QInputDialog.getText(self, 'Buscar', 'Texto a buscar en el nombre:')
+                if not ok or not buscar:
+                    return
+                reemplazo, ok = QInputDialog.getText(self, 'Reemplazar', f'Reemplazar "{buscar}" por:')
+                if not ok:
+                    return
+                modo_desc = f"Reemplazar '{buscar}' → '{reemplazo}'"
+                for prod in productos:
+                    nuevo = prod.nombre.replace(buscar.upper(), reemplazo.upper())
+                    if nuevo != prod.nombre:
+                        prod.nombre = nuevo
+                        cambios += 1
+
+            elif modo == 'Agregar prefijo':
+                prefijo, ok = QInputDialog.getText(self, 'Prefijo', 'Texto a agregar al inicio:')
+                if not ok or not prefijo:
+                    return
+                modo_desc = f"Prefijo '{prefijo.upper()}'"
+                for prod in productos:
+                    prod.nombre = prefijo.upper() + ' ' + prod.nombre
+                    cambios += 1
+
+            elif modo == 'Agregar sufijo':
+                sufijo, ok = QInputDialog.getText(self, 'Sufijo', 'Texto a agregar al final:')
+                if not ok or not sufijo:
+                    return
+                modo_desc = f"Sufijo '{sufijo.upper()}'"
+                for prod in productos:
+                    prod.nombre = prod.nombre + ' ' + sufijo.upper()
+                    cambios += 1
+
+            elif modo == 'Quitar texto':
+                quitar, ok = QInputDialog.getText(self, 'Quitar', 'Texto a eliminar del nombre:')
+                if not ok or not quitar:
+                    return
+                modo_desc = f"Quitar '{quitar.upper()}'"
+                for prod in productos:
+                    nuevo = prod.nombre.replace(quitar.upper(), '').strip()
+                    if nuevo != prod.nombre:
+                        prod.nombre = nuevo
+                        cambios += 1
+
+        elif campo == 'Categoría':
+            cat, ok = QInputDialog.getText(self, 'Categoría', 'Nueva categoría para todos los seleccionados:')
+            if not ok:
+                return
+            cat = cat.strip().upper() or None
+            modo_desc = f"→ {cat or '(vacía)'}"
+            for prod in productos:
+                prod.categoria = cat
+                cambios += 1
+
+        if cambios > 0:
+            self.session.commit()
+
+            # Construir log de cambios (comparar snapshot antes vs después)
+            log_entry = {
+                'fecha': _dt.datetime.now(),
+                'operacion': f'{campo} - {modo_desc}',
+                'cambios': []
+            }
+            for prod in productos:
+                snap = snapshots.get(prod.id, {})
+                for field in ('nombre', 'precio', 'categoria', 'telefono', 'numero_cuenta', 'cbu'):
+                    if field == 'precio':
+                        old_val = f"{float(snap.get('precio', 0)):.2f}"
+                        new_val = f"{prod.precio:.2f}"
+                    else:
+                        old_val = str(snap.get(field, '') or '')
+                        new_val = str(getattr(prod, field, '') or '')
+                    if old_val != new_val:
+                        log_entry['cambios'].append({
+                            'producto_id': prod.id,
+                            'codigo_barra': prod.codigo_barra,
+                            'nombre': snap.get('nombre', prod.nombre),
+                            'campo': field,
+                            'anterior': old_val,
+                            'nuevo': new_val,
+                        })
+            if log_entry['cambios']:
+                if not hasattr(self, '_product_change_log'):
+                    self._product_change_log = []
+                self._product_change_log.append(log_entry)
+
+            # Sync: publicar productos editados
+            for prod in productos:
+                self._sync_push("producto", prod)
+            self._selected_product_ids.clear()
+            self.refrescar_productos(preserve_selection=False)
+            self.refrescar_completer()
+
+            # Confirmación con botón "Ver cambios"
+            msg = QMessageBox(self)
+            msg.setIcon(QMessageBox.Information)
+            msg.setWindowTitle('Completado')
+            msg.setText(f'{cambios} producto(s) actualizados.')
+            btn_ver = msg.addButton('Ver cambios', QMessageBox.ActionRole)
+            btn_ok = msg.addButton('Aceptar', QMessageBox.AcceptRole)
+            msg.setDefaultButton(btn_ok)
+            msg.exec_()
+            if msg.clickedButton() == btn_ver:
+                self._abrir_ultimos_cambios()
+        else:
+            QMessageBox.information(self, 'Sin cambios', 'No se realizaron cambios.')
     
     
     # ---------------- Ventas ----------------
@@ -435,39 +584,55 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
     
     
     def _on_cesta_item_changed(self, item):
+        # Ignorar cambios programáticos (descuento, actualizar_total, etc.)
+        if getattr(self, "_cesta_updating", False):
+            return
         # Solo columnas editables: 2=Cantidad, 3=Precio Unit.
         col = item.column()
         if col not in (2, 3):
             return
         r = item.row()
 
-        # Normalizar cantidad
+        # Si el texto del Precio Unit tiene el formato de descuento "base → eff",
+        # es un update programático: no tocar.
+        pu_item = self.table_cesta.item(r, 3)
+        if pu_item is not None and "→" in (pu_item.text() or ""):
+            return
+
+        self._cesta_updating = True
         try:
-            cant = float(self.table_cesta.item(r, 2).text())
-        except Exception:
-            cant = 1.0
-            self.table_cesta.setItem(r, 2, QTableWidgetItem("1"))
+            # Normalizar cantidad (sólo con setText; nunca reemplazar el item)
+            cant_item = self.table_cesta.item(r, 2)
+            try:
+                cant = float((cant_item.text() if cant_item else "1").strip())
+            except Exception:
+                cant = 1.0
+                if cant_item is not None:
+                    cant_item.setText("1")
 
-        # Normalizar P. Unit.
-        try:
-            pu = float(str(self.table_cesta.item(r, 3).text()).replace("$","").strip())
-        except Exception:
-            pu = 0.0
-            self.table_cesta.setItem(r, 3, QTableWidgetItem("0.00"))
+            # Normalizar P. Unit.
+            try:
+                pu = float(str(pu_item.text() if pu_item else "0").replace("$", "").strip())
+            except Exception:
+                pu = 0.0
+                if pu_item is not None:
+                    pu_item.setText("0.00")
 
-        # Recalcular total de la fila
-        total = cant * pu
-        it_total = self.table_cesta.item(r, 4)
-        if it_total is None:
-            it_total = QTableWidgetItem()
-            self.table_cesta.setItem(r, 4, it_total)
-        it_total.setText(f"{total:.2f}")
+            # Recalcular total de la fila
+            total = cant * pu
+            it_total = self.table_cesta.item(r, 4)
+            if it_total is None:
+                it_total = QTableWidgetItem()
+                self.table_cesta.setItem(r, 4, it_total)
+            it_total.setText(f"{total:.2f}")
 
-        # Alinear numéricos
-        for c in (2, 3, 4):
-            it = self.table_cesta.item(r, c)
-            if it:
-                it.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            # Alinear numéricos
+            for c in (2, 3, 4):
+                it = self.table_cesta.item(r, c)
+                if it:
+                    it.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+        finally:
+            self._cesta_updating = False
 
         # Recalcular totales generales y cuota si aplica
         self.actualizar_total()
@@ -1157,6 +1322,7 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
             input_buscar.setMinimumHeight(36)
             input_buscar.setStyleSheet("font-size: 14px; padding: 4px 8px;")
             lay.addWidget(input_buscar)
+            input_buscar.setFocus()
 
             # Autocomplete usando los mismos datos del completer de ventas
             try:
@@ -1305,16 +1471,35 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
             # Upsert por código
             prod = self.session.query(Producto).filter_by(codigo_barra=codigo).first()
             if prod:
+                # Snapshot antes de modificar para log por campo
+                viejos = {'nombre': prod.nombre, 'precio': prod.precio, 'categoria': prod.categoria}
                 prod.nombre = nombre
                 prod.precio = precio
                 prod.categoria = categoria
+                self.session.commit()
+                nuevos = {'nombre': nombre, 'precio': precio, 'categoria': categoria}
+                try:
+                    for k in ('nombre', 'precio', 'categoria'):
+                        if str(viejos[k] or '') != str(nuevos[k] or ''):
+                            self._log_product_change(prod, k, viejos[k], nuevos[k], 'Popup rapido (A) - Actualizar')
+                except Exception:
+                    pass
             else:
-                self.session.add(Producto(codigo_barra=codigo, nombre=nombre, precio=precio, categoria=categoria))
+                nuevo = Producto(codigo_barra=codigo, nombre=nombre, precio=precio, categoria=categoria)
+                self.session.add(nuevo)
                 # registrar en history para deshacer
                 self.history.append(('add', {
                     'codigo_barra': codigo, 'nombre': nombre, 'precio': precio, 'categoria': categoria
                 }))
-            self.session.commit()
+                self.session.commit()
+                try:
+                    self._log_product_change(
+                        nuevo, 'producto', '',
+                        f'{codigo} / {nombre} / ${precio}',
+                        'Popup rapido (A) - Nuevo producto'
+                    )
+                except Exception:
+                    pass
             # refrescar UI y completer
             try: self.refrescar_productos()
             except Exception: pass
@@ -1341,6 +1526,9 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
                 QMessageBox.information(self, "Editar", "Producto no encontrado.")
                 return
 
+            # Snapshot ANTES del dialogo (para log por campo)
+            viejos = {'nombre': prod.nombre, 'precio': prod.precio, 'categoria': prod.categoria}
+
             dlg = QuickEditProductoDialog(prod, self)
             if dlg.exec_() != QDialog.Accepted:
                 return
@@ -1349,6 +1537,16 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
             prod.precio = precio
             prod.categoria = cate
             self.session.commit()
+
+            # Log de cambios por campo
+            nuevos = {'nombre': nom, 'precio': precio, 'categoria': cate}
+            try:
+                for k in ('nombre', 'precio', 'categoria'):
+                    if str(viejos[k] or '') != str(nuevos[k] or ''):
+                        self._log_product_change(prod, k, viejos[k], nuevos[k], 'Popup rapido (E) - Actualizar')
+            except Exception:
+                pass
+
             # refrescar UI y completer
             try: self.refrescar_productos()
             except Exception: pass

@@ -13,7 +13,31 @@ from version import __version__, __app_name__
 logger = logging.getLogger(__name__)
 
 
+def _install_global_excepthook():
+    """Evita cierres silenciosos por excepciones no capturadas en slots Qt.
+    Loguea el error y muestra un QMessageBox si hay QApplication viva."""
+    def _hook(exc_type, exc_val, exc_tb):
+        if issubclass(exc_type, KeyboardInterrupt):
+            sys.__excepthook__(exc_type, exc_val, exc_tb)
+            return
+        logger.error("Unhandled exception", exc_info=(exc_type, exc_val, exc_tb))
+        try:
+            from PyQt5.QtWidgets import QMessageBox
+            if QApplication.instance() is not None:
+                QMessageBox.critical(
+                    None,
+                    "Error inesperado",
+                    f"{exc_type.__name__}: {exc_val}\n\n"
+                    f"La aplicación intentará seguir funcionando.\n"
+                    f"Revisá el log para más detalles."
+                )
+        except Exception:
+            pass
+    sys.excepthook = _hook
+
+
 if __name__ == "__main__":
+    _install_global_excepthook()
     # 1) Resetear log UNA vez por arranque
     from app.utils_timing import reset_log
     reset_log()

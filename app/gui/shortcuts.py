@@ -13,7 +13,7 @@ class SectionMap:
     mapping: Dict[str, str]
 
 DEFAULT_SECTION_MAP = {
-    "productos": {"agregar": "A", "editar": "E", "eliminar": "Delete", "imprimir_codigo": "I", "consultar_precio": "P"},
+    "productos": {"agregar": "A", "editar": "E", "eliminar": "Delete", "imprimir_codigo": "I", "consultar_precio": "P", "editar_precio_buscado": "Ñ"},
     "ventas":    {"finalizar": "V", "consultar_precio": "P", "devolucion": "D", "whatsapp": "W", "imprimir": "F", "guardar_borrador": "G", "abrir_borradores": "B", "sumar": "+", "restar": "-", "editar_cantidad": "C", "descuento_item": "X", "vaciar_cesta": "Z"},
 }
 
@@ -29,10 +29,39 @@ DEFAULT_GLOBAL_MAP = {
 def _cfg_shortcuts():
     cfg = load_config()
     sc = cfg.get("shortcuts") or {}
+    # Bloques base
     if "global" not in sc:
         sc["global"] = dict(DEFAULT_GLOBAL_MAP)
+    else:
+        # Merge: agregar claves globales nuevas sin pisar valores existentes (incluye "")
+        for k, v in DEFAULT_GLOBAL_MAP.items():
+            sc["global"].setdefault(k, v)
     if "section" not in sc:
         sc["section"] = dict(DEFAULT_SECTION_MAP)
+    else:
+        # Merge por sección y por acción. setdefault NO pisa valores "" — el usuario
+        # puede deshabilitar un atajo guardando cadena vacía.
+        for sec, actions in DEFAULT_SECTION_MAP.items():
+            sc["section"].setdefault(sec, {})
+            for action, key in actions.items():
+                sc["section"][sec].setdefault(action, key)
+    # Migración v6.2.1: mover editar_precio_buscado de 'ventas' a 'productos',
+    # preservando la letra personalizada del usuario si la hubiera definido.
+    try:
+        _sec = sc.get("section") or {}
+        if isinstance(_sec.get("ventas"), dict) and "editar_precio_buscado" in _sec["ventas"]:
+            _val = _sec["ventas"].pop("editar_precio_buscado")
+            _sec.setdefault("productos", {})
+            # Sólo sobrescribir si Productos todavía no tenía una asignación propia
+            if "editar_precio_buscado" not in _sec["productos"] or not _sec["productos"].get("editar_precio_buscado"):
+                _sec["productos"]["editar_precio_buscado"] = _val if _val else "Ñ"
+        # También migrar el flag de autofocus asociado
+        _af = sc.get("autofocus") or {}
+        if "ventas.editar_precio_buscado" in _af and "productos.editar_precio_buscado" not in _af:
+            _af["productos.editar_precio_buscado"] = _af.pop("ventas.editar_precio_buscado")
+            sc["autofocus"] = _af
+    except Exception:
+        pass
     if "section_mode_enabled" not in sc:
         sc["section_mode_enabled"] = True
     cfg["shortcuts"] = sc
@@ -340,7 +369,7 @@ class ShortcutManager(QObject):
                     # Simbolos no-alfa (!, @, #, etc.)
                     intercept_keys[kt_stripped] = action
                 elif action in ("editar_cantidad", "descuento_item", "vaciar_cesta"):
-                    # Single letter keys for cart actions
+                    # Single letter keys for cart actions (se disparan incluso con foco en input_venta_buscar)
                     intercept_keys[kt_stripped.lower()] = action
                     intercept_keys[kt_stripped.upper()] = action
 

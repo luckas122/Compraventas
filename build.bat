@@ -23,11 +23,10 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 python -m pip install -r requirements-dev.txt
 
-REM 2) Limpiar compilaciones anteriores
+REM 2) Limpiar compilaciones anteriores (MANTIENE installer_output con instaladores previos)
 echo [2/8] Limpiando builds anteriores...
 if exist build rmdir /s /q build
 if exist dist rmdir /s /q dist
-if exist installer_output rmdir /s /q installer_output
 
 REM 3) Generar archivo de version (opcional)
 echo [3/8] Generando archivo de version...
@@ -37,6 +36,10 @@ REM 4) Detectar version
 echo [4/8] Detectando version...
 for /f "tokens=*" %%i in ('python -c "from version import __version__; print(__version__)"') do set VERSION=%%i
 echo Version: %VERSION%
+
+REM 4.5) Preparar installer_output sin borrar versiones anteriores
+if not exist "installer_output" mkdir "installer_output"
+if exist "installer_output\Tu.local.2025.v%VERSION%.Setup.exe" del "installer_output\Tu.local.2025.v%VERSION%.Setup.exe"
 
 REM 5) Compilar con PyInstaller
 echo [5/8] Compilando con PyInstaller...

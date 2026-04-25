@@ -39,7 +39,8 @@
         "imprimir": "F"
       }
     },
-    "section_mode_enabled": true
+    "section_mode_enabled": true,
+    "autofocus": {}
   },
   "theme": {
     "dark_mode": false,
@@ -58,7 +59,9 @@
     "light_title": "#4F6B95",
     "light_text": "#222222",
     "font_family": "Roboto",
-    "font_size": 10
+    "font_size": 10,
+    "btn_hover_bg": "#4CAF50",
+    "btn_hover_border": "#388E3C"
   },
   "printers": {
     "ticket_printer": null,
@@ -75,10 +78,11 @@
     "margin_left_mm": 2.0,
     "margin_right_mm": 2.0,
     "fonts": {
-      "title_px": 18,
-      "head_px": 12,
-      "text_px": 11,
-      "total_px": 20
+      "h1_pt": 14,
+      "h2_pt": 12,
+      "h3_pt": 10,
+      "h4_pt": 9,
+      "h5_pt": 7
     },
     "color": {
       "total_hex": "#2e7d32"
@@ -88,16 +92,42 @@
       "slot1": "{{center: =================================}}\n{{centerb: {{business}}}}\n{{center: {{business.direccion}}}}\n{{center: CUIT: {{business.cuit}}}}\n{{center: =================================}}\n\nTicket Nº: {{ticket.numero}}\nFecha: {{ticket.fecha_hora}}\nSucursal: {{sucursal}}\n{{hr}}\n{{items}}\n{{hr}}\nSubtotal: {{totales.subtotal}}\nDescuento: {{totales.descuento}}\n{{b: TOTAL: {{totales.total}}}}\n{{hr}}\n{{pago.modo}} | Total: {{totales.total}} | Entregado: {{abonado}} | Devuelto: {{vuelto}}\n{{cae}}\n{{hr}}\n{{center: 30 DIAS PARA DEVOLUCIONES}}\n{{center: {{business}}}}",
       "slot2": "{{center: =================================}}\n{{centerb: {{business}}}}\n{{center: {{business.direccion}}}}\n{{center: CUIT: {{business.cuit}}}}\n{{center: =================================}}\n\nTicket: {{ticket.numero}} | {{ticket.fecha_hora}}\n{{sucursal}}\n{{hr}}\n{{items}}\n{{hr}}\n{{rightb: TOTAL: {{totales.total}}}}\n{{hr}}\n{{pago.modo}} | {{abonado}} | {{vuelto}}\n{{cae}}\n{{center: {{business}}}}",
       "slot3": "{{center: =================================}}\n{{centerb: {{business}}}}\n{{center: {{business.direccion}}}}\n{{center: CUIT: {{business.cuit}}}}\n{{center: =================================}}\n\nTicket Nº: {{ticket.numero}}\nFecha: {{ticket.fecha_hora}}\nSucursal: {{sucursal}}\n{{hr}}\n{{items}}\n{{hr}}\nSubtotal: {{totales.subtotal}}\nDescuento: {{totales.descuento}}\nInterés: {{totales.interes}}\n{{b: TOTAL: {{totales.total}}}}\n{{hr}}\n{{pago.modo}} | Cuotas: {{pago.cuotas}} x {{pago.monto_cuota}}\n{{cae}}\n{{hr}}\n{{center: 30 DIAS PARA DEVOLUCIONES}}\n{{center: {{business}}}}",
-      "slot4": "{{center: =================================}}\n{{centerb: {{business}}}}\n{{center: {{business.direccion}}}}\n{{center: CUIT: {{business.cuit}}}}\n{{center: =================================}}\n\nTicket: {{ticket.numero}} | {{ticket.fecha_hora}}\n{{sucursal}}\n{{hr}}\n{{items}}\n{{hr}}\nInterés: {{totales.interes}}\n{{rightb: TOTAL: {{totales.total}}}}\n{{hr}}\n{{pago.modo}} - {{pago.cuotas}} cuotas de {{pago.monto_cuota}}\n{{cae}}\n{{center: {{business}}}}"
+      "slot4": "{{center: =================================}}\n{{centerb: {{business}}}}\n{{center: {{business.direccion}}}}\n{{center: CUIT: {{business.cuit}}}}\n{{center: =================================}}\n\nTicket: {{ticket.numero}} | {{ticket.fecha_hora}}\n{{sucursal}}\n{{hr}}\n{{items}}\n{{hr}}\nInterés: {{totales.interes}}\n{{rightb: TOTAL: {{totales.total}}}}\n{{hr}}\n{{pago.modo}} - {{pago.cuotas}} cuotas de {{pago.monto_cuota}}\n{{cae}}\n{{center: {{business}}}}",
+      "slot5": "",
+      "slot6": "",
+      "slot7": "",
+      "slot8": "",
+      "slot9": "",
+      "slot10": ""
     },
     "slot_names": {
       "slot1": "Efectivo - Clásica",
       "slot2": "Efectivo - Minimalista",
       "slot3": "Tarjeta - Clásica",
-      "slot4": "Tarjeta - Minimalista"
+      "slot4": "Tarjeta - Minimalista",
+      "slot5": "Plantilla 5",
+      "slot6": "Plantilla 6",
+      "slot7": "Plantilla 7",
+      "slot8": "Plantilla 8",
+      "slot9": "Plantilla 9",
+      "slot10": "Plantilla 10"
     },
     "template_efectivo": "slot1",
     "template_tarjeta": "slot3",
+    "template_efectivo_factura_a": "",
+    "template_efectivo_factura_b": "",
+    "template_efectivo_factura_b_mono": "",
+    "template_tarjeta_factura_a": "",
+    "template_tarjeta_factura_b": "",
+    "template_tarjeta_factura_b_mono": "",
+    "template_nota_credito_a": "",
+    "template_nota_credito_b": "",
+    "custom_assignments": [],
+    "iva_discriminado": {
+      "mostrar_neto": true,
+      "mostrar_iva": true,
+      "mostrar_total": true
+    },
     "placeholders": [
       "{{ticket.numero}}",
       "{{ticket.fecha_hora}}",
@@ -118,10 +148,30 @@
       "{{business.cuit}}",
       "{{business.direccion}}",
       "{{vendedor}}",
+      "{{iva.base}}",
+      "{{iva.cuota}}",
+      "{{iva.porcentaje}}",
+      "{{afip.cae}}",
+      "{{afip.vencimiento}}",
+      "{{afip.comprobante}}",
       "{{hr}}",
       "{{items}}",
-      "{{cae}}"
-    ]
+      "{{cae}}",
+      "{{iva.discriminado}}",
+      "{{qrcae}}",
+      "{{img:logo}}",
+      "{{img:instagram}}",
+      "{{img:whatsapp}}",
+      "{{img:qr}}"
+    ],
+    "images": {
+      "logo": null,
+      "instagram": null,
+      "whatsapp": null,
+      "qr": null,
+      "qr_url": null,
+      "size_mm": 20
+    }
   },
   "barcode": {
     "width_cm": 5.0,
@@ -167,7 +217,9 @@
   "whatsapp": {
     "usar_web": true,
     "preguntar_antes": true,
-    "formato_ticket": "pdf"
+    "formato_ticket": "pdf",
+    "pedir_telefono": true,
+    "ticket_save_dir": null
   },
   "email": {
     "enabled": false,
@@ -186,6 +238,19 @@
     },
     "attach_format": "xlsx"
   },
+  "alerts": {
+    "enabled": false,
+    "email": {
+      "recipients": [],
+      "cooldown_minutes": 30
+    },
+    "types": {
+      "afip_error": true,
+      "sync_offline": true,
+      "db_error": true,
+      "critical": true
+    }
+  },
   "fiscal": {
     "enabled": false,
     "provider": "afipsdk",
@@ -193,6 +258,7 @@
     "only_card": true,
     "cuit": "",
     "punto_venta": 1,
+    "puntos_venta_por_sucursal": {},
     "tipo_cbte": "FACTURA_B",
     "afipsdk": {
       "api_key": "",
@@ -240,7 +306,7 @@
   "sync": {
     "enabled": false,
     "mode": "interval",
-    "interval_minutes": 5,
+    "interval_minutes": 2,
     "firebase": {
       "database_url": "",
       "auth_token": ""
@@ -252,6 +318,40 @@
       "ventas": null,
       "productos": null,
       "proveedores": null
+    }
+  },
+  "dashboard": {
+    "titulo": "Tu Local 2025 - Dashboard",
+    "cards_visibles": {
+      "total_dia": true,
+      "efectivo": true,
+      "tarjeta": true,
+      "cantidad": true,
+      "iva_ventas": true,
+      "pagos_proveedores": true,
+      "iva_compras": true
+    },
+    "columnas_visibles": {
+      "ticket": true,
+      "hora": true,
+      "sucursal": true,
+      "total": true,
+      "pago": true,
+      "cuotas": true,
+      "cae": true,
+      "items": true
+    },
+    "refresh_interval": 30,
+    "estilos": {
+      "font_size_titulo": 22,
+      "font_size_cards": 28,
+      "font_size_labels": 12,
+      "font_size_tabla": 14,
+      "color_header": "#1a237e",
+      "color_card_total": "#1a237e",
+      "color_efectivo": "#2e7d32",
+      "color_tarjeta": "#ff9800",
+      "color_cantidad": "#7b1fa2"
     }
   }
 }

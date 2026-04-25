@@ -161,6 +161,7 @@ class PagoProveedor(Base):
     sucursal = Column(String, nullable=False)
     numero_ticket = Column(Integer, index=True, nullable=True)
     nota = Column(String, nullable=True)
+    incluye_iva = Column(Boolean, default=False, nullable=False)
 
     proveedor = relationship("Proveedor")
 

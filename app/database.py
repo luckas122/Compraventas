@@ -128,6 +128,12 @@ def _run_migrations():
         if "pagos_proveedores" not in inspector.get_table_names():
             from app.models import PagoProveedor
             PagoProveedor.__table__.create(bind=engine)
+        else:
+            # Migración v6.5.0: agregar incluye_iva
+            _pp_cols = conn.execute(text("PRAGMA table_info(pagos_proveedores)")).fetchall()
+            _pp_names = [row[1] for row in _pp_cols]
+            if "incluye_iva" not in _pp_names:
+                conn.execute(text("ALTER TABLE pagos_proveedores ADD COLUMN incluye_iva BOOLEAN DEFAULT 0 NOT NULL"))
 
         # Crear tabla compradores si no existe (v5.5.0)
         if "compradores" not in inspector.get_table_names():

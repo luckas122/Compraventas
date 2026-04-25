@@ -494,7 +494,7 @@ Interés: {{totales.interes}}
     "sync": {
         "enabled": False,
         "mode": "interval",
-        "interval_minutes": 5,
+        "interval_minutes": 2,
         "firebase": {
             "database_url": "",
             "auth_token": ""

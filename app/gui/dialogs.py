@@ -692,6 +692,17 @@ class ProductosDialog(QDialog):
                     y = 0
         finally:
             painter.end()
+    def _limpiar_valor_excel(self, valor, default=''):
+        if valor is None:
+            return default
+        try:
+            import math
+            if isinstance(valor, float) and math.isnan(valor):
+                return default
+        except Exception:
+            pass
+        return str(valor).strip()
+
     def dlg_importar(self):
         path, _ = QFileDialog.getOpenFileName(self, 'Importar Excel', '', 'Excel Files (*.xlsx *.xls)')
         if not path: return
@@ -700,26 +711,82 @@ class ProductosDialog(QDialog):
         except Exception as e:
             QMessageBox.warning(self,'Error',f'No se pudo leer:\n{e}')
             return
-        cont_tot, cont_nuevos = 0, 0
+
+        # Clasificar filas
+        nuevos = {}  # dict por codigo para deduplicar
+        modificados, sin_cambios, filas_omitidas = [], 0, 0
         for _, row in df.iterrows():
-            codigo = str(row.get('codigo_barra','')).strip()
-            nombre = str(row.get('nombre','')).strip()
-            try: precio = float(row.get('precio',0))
+            codigo = self._limpiar_valor_excel(row.get('codigo_barra',''))
+            nombre = self._limpiar_valor_excel(row.get('nombre',''))
+            try:
+                import math
+                raw_precio = row.get('precio', 0)
+                if isinstance(raw_precio, float) and math.isnan(raw_precio):
+                    raw_precio = 0
+                precio = float(raw_precio)
             except: precio = 0.0
-            categoria = str(row.get('categoria','')).strip() or None
-            if not codigo or not nombre:
+            categoria = self._limpiar_valor_excel(row.get('categoria','')) or None
+            if not codigo or not nombre or codigo == 'nan' or nombre == 'nan':
+                filas_omitidas += 1
                 continue
             prod = self.session.query(Producto).filter_by(codigo_barra=codigo).first()
             if prod:
-                prod.nombre = nombre; prod.precio = precio; prod.categoria = categoria
+                hay_diff = (
+                    prod.nombre != nombre or
+                    abs((prod.precio or 0) - precio) > 0.001 or
+                    (prod.categoria or '') != (categoria or '')
+                )
+                if hay_diff:
+                    modificados.append({
+                        'codigo_barra': codigo,
+                        'nombre_actual': prod.nombre, 'nombre_nuevo': nombre,
+                        'precio_actual': prod.precio or 0, 'precio_nuevo': precio,
+                        'categoria_actual': prod.categoria, 'categoria_nueva': categoria,
+                        'prod_obj': prod,
+                    })
+                else:
+                    sin_cambios += 1
             else:
-                self.session.add(Producto(codigo_barra=codigo, nombre=nombre, precio=precio, categoria=categoria))
+                nuevos[codigo] = {'codigo_barra': codigo, 'nombre': nombre,
+                                  'precio': precio, 'categoria': categoria}
+
+        nuevos_list = list(nuevos.values())
+
+        if not nuevos_list and not modificados:
+            QMessageBox.information(self, 'Importación',
+                f'No hay cambios para aplicar.\n{sin_cambios} producto(s) ya estaban actualizados.')
+            return
+
+        dlg = ImportPreviewDialog(nuevos_list, modificados, sin_cambios, self)
+        if dlg.exec_() != QDialog.Accepted:
+            return
+        modo, mod_seleccionados = dlg.resultado()
+        if not modo:
+            return
+
+        try:
+            cont_nuevos, cont_actualizados = 0, 0
+            for p in nuevos_list:
+                self.session.add(Producto(codigo_barra=p['codigo_barra'], nombre=p['nombre'],
+                                          precio=p['precio'], categoria=p['categoria']))
                 cont_nuevos += 1
-            cont_tot += 1
-        self.session.commit(); 
-        self.cargar()
-        self.data_changed.emit()  
-        QMessageBox.information(self,'Importación', f'Procesadas: {cont_tot}\nNuevos: {cont_nuevos}')
+            if modo == 'todos' and mod_seleccionados:
+                for m in mod_seleccionados:
+                    prod = m['prod_obj']
+                    prod.nombre = m['nombre_nuevo']
+                    prod.precio = m['precio_nuevo']
+                    prod.categoria = m['categoria_nueva']
+                    cont_actualizados += 1
+
+            self.session.commit()
+            self.cargar()
+            self.data_changed.emit()
+            QMessageBox.information(self,'Importación',
+                f'Nuevos: {cont_nuevos}\nActualizados: {cont_actualizados}\nSin cambios: {sin_cambios}')
+        except Exception as e:
+            self.session.rollback()
+            QMessageBox.critical(self, 'Error en importación',
+                f'Ocurrió un error:\n{e}\n\nLos cambios fueron revertidos.')
 
     def dlg_exportar(self):
         path, _ = QFileDialog.getSaveFileName(self, 'Exportar Excel', 'productos.xlsx', 'Excel Files (*.xlsx)')
@@ -940,6 +1007,264 @@ class ProductosDialog(QDialog):
         self.cargar()
         
         
+        # ====== DIÁLOGO: ÚLTIMOS CAMBIOS (LOG DE EDICIÓN MASIVA) ======
+
+class UltimosCambiosDialog(QDialog):
+    """Muestra el historial de ediciones masivas realizadas durante la sesión."""
+
+    def __init__(self, change_log, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle('Últimos cambios - Productos')
+        self.resize(1000, 550)
+
+        layout = QVBoxLayout(self)
+
+        # Resumen arriba
+        total_ops = len(change_log)
+        total_cambios = sum(len(e['cambios']) for e in change_log)
+        if total_ops == 0:
+            lbl = QLabel('No hay cambios registrados en esta sesión.')
+            lbl.setFont(QFont('Arial', 11))
+            layout.addWidget(lbl)
+        else:
+            lbl = QLabel(f'{total_ops} operación(es) | {total_cambios} cambio(s) en esta sesión')
+            lbl.setFont(QFont('Arial', 11, QFont.Bold))
+            layout.addWidget(lbl)
+
+        # Tabla: Fecha | Operación | Código | Producto | Campo | Anterior | Nuevo
+        from PyQt5.QtWidgets import QHeaderView
+        table = QTableWidget()
+        table.setColumnCount(7)
+        table.setHorizontalHeaderLabels([
+            'Fecha', 'Operación', 'Código', 'Producto', 'Campo', 'Anterior', 'Nuevo'
+        ])
+        hdr = table.horizontalHeader()
+        hdr.setSectionResizeMode(QHeaderView.Interactive)
+        hdr.setStretchLastSection(True)
+        table.setColumnWidth(0, 130)
+        table.setColumnWidth(1, 180)
+        table.setColumnWidth(2, 100)
+        table.setColumnWidth(3, 180)
+        table.setColumnWidth(4, 90)
+        table.setColumnWidth(5, 130)
+        table.setColumnWidth(6, 130)
+        table.verticalHeader().setVisible(False)
+        table.setEditTriggers(QTableWidget.NoEditTriggers)
+        table.setAlternatingRowColors(True)
+        table.setFont(QFont('Arial', 10))
+
+        # Llenar filas (orden cronológico inverso: más reciente primero)
+        rows = []
+        for entry in reversed(change_log):
+            fecha_str = entry['fecha'].strftime('%d/%m/%Y %H:%M')
+            for c in entry['cambios']:
+                rows.append((
+                    fecha_str,
+                    entry['operacion'],
+                    c['codigo_barra'],
+                    c['nombre'],
+                    c['campo'].capitalize(),
+                    c['anterior'],
+                    c['nuevo'],
+                ))
+        table.setRowCount(len(rows))
+        for r, row_data in enumerate(rows):
+            for col, val in enumerate(row_data):
+                item = QTableWidgetItem(str(val))
+                item.setFlags(item.flags() & ~Qt.ItemIsEditable)
+                table.setItem(r, col, item)
+
+        layout.addWidget(table)
+
+        # Botón cerrar
+        btn_cerrar = QPushButton('Cerrar')
+        btn_cerrar.setMinimumHeight(MIN_BTN_HEIGHT)
+        btn_cerrar.clicked.connect(self.accept)
+        layout.addWidget(btn_cerrar, alignment=Qt.AlignRight)
+
+
+        # ====== DIÁLOGO: PREVIEW DE IMPORTACIÓN EXCEL ======
+
+class ImportPreviewDialog(QDialog):
+    """Muestra previsualización de importación Excel antes de aplicar cambios."""
+
+    def __init__(self, nuevos, modificados, sin_cambios, parent=None):
+        """
+        nuevos: list of dicts {codigo_barra, nombre, precio, categoria}
+        modificados: list of dicts {codigo_barra, nombre_actual, nombre_nuevo, precio_actual,
+                     precio_nuevo, categoria_actual, categoria_nueva, prod_obj}
+        sin_cambios: int (cantidad)
+        """
+        super().__init__(parent)
+        self.setWindowTitle('Previsualización de importación')
+        self.resize(1100, 600)
+        self._resultado = None  # 'todos', 'solo_nuevos', None (cancelar)
+        self._modificados_seleccionados = []
+
+        layout = QVBoxLayout(self)
+
+        # Resumen
+        n_new = len(nuevos)
+        n_mod = len(modificados)
+        lbl_resumen = QLabel(
+            f'<b>{n_new}</b> producto(s) nuevo(s) · '
+            f'<b>{n_mod}</b> existente(s) con cambios · '
+            f'<b>{sin_cambios}</b> sin cambios'
+        )
+        lbl_resumen.setFont(QFont('Arial', 11))
+        layout.addWidget(lbl_resumen)
+
+        from PyQt5.QtWidgets import QTabWidget, QHeaderView
+
+        tabs = QTabWidget()
+        tabs.setFont(QFont('Arial', 10))
+
+        # --- Tab 1: Productos nuevos ---
+        if n_new > 0:
+            tbl_new = QTableWidget(n_new, 4)
+            tbl_new.setHorizontalHeaderLabels(['Código', 'Nombre', 'Precio', 'Categoría'])
+            tbl_new.verticalHeader().setVisible(False)
+            tbl_new.setEditTriggers(QTableWidget.NoEditTriggers)
+            tbl_new.setAlternatingRowColors(True)
+            hdr = tbl_new.horizontalHeader()
+            hdr.setSectionResizeMode(1, QHeaderView.Stretch)
+            for c in (0, 2, 3):
+                hdr.setSectionResizeMode(c, QHeaderView.ResizeToContents)
+            for r, p in enumerate(nuevos):
+                tbl_new.setItem(r, 0, QTableWidgetItem(str(p['codigo_barra'])))
+                tbl_new.setItem(r, 1, QTableWidgetItem(str(p['nombre'])))
+                tbl_new.setItem(r, 2, QTableWidgetItem(f"${p['precio']:.2f}"))
+                tbl_new.setItem(r, 3, QTableWidgetItem(str(p['categoria'] or '')))
+            tabs.addTab(tbl_new, f'Nuevos ({n_new})')
+
+        # --- Tab 2: Productos existentes con cambios ---
+        if n_mod > 0:
+            from PyQt5.QtGui import QColor, QBrush
+            tbl_mod = QTableWidget(n_mod, 8)
+            tbl_mod.setHorizontalHeaderLabels([
+                'Sel', 'Código', 'Nombre actual', 'Nombre nuevo',
+                'Precio actual', 'Precio nuevo', 'Cat. actual', 'Cat. nueva'
+            ])
+            tbl_mod.verticalHeader().setVisible(False)
+            tbl_mod.setEditTriggers(QTableWidget.NoEditTriggers)
+            tbl_mod.setAlternatingRowColors(True)
+            hdr = tbl_mod.horizontalHeader()
+            hdr.setSectionResizeMode(QHeaderView.ResizeToContents)
+            hdr.setSectionResizeMode(2, QHeaderView.Stretch)
+            hdr.setSectionResizeMode(3, QHeaderView.Stretch)
+            tbl_mod.setColumnWidth(0, 30)
+
+            color_changed = QBrush(QColor(255, 255, 180))  # amarillo claro para cambios
+
+            for r, m in enumerate(modificados):
+                # Checkbox
+                chk = QTableWidgetItem()
+                chk.setFlags(Qt.ItemIsUserCheckable | Qt.ItemIsEnabled)
+                chk.setCheckState(Qt.Checked)
+                tbl_mod.setItem(r, 0, chk)
+
+                tbl_mod.setItem(r, 1, QTableWidgetItem(str(m['codigo_barra'])))
+                # Nombre
+                it_na = QTableWidgetItem(str(m['nombre_actual']))
+                it_nn = QTableWidgetItem(str(m['nombre_nuevo']))
+                if m['nombre_actual'] != m['nombre_nuevo']:
+                    it_na.setBackground(color_changed)
+                    it_nn.setBackground(color_changed)
+                tbl_mod.setItem(r, 2, it_na)
+                tbl_mod.setItem(r, 3, it_nn)
+                # Precio
+                it_pa = QTableWidgetItem(f"${m['precio_actual']:.2f}")
+                it_pn = QTableWidgetItem(f"${m['precio_nuevo']:.2f}")
+                if abs(m['precio_actual'] - m['precio_nuevo']) > 0.001:
+                    it_pa.setBackground(color_changed)
+                    it_pn.setBackground(color_changed)
+                tbl_mod.setItem(r, 4, it_pa)
+                tbl_mod.setItem(r, 5, it_pn)
+                # Categoría
+                cat_a = str(m['categoria_actual'] or '')
+                cat_n = str(m['categoria_nueva'] or '')
+                it_ca = QTableWidgetItem(cat_a)
+                it_cn = QTableWidgetItem(cat_n)
+                if cat_a != cat_n:
+                    it_ca.setBackground(color_changed)
+                    it_cn.setBackground(color_changed)
+                tbl_mod.setItem(r, 6, it_ca)
+                tbl_mod.setItem(r, 7, it_cn)
+
+            self._tbl_mod = tbl_mod
+            self._modificados = modificados
+            tabs.addTab(tbl_mod, f'Modificados ({n_mod})')
+
+            # Botones seleccionar/deseleccionar todos
+            from PyQt5.QtWidgets import QWidget
+            sel_bar = QHBoxLayout()
+            btn_sel_all = QPushButton('Marcar todos')
+            btn_sel_all.clicked.connect(lambda: self._toggle_all_mod(True))
+            btn_desel_all = QPushButton('Desmarcar todos')
+            btn_desel_all.clicked.connect(lambda: self._toggle_all_mod(False))
+            sel_bar.addWidget(btn_sel_all)
+            sel_bar.addWidget(btn_desel_all)
+            sel_bar.addStretch()
+        else:
+            self._tbl_mod = None
+            self._modificados = []
+
+        layout.addWidget(tabs)
+
+        if n_mod > 0:
+            layout.addLayout(sel_bar)
+
+        # --- Botones de acción ---
+        btn_bar = QHBoxLayout()
+
+        if n_new > 0 and n_mod > 0:
+            btn_solo_nuevos = QPushButton(f'Solo nuevos ({n_new})')
+            btn_solo_nuevos.setMinimumHeight(MIN_BTN_HEIGHT)
+            btn_solo_nuevos.clicked.connect(self._solo_nuevos)
+            btn_bar.addWidget(btn_solo_nuevos)
+
+        btn_importar = QPushButton(f'Importar seleccionados')
+        btn_importar.setMinimumHeight(MIN_BTN_HEIGHT)
+        btn_importar.setStyleSheet('font-weight: bold;')
+        btn_importar.clicked.connect(self._importar)
+        btn_bar.addWidget(btn_importar)
+
+        btn_cancelar = QPushButton('Cancelar')
+        btn_cancelar.setMinimumHeight(MIN_BTN_HEIGHT)
+        btn_cancelar.clicked.connect(self.reject)
+        btn_bar.addWidget(btn_cancelar)
+
+        layout.addLayout(btn_bar)
+
+    def _toggle_all_mod(self, checked):
+        if not self._tbl_mod:
+            return
+        state = Qt.Checked if checked else Qt.Unchecked
+        for r in range(self._tbl_mod.rowCount()):
+            self._tbl_mod.item(r, 0).setCheckState(state)
+
+    def _solo_nuevos(self):
+        self._resultado = 'solo_nuevos'
+        self._modificados_seleccionados = []
+        self.accept()
+
+    def _importar(self):
+        self._resultado = 'todos'
+        # Recoger cuáles modificados están marcados
+        self._modificados_seleccionados = []
+        if self._tbl_mod and self._modificados:
+            for r in range(self._tbl_mod.rowCount()):
+                if self._tbl_mod.item(r, 0).checkState() == Qt.Checked:
+                    self._modificados_seleccionados.append(self._modificados[r])
+        self.accept()
+
+    def resultado(self):
+        """Retorna (modo, modificados_seleccionados).
+        modo: 'todos', 'solo_nuevos', o None si canceló.
+        """
+        return self._resultado, self._modificados_seleccionados
+
+
         # ====== DIÁLOGOS RÁPIDOS PARA PRODUCTOS (Agregar / Editar) ======
 class QuickAddProductoDialog(QDialog):
     """Popup mínimo: Código / Nombre / Precio / Categoría"""
@@ -1847,6 +2172,10 @@ class PagoProveedorDialog(QDialog):
         self.chk_caja = QCheckBox("Pago de caja (descontar del efectivo)")
         form.addRow("", self.chk_caja)
 
+        # Incluye IVA
+        self.chk_iva = QCheckBox("Incluye IVA (21%) — suma al IVA Compras del período")
+        form.addRow("", self.chk_iva)
+
         # Nota
         self.ed_nota = QLineEdit()
         self.ed_nota.setPlaceholderText("Nota opcional...")
@@ -1906,6 +2235,7 @@ class PagoProveedorDialog(QDialog):
             'monto': monto,
             'metodo_pago': self.cmb_metodo.currentText(),
             'pago_de_caja': self.chk_caja.isChecked(),
+            'incluye_iva': self.chk_iva.isChecked(),
             'nota': self.ed_nota.text().strip() or None
         }
         self.accept()
