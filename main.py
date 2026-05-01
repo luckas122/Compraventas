@@ -37,6 +37,23 @@ def _install_global_excepthook():
 
 
 if __name__ == "__main__":
+    # 0) Configurar logging con rotacion ANTES que cualquier otra cosa
+    #    (asi todos los logger.* posteriores ya escriben a app.log con rotacion)
+    try:
+        from app.logging_setup import setup_root_logging
+        setup_root_logging()
+    except Exception as _log_init_err:
+        print(f"[main] WARN: no se pudo configurar logging centralizado: {_log_init_err}")
+
+    # 0.1) v6.6.0: Limpieza de logs de auditoria mas viejos que retention_days
+    try:
+        from app.audit_logger import cleanup_old_logs
+        from app.config import load as _load_cfg_main
+        _audit_cfg = (_load_cfg_main().get("audit") or {})
+        cleanup_old_logs(retention_days=int(_audit_cfg.get("retention_days", 7)))
+    except Exception as _audit_clean_err:
+        logger.warning("[main] cleanup audit logs fallo: %s", _audit_clean_err)
+
     _install_global_excepthook()
     # 1) Resetear log UNA vez por arranque
     from app.utils_timing import reset_log
@@ -49,6 +66,28 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
     app.setApplicationName(__app_name__)
     app.setApplicationVersion(__version__)
+
+    # 3.1) Single-instance check (v6.6.0)
+    # Si ya hay otra instancia corriendo, notificarle que se muestre y salir.
+    # Bypass para devs/testing: pasar --no-single como argumento.
+    if "--no-single" not in sys.argv:
+        try:
+            from app.single_instance import SingleInstanceGuard
+            from PyQt5.QtWidgets import QMessageBox as _QMsg
+            _guard = SingleInstanceGuard()
+            if _guard.is_already_running():
+                _guard.notify_existing_to_show()
+                _QMsg.information(
+                    None, __app_name__,
+                    "La aplicacion ya esta abierta.\n\n"
+                    "Revisa la barra de notificaciones (al lado del reloj). "
+                    "Ya restauramos la ventana original para vos."
+                )
+                sys.exit(0)
+            # Guardar el guard para que sobreviva al GC y poder hacer cleanup al salir
+            app._single_guard = _guard
+        except Exception as _si_err:
+            logger.warning("[main] Single-instance guard fallo, continuando sin proteccion: %s", _si_err)
 
     # 3.5) Verificar si hay backup de configuración pendiente (después de actualización)
     try:
@@ -420,7 +459,27 @@ del "%~f0"
         from app.gui.main_window import MainWindow
 
         window = MainWindow(es_admin=es_admin, username=getattr(dlg.user, "username", ""))
-        
+
+        # v6.6.0: registrar callback para que cuando llegue una segunda instancia,
+        # la ventana actual se restaure desde la bandeja al frente.
+        try:
+            _g = getattr(app, "_single_guard", None)
+            if _g is not None:
+                def _on_second_instance_show():
+                    try:
+                        # Restaurar desde bandeja si esta minimizada
+                        if window.isMinimized():
+                            window.showNormal()
+                        if not window.isVisible():
+                            window.show()
+                        window.raise_()
+                        window.activateWindow()
+                    except Exception as _show_err:
+                        logger.warning("[single-instance] no se pudo restaurar ventana: %s", _show_err)
+                _g.setup_listener(on_show_request=_on_second_instance_show)
+        except Exception as _ss_err:
+            logger.warning("[main] no se pudo registrar listener single-instance: %s", _ss_err)
+
         window.showMaximized()
         sys.exit(app.exec_())
 

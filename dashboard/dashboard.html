@@ -430,7 +430,7 @@
             .config-row input, .config-row select { min-width: 100%; }
 
             /* Tabla: ocultar columnas menos importantes */
-            .col-cuotas-auto, .col-cae-auto { display: none; }
+            .col-cuotas-auto, .col-cae-auto, .col-comprobante-auto { display: none; }
 
             td, th { padding: 8px 10px; font-size: 13px; }
 
@@ -471,7 +471,7 @@
             td, th { padding: 6px 8px; font-size: 12px; }
 
             /* Tabla: ocultar aun mas columnas */
-            .col-cuotas-auto, .col-cae-auto, .col-items-auto { display: none; }
+            .col-cuotas-auto, .col-cae-auto, .col-comprobante-auto, .col-items-auto { display: none; }
 
             /* Touch-friendly: tap targets mas grandes */
             .btn { min-height: 44px; min-width: 44px; }
@@ -482,6 +482,27 @@
             .config-panel { margin: 8px; padding: 12px; }
             .config-row input { min-width: 100% !important; }
             .toast { bottom: 12px; right: 12px; left: 12px; text-align: center; }
+        }
+
+        /* v6.6.0: badge "NC" en columna CAE cuando hay nota de credito */
+        .nc-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            background: #c62828;
+            color: white;
+            border-radius: 4px;
+            font-size: 0.85em;
+            font-weight: 600;
+            cursor: help;
+            white-space: pre;
+        }
+        .nc-badge:hover {
+            background: #b71c1c;
+        }
+        .col-comprobante {
+            font-family: 'Courier New', monospace;
+            font-size: 0.95em;
+            white-space: nowrap;
         }
     </style>
     <!-- CDN: Export libraries (PDF + Excel) -->
@@ -624,12 +645,13 @@
                     <thead>
                         <tr>
                             <th class="col-ticket">Ticket</th>
-                            <th class="col-hora">Hora</th>
+                            <th class="col-hora">Fecha / Hora</th>
                             <th class="col-sucursal">Sucursal</th>
                             <th class="col-total">Total</th>
                             <th class="col-pago">Pago</th>
                             <th class="col-cuotas col-cuotas-auto">Cuotas</th>
                             <th class="col-cae col-cae-auto">CAE</th>
+                            <th class="col-comprobante col-comprobante-auto">Nº Comprobante</th>
                             <th class="col-items col-items-auto">Items</th>
                         </tr>
                     </thead>
@@ -921,7 +943,22 @@
             calcularIVAMensual(data, pagosData);
 
             // Parsear ventas (con filtros de fecha, sucursal, pago)
-            let ventas = [];
+            // v6.6.0: las NCs vienen como accion="update" sobre la venta original.
+            // Mergeamos creates + updates por (numero_ticket, sucursal) para que el
+            // dashboard refleje el estado FINAL (incluyendo NC, devoluciones, etc).
+            let ventasMap = new Map(); // clave: `${numero_ticket_cae||numero_ticket||afip_num||K:fbKey}|${sucursal}`
+            // v6.6.3: si numero_ticket_cae Y numero_ticket Y afip_numero_comprobante son
+            // null/0/"", usar la Firebase push_key como fallback. Antes todas las ventas
+            // sin ticket colisionaban en "?|sucursal" y solo se mostraba 1.
+            const ventaKey = (v, fbKey) => {
+                const id = v.numero_ticket_cae || v.numero_ticket || v.afip_numero_comprobante;
+                if (id !== undefined && id !== null && id !== '' && id !== 0 && id !== '0') {
+                    return `${id}|${v.sucursal || '?'}`;
+                }
+                return `K:${fbKey}|${v.sucursal || '?'}`;  // unico por entrada Firebase
+            };
+
+            // PASO 1: procesar CREATEs primero
             if (data) {
                 for (const [key, entry] of Object.entries(data)) {
                     if (!entry || !entry.data) continue;
@@ -935,16 +972,25 @@
                     if (sucFiltro && v.sucursal !== sucFiltro) continue;
                     if (modoFiltro && !v.modo_pago.toLowerCase().startsWith(modoFiltro)) continue;
 
-                    ventas.push({
+                    const venta = {
                         key: key,
-                        ticket: v.numero_ticket || '-',
+                        // v6.7.0: priorizar numero_ticket (interno secuencial sin-CAE).
+                        // Para tarjeta+CAE numero_ticket=0 y numero_ticket_cae trae el valor;
+                        // el || salta el 0 y muestra el con-CAE. Para efectivo sin CAE pasa al reves.
+                        ticket: v.numero_ticket || v.numero_ticket_cae || '-',
+                        numero_ticket: v.numero_ticket || null,
+                        numero_ticket_cae: v.numero_ticket_cae || null,
                         fecha: v.fecha || '',
                         sucursal: v.sucursal || '',
                         total: parseFloat(v.total || 0),
                         modo_pago: v.modo_pago || 'Efectivo',
                         cuotas: parseInt(v.cuotas || 0),
                         cae: v.afip_cae || '',
+                        afip_numero_comprobante: v.afip_numero_comprobante || null,  // v6.6.0
+                        punto_venta: v.punto_venta || null,                          // v6.6.0
+                        tipo_comprobante: v.tipo_comprobante || '',                  // v6.6.0
                         nota_credito_cae: v.nota_credito_cae || '',
+                        nota_credito_numero: v.nota_credito_numero || null,          // v6.6.0
                         items: v.items || [],
                         pagado: parseFloat(v.pagado || 0),
                         vuelto: parseFloat(v.vuelto || 0),
@@ -952,9 +998,39 @@
                         descuento: parseFloat(v.descuento_monto || 0),
                         timestamp: entry.timestamp || 0,
                         esPago: false
-                    });
+                    };
+                    ventasMap.set(ventaKey(v, key), venta);
+                }
+                // PASO 2: aplicar UPDATEs encima (NCs, devoluciones)
+                // v6.7.1: las NCs vuelven a mutar la venta original (badge "NC" en CAE).
+                // No se emite fila propia — el usuario prefirio el comportamiento previo.
+                const updates = Object.entries(data)
+                    .filter(([_, e]) => e && e.data && e.accion === 'update')
+                    .sort((a, b) => (a[1].timestamp || 0) - (b[1].timestamp || 0));
+                for (const [updateKey, entry] of updates) {
+                    const u = entry.data;
+                    // v6.6.3: para updates, intentar resolver al create por id de venta
+                    // (numero_ticket_cae | numero_ticket | afip_num). Si el create cayó
+                    // bajo K:fbKey, este update no lo encontrará y se ignora.
+                    const k = ventaKey(u, updateKey);
+                    const existing = ventasMap.get(k);
+                    if (!existing) {
+                        console.warn(`[dashboard] update ${updateKey} no encontró create matching (id=${u.numero_ticket_cae||u.numero_ticket||'-'}, suc=${u.sucursal||'?'})`);
+                        continue;
+                    }
+                    // Mezclar campos especificados en el update (no pisar lo no enviado)
+                    if (u.total !== undefined) existing.total = parseFloat(u.total);
+                    if (u.vuelto !== undefined) existing.vuelto = parseFloat(u.vuelto);
+                    if (u.afip_cae !== undefined) existing.cae = u.afip_cae || '';
+                    if (u.afip_numero_comprobante !== undefined) existing.afip_numero_comprobante = u.afip_numero_comprobante;
+                    if (u.tipo_comprobante !== undefined) existing.tipo_comprobante = u.tipo_comprobante || '';
+                    if (u.nota_credito_cae !== undefined) existing.nota_credito_cae = u.nota_credito_cae || '';
+                    if (u.nota_credito_numero !== undefined) existing.nota_credito_numero = u.nota_credito_numero;
+                    if (u.numero_ticket_cae !== undefined) existing.numero_ticket_cae = u.numero_ticket_cae;
+                    if (u.items) existing.items = u.items;
                 }
             }
+            let ventas = Array.from(ventasMap.values());
 
             // Parsear pagos a proveedores
             let pagosProveedores = [];
@@ -1021,6 +1097,7 @@
         const porSucursal = {};
 
         // Filtrar solo ventas reales (no pagos) y excluir anuladas por NC
+        // v6.7.1: vuelve al modelo original de v6.6.x — la NC mutó la venta y se descuenta.
         for (const v of ventas) {
             if (v.esPago) continue;
             if (v.nota_credito_cae) continue; // anulada: no suma
@@ -1179,7 +1256,10 @@
 
         body.innerHTML = '';
         for (const v of ventas) {
-            const hora = v.fecha ? v.fecha.substring(11, 16) : '-';
+            // v6.6.3: mostrar DD/MM HH:MM (fecha + hora) en lugar de solo HH:MM
+            const hora = v.fecha
+                ? `${v.fecha.substring(8, 10)}/${v.fecha.substring(5, 7)} ${v.fecha.substring(11, 16)}`
+                : '-';
             const sucClass = v.sucursal.toLowerCase().includes('sarmiento') ? 'suc-sarmiento' : 'suc-salta';
             const esPago = v.total < 0 || v.modo_pago.toUpperCase().includes('PAGO');
             const pagoClass = esPago ? 'pago-proveedor' : (v.modo_pago.toLowerCase().startsWith('tarj') ? 'pago-tarjeta' : 'pago-efectivo');
@@ -1190,15 +1270,54 @@
             const rowStyle = esPago ? ' style="background:#fff3e0;"' : '';
             const tipoLabel = esPago ? 'PAGO PROV.' : v.modo_pago;
 
+            // v6.6.0: badge "NC" cuando hay nota de credito; tooltip muestra ambos CAEs.
+            // Si no hay NC pero hay CAE, mostrar el ✓ verde de antes. Sino "-".
+            let caeCell;
+            if (v.nota_credito_cae) {
+                const caeOriginal = v.cae || '(sin CAE)';
+                const caeNC = v.nota_credito_cae;
+                const numNC = v.nota_credito_numero ? ` Nº ${v.nota_credito_numero}` : '';
+                const tooltip = `Venta original CAE: ${caeOriginal}\nNota de Credito CAE: ${caeNC}${numNC}`;
+                caeCell = `<span class="nc-badge" title="${tooltip.replace(/"/g, '&quot;')}">NC</span>`;
+            } else if (v.cae) {
+                caeCell = `<span title="CAE: ${v.cae}">&#10004;</span>`;
+            } else {
+                caeCell = '-';
+            }
+
+            // v6.6.0: columna "Nº Comprobante AFIP". Si tiene afip_numero_comprobante,
+            // formatear como "PV-NNNNNNNN". Sino, fallback al ticket.
+            let comprobanteCell;
+            if (v.afip_numero_comprobante && v.punto_venta) {
+                const pv = String(v.punto_venta).padStart(4, '0');
+                const num = String(v.afip_numero_comprobante).padStart(8, '0');
+                comprobanteCell = `${pv}-${num}`;
+            } else if (v.afip_numero_comprobante) {
+                comprobanteCell = String(v.afip_numero_comprobante);
+            } else {
+                comprobanteCell = v.ticket && v.ticket !== '-' ? `#${v.ticket}` : '-';
+            }
+
+            // v6.7.0: ticket interno con fallback (s/n) si solo hay comprobante AFIP
+            let ticketCell;
+            if (v.ticket && v.ticket !== '-') {
+                ticketCell = `<strong>#${v.ticket}</strong>`;
+            } else if (v.afip_numero_comprobante) {
+                ticketCell = `<span style="color:#666;font-size:0.9em;" title="Sin ticket interno; ver columna Nº Comprobante">(s/n)</span>`;
+            } else {
+                ticketCell = '-';
+            }
+
             body.innerHTML += `
                 <tr${rowStyle}>
-                    <td class="col-ticket"><strong>#${v.ticket}</strong></td>
+                    <td class="col-ticket">${ticketCell}</td>
                     <td class="col-hora">${hora}</td>
                     <td class="col-sucursal ${sucClass}">${v.sucursal}</td>
                     <td class="col-total monto" style="${esPago ? 'color:#c62828;' : ''}">$${v.total.toFixed(2)}</td>
                     <td class="col-pago ${pagoClass}">${tipoLabel}${!esPago && v.cuotas > 1 ? ` (${v.cuotas}c)` : ''}</td>
                     <td class="col-cuotas col-cuotas-auto">${v.cuotas || '-'}</td>
-                    <td class="col-cae col-cae-auto">${v.cae ? '&#10004;' : '-'}</td>
+                    <td class="col-cae col-cae-auto">${caeCell}</td>
+                    <td class="col-comprobante col-comprobante-auto">${comprobanteCell}</td>
                     <td class="col-items col-items-auto" title="${itemsTooltip.replace(/"/g, '&quot;')}">${itemsCount} items</td>
                 </tr>
             `;
@@ -1365,7 +1484,7 @@
     function _aplicarColumnaVisibility() {
         if (!dashboardConfig || !dashboardConfig.columnas_visibles) return;
         const colsVis = dashboardConfig.columnas_visibles;
-        const colNames = ['ticket', 'hora', 'sucursal', 'total', 'pago', 'cuotas', 'cae', 'items'];
+        const colNames = ['ticket', 'hora', 'sucursal', 'total', 'pago', 'cuotas', 'cae', 'comprobante', 'items'];
 
         colNames.forEach(name => {
             if (colsVis[name] === false) {

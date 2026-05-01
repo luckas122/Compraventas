@@ -138,6 +138,23 @@ DEFAULTS: Dict[str, Any] = {
         # Si está en True: al cerrar con la X, la ventana se oculta y la app queda en la bandeja
         "minimize_to_tray_on_close": True
     },
+
+    # UI: límites y preferencias visuales
+    "ui": {
+        # Cantidad máxima de items que muestra el autocompletado (mayor = más opciones, menor = más rápido)
+        "autocomplete_limit_productos": 200,
+        "autocomplete_limit_clientes": 100
+    },
+
+    # Auditoria: log de actividad de alto nivel (v6.6.0; log_dir agregado en v6.6.1)
+    "audit": {
+        "enabled": True,
+        "retention_days": 7,    # max 7 dias; min 1; configurable desde UI
+        "log_file": "activity.log",
+        # Si es None -> usa el default %APPDATA%/CompraventasV2/logs.
+        # Si se setea a una ruta valida (con permiso de escritura), se usa esa carpeta.
+        "log_dir": None
+    },
     
     
 
@@ -506,6 +523,12 @@ Interés: {{totales.interes}}
             "ventas": None,
             "productos": None,
             "proveedores": None
+        },
+        # v6.6.0: auto-cleanup de cambios procesados en Firebase para no llenar la cuota
+        # v6.6.3: default subido de 7 a 30 dias para que el dashboard mantenga histórico
+        "cleanup": {
+            "enabled": True,
+            "safe_window_days": 30  # min antes de borrar (margen para sucursales offline + dashboard)
         }
     },
 

@@ -37,6 +37,15 @@ echo [4/8] Detectando version...
 for /f "tokens=*" %%i in ('python -c "from version import __version__; print(__version__)"') do set VERSION=%%i
 echo Version: %VERSION%
 
+REM 4.1) Sincronizar version_info.txt e installer.iss desde version.py (single source of truth)
+echo [4.1/8] Sincronizando archivos de version desde version.py...
+python sync_version_files.py
+if errorlevel 1 (
+    echo ERROR: sync_version_files.py fallo
+    pause
+    exit /b 1
+)
+
 REM 4.5) Preparar installer_output sin borrar versiones anteriores
 if not exist "installer_output" mkdir "installer_output"
 if exist "installer_output\Tu.local.2025.v%VERSION%.Setup.exe" del "installer_output\Tu.local.2025.v%VERSION%.Setup.exe"

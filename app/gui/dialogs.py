@@ -482,14 +482,32 @@ class ProductosDialog(QDialog):
         return rows
 
     def dlg_eliminar(self):
-        if QMessageBox.question(self, 'Confirmar', '¿Eliminar productos seleccionados?',
-                                QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
-            return
-        # filas marcadas
+        # Calcular cuáles y cuántos antes de pedir confirmación
         rows = [r for r in range(self.table.rowCount())
                 if (self.table.item(r, 0) and self.table.item(r, 0).checkState() == Qt.Checked)]
         if not rows:
             QMessageBox.information(self, 'Eliminar', 'No hay seleccionados.')
+            return
+
+        # Tomar nombre de columna 2 (Nombre) si existe, para el sample
+        sample = []
+        for r in rows[:5]:
+            try:
+                nm_item = self.table.item(r, 2)
+                if nm_item:
+                    sample.append(nm_item.text())
+            except Exception:
+                pass
+
+        from app.gui.confirm_dialogs import confirm_destructive
+        if not confirm_destructive(
+            self,
+            title="Eliminar productos",
+            action="Vas a eliminar los productos seleccionados.",
+            items_count=len(rows),
+            sample=sample,
+            warning="Esta accion NO se puede deshacer.",
+        ):
             return
 
         # recolectar IDs SIN consultar a la DB uno a uno

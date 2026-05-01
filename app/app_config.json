@@ -14,6 +14,16 @@
     "default_send_time": "20:30",
     "minimize_to_tray_on_close": true
   },
+  "ui": {
+    "autocomplete_limit_productos": 200,
+    "autocomplete_limit_clientes": 100
+  },
+  "audit": {
+    "enabled": true,
+    "retention_days": 7,
+    "log_file": "activity.log",
+    "log_dir": null
+  },
   "shortcuts": {
     "global": {
       "productos": "F1",
@@ -318,6 +328,10 @@
       "ventas": null,
       "productos": null,
       "proveedores": null
+    },
+    "cleanup": {
+      "enabled": true,
+      "safe_window_days": 30
     }
   },
   "dashboard": {

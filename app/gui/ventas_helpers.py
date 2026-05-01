@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 def build_product_completer(session, parent=None):
     from app.repository import prod_repo
     from app.gui.main_window.filters import LimitedFilterProxy
+    from app.config import load as _load_cfg
 
     repo = prod_repo(session)
     pares = repo.listar_codigos_nombres()
@@ -22,8 +23,13 @@ def build_product_completer(session, parent=None):
 
     model = QStringListModel(items, parent)
 
-    # Usar proxy con limite para evitar lag con 13K+ items
-    proxy = LimitedFilterProxy(limit=50, parent=parent)
+    # Usar proxy con limite (configurable) para evitar lag con catalogos grandes
+    try:
+        _ui_cfg = (_load_cfg().get("ui") or {})
+        _limit = int(_ui_cfg.get("autocomplete_limit_productos", 200))
+    except Exception:
+        _limit = 200
+    proxy = LimitedFilterProxy(limit=_limit, parent=parent)
     proxy.setSourceModel(model)
     proxy.setFilterCaseSensitivity(Qt.CaseInsensitive)
 

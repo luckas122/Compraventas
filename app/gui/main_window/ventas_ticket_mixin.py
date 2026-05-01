@@ -664,6 +664,20 @@ class VentasTicketMixin:
             return
 
         try:
+            # v6.7.1: capturar snapshot de identificadores ANTES de borrar
+            # (despues del delete, el objeto queda detached). Asi podemos publicar
+            # la baja a Firebase aunque el objeto venta ya no este en la sesion.
+            v_pre = self.session.query(Venta).get(venta_id)
+            venta_snapshot = None
+            if v_pre is not None:
+                class _VentaSnapshot:
+                    pass
+                venta_snapshot = _VentaSnapshot()
+                venta_snapshot.numero_ticket = v_pre.numero_ticket
+                venta_snapshot.numero_ticket_cae = v_pre.numero_ticket_cae
+                venta_snapshot.afip_numero_comprobante = v_pre.afip_numero_comprobante
+                venta_snapshot.sucursal = v_pre.sucursal
+
             # Si el repositorio tiene helper:
             if hasattr(self.venta_repo, "eliminar"):
                 self.venta_repo.eliminar(venta_id)
@@ -674,6 +688,13 @@ class VentasTicketMixin:
                 if v:
                     self.session.delete(v)
                     self.session.commit()
+
+            # v6.7.1: replicar la baja a otras sucursales via Firebase
+            if venta_snapshot is not None and hasattr(self, '_sync_push'):
+                try:
+                    self._sync_push("venta_del", venta_snapshot)
+                except Exception:
+                    pass
         except Exception as e:
             try:
                 self.session.rollback()

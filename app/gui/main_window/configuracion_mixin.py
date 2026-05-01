@@ -32,6 +32,57 @@ class ConfiguracionMixin:
       - Aplica tema/estilos y timezone.
       - Gestiona plantillas de ticket (_tpl_*).
     Este mixin NO inicializa repos; usa atributos creados en MainWindow.__init__.
+
+    ┌──────────────────────────────────────────────────────────────────────────┐
+    │ ÍNDICE DE SECCIONES (archivo grande: ~2,082 líneas)                      │
+    ├──────────────────────────────────────────────────────────────────────────┤
+    │  Línea  Sección                                                           │
+    │  -----  -------                                                           │
+    │     39  def tab_configuracion()  ← UI principal (~1,300 líneas)           │
+    │     70    PÁGINA: GENERAL                                                 │
+    │     74      Estilos                                                       │
+    │    125      Colores de botones (hover)                                    │
+    │    155      Comportamiento de la ventana                                  │
+    │    166      Sucursal por defecto                                          │
+    │    186      Regional / Zona horaria                                       │
+    │    219      Impresoras y escáner                                          │
+    │    281    PÁGINA: TICKET (sub-tabs)                                       │
+    │    292      Plantilla de ticket                                           │
+    │    348      Selección automática de plantilla                             │
+    │    428      Bloque IVA discriminado                                       │
+    │    454      Tamaño de fuente del ticket                                   │
+    │    492      Márgenes del ticket                                           │
+    │    535      Imágenes para Ticket                                          │
+    │    598      Etiquetas de código de barras                                 │
+    │    634    PÁGINA: REPORTES & ENVÍOS                                       │
+    │    653    PÁGINA: FACTURACIÓN ELECTRÓNICA (AFIP/ARCA)                     │
+    │    700      Puntos de venta por sucursal                                  │
+    │    806    PÁGINA: BACKUPS                                                 │
+    │    829    PÁGINA: ACCESOS RÁPIDOS (atajos)                                │
+    │   1181    PÁGINA: SINCRONIZACIÓN                                          │
+    │   1198    PÁGINA: DASHBOARD                                               │
+    │   1215    PÁGINA: ALERTAS                                                 │
+    │                                                                          │
+    │   1330  def _apply_config_from_ui()  ← Persiste cambios al app_config     │
+    │   1594  def _wire_reportes_guardar_programacion()                         │
+    │   1650  def _pick_color() / _apply_theme_stylesheet()                     │
+    │   1828  def _select_ticket_image() / _clear_ticket_image()                │
+    │   1883  def _generate_qr_from_url()                                       │
+    │   1914  def _seleccionar_archivo_afip()                                   │
+    │   1920  def _consultar_ultimo_comprobante_afip()                          │
+    │   1973  def _aplicar_modo_noche()                                         │
+    │   1996  def _update_tz_clock()                                            │
+    │   2023  def _save_alert_config() / _test_alert_email()                    │
+    └──────────────────────────────────────────────────────────────────────────┘
+
+    NOTA SOBRE SPLIT FUTURO:
+        Este archivo es candidato a refactorizarse en submixins por sub-pestaña
+        (ej: ConfigGeneralMixin, ConfigAfipMixin, ConfigSyncMixin, etc).
+        El método monolítico tab_configuracion() construye una sola UI con muchos
+        controles que comparten estado en self.* y son leídos por _apply_config_from_ui.
+        Hacer el split es viable pero requiere un día dedicado de refactor + testing
+        manual en cada pestaña; por eso se documenta primero (este índice) y se
+        deja el split físico para v7.0.
     """
 # ---------------- Configuración ----------------
     
@@ -182,6 +233,124 @@ class ConfiguracionMixin:
         lay_suc.addRow("Al iniciar:", self.cfg_cmb_sucursal)
 
         lay_gen.addWidget(gb_suc)
+
+        # --- Auditoria (v6.6.0) ---
+        gb_audit = QGroupBox("Auditoria de actividad", parent=page_general)
+        lay_audit = QFormLayout(gb_audit)
+        lay_audit.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
+        _audit_cfg = (cfg.get("audit") or {})
+        self.cfg_chk_audit = QCheckBox("Activar log de actividad (clicks, dialogos, atajos)")
+        self.cfg_chk_audit.setChecked(bool(_audit_cfg.get("enabled", True)))
+        self.cfg_chk_audit.setToolTip(
+            "Guarda en activity.log las acciones del usuario para auditoria.\n"
+            "NO captura passwords ni texto de campos sensibles."
+        )
+        lay_audit.addRow(self.cfg_chk_audit)
+
+        self.cfg_spn_audit_retention = QSpinBox(gb_audit)
+        self.cfg_spn_audit_retention.setRange(1, 7)
+        self.cfg_spn_audit_retention.setValue(int(_audit_cfg.get("retention_days", 7)))
+        self.cfg_spn_audit_retention.setSuffix(" dia(s)")
+        self.cfg_spn_audit_retention.setToolTip(
+            "Los archivos del log mas viejos que este valor se borran automaticamente al iniciar la app.\n"
+            "Maximo 7 dias para no ocupar espacio."
+        )
+        lay_audit.addRow("Retencion:", self.cfg_spn_audit_retention)
+
+        # v6.6.1: ruta del log de auditoria configurable
+        try:
+            from app.audit_logger import get_audit_logger as _get_audit_lg
+            _curr_log_path = _get_audit_lg().get_log_path()
+        except Exception:
+            _curr_log_path = ""
+        _audit_log_dir = (_audit_cfg.get("log_dir") or "").strip()
+
+        row_log_dir = QWidget(gb_audit)
+        h_log = QHBoxLayout(row_log_dir); h_log.setContentsMargins(0, 0, 0, 0)
+        self.cfg_ed_audit_log_dir = QLineEdit(row_log_dir)
+        self.cfg_ed_audit_log_dir.setReadOnly(True)
+        self.cfg_ed_audit_log_dir.setPlaceholderText("(default: %APPDATA%/CompraventasV2/logs)")
+        self.cfg_ed_audit_log_dir.setText(_audit_log_dir)
+        self.cfg_ed_audit_log_dir.setToolTip(
+            f"Carpeta donde se guarda activity.log\n"
+            f"Ruta efectiva actual: {_curr_log_path or '(default)'}"
+        )
+        h_log.addWidget(self.cfg_ed_audit_log_dir, 1)
+
+        btn_log_pick = QPushButton("Cambiar...", row_log_dir)
+        def _pick_log_dir():
+            d = QFileDialog.getExistingDirectory(self, "Carpeta para activity.log", _audit_log_dir or "")
+            if d:
+                # Validar permiso de escritura antes de aceptar
+                try:
+                    os.makedirs(d, exist_ok=True)
+                    if not os.access(d, os.W_OK):
+                        from PyQt5.QtWidgets import QMessageBox as _QMB
+                        _QMB.warning(self, "Carpeta sin permisos",
+                                     f"La carpeta '{d}' no tiene permiso de escritura.")
+                        return
+                except Exception as _e:
+                    from PyQt5.QtWidgets import QMessageBox as _QMB
+                    _QMB.warning(self, "Carpeta invalida", f"No se pudo usar '{d}':\n{_e}")
+                    return
+                self.cfg_ed_audit_log_dir.setText(d)
+        btn_log_pick.clicked.connect(_pick_log_dir)
+        h_log.addWidget(btn_log_pick)
+
+        btn_log_default = QPushButton("Default", row_log_dir)
+        btn_log_default.setToolTip("Volver a la carpeta default (%APPDATA%/CompraventasV2/logs)")
+        btn_log_default.clicked.connect(lambda: self.cfg_ed_audit_log_dir.setText(""))
+        h_log.addWidget(btn_log_default)
+
+        btn_log_open = QPushButton("Abrir", row_log_dir)
+        btn_log_open.setToolTip("Abrir la carpeta del log en el explorador")
+        def _open_log_dir():
+            from PyQt5.QtCore import QUrl
+            from PyQt5.QtGui import QDesktopServices
+            try:
+                from app.audit_logger import get_audit_logger as _gal
+                d = os.path.dirname(_gal().get_log_path()) or _curr_log_path
+            except Exception:
+                d = _curr_log_path
+            if d and os.path.isdir(d):
+                QDesktopServices.openUrl(QUrl.fromLocalFile(d))
+        btn_log_open.clicked.connect(_open_log_dir)
+        h_log.addWidget(btn_log_open)
+
+        lay_audit.addRow("Carpeta del log:", row_log_dir)
+
+        lay_gen.addWidget(gb_audit)
+
+        # --- Rendimiento de busquedas (v6.6.1) ---
+        gb_perf = QGroupBox("Rendimiento de busquedas", parent=page_general)
+        lay_perf = QFormLayout(gb_perf)
+        lay_perf.setLabelAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
+        _ui_cfg = (cfg.get("ui") or {})
+        self.cfg_spn_autocomp_prod = QSpinBox(gb_perf)
+        self.cfg_spn_autocomp_prod.setRange(50, 1000)
+        self.cfg_spn_autocomp_prod.setSingleStep(50)
+        self.cfg_spn_autocomp_prod.setValue(int(_ui_cfg.get("autocomplete_limit_productos", 200)))
+        self.cfg_spn_autocomp_prod.setSuffix(" items")
+        self.cfg_spn_autocomp_prod.setToolTip(
+            "Cantidad maxima de productos sugeridos en el autocompletado.\n"
+            "Mas alto = mas opciones; mas bajo = mas rapido. Recomendado: 200."
+        )
+        lay_perf.addRow("Limite autocomp. productos:", self.cfg_spn_autocomp_prod)
+
+        self.cfg_spn_autocomp_cli = QSpinBox(gb_perf)
+        self.cfg_spn_autocomp_cli.setRange(50, 500)
+        self.cfg_spn_autocomp_cli.setSingleStep(25)
+        self.cfg_spn_autocomp_cli.setValue(int(_ui_cfg.get("autocomplete_limit_clientes", 100)))
+        self.cfg_spn_autocomp_cli.setSuffix(" items")
+        self.cfg_spn_autocomp_cli.setToolTip(
+            "Cantidad maxima de clientes sugeridos en el autocompletado.\n"
+            "Recomendado: 100."
+        )
+        lay_perf.addRow("Limite autocomp. clientes:", self.cfg_spn_autocomp_cli)
+
+        lay_gen.addWidget(gb_perf)
 
         # --- Regional / Zona horaria + reloj ---
         gb_region = QGroupBox("Regional / Zona horaria", parent=page_general)
@@ -1356,6 +1525,41 @@ class ConfiguracionMixin:
         except Exception:
             startup["default_sucursal"] = "ask"
         cfg["startup"] = startup
+
+        # ---------- audit (v6.6.0; log_dir agregado en v6.6.1) ----------
+        audit_cfg = cfg.get("audit") or {}
+        try:
+            audit_cfg["enabled"] = bool(self.cfg_chk_audit.isChecked())
+            audit_cfg["retention_days"] = int(self.cfg_spn_audit_retention.value())
+            new_log_dir = (self.cfg_ed_audit_log_dir.text() or "").strip() or None
+            audit_cfg["log_dir"] = new_log_dir
+            cfg["audit"] = audit_cfg
+            # Aplicar inmediatamente al runtime audit logger
+            try:
+                from app.audit_logger import get_audit_logger
+                _al = get_audit_logger()
+                _al.set_enabled(audit_cfg["enabled"])
+                _al.relocate_log(new_log_dir)
+                # Actualizar tooltip con la nueva ruta efectiva
+                try:
+                    self.cfg_ed_audit_log_dir.setToolTip(
+                        f"Ruta efectiva actual: {_al.get_log_path() or '(default)'}"
+                    )
+                except Exception:
+                    pass
+            except Exception as _ar_err:
+                logger.warning("[config] no se pudo aplicar audit log_dir: %s", _ar_err)
+        except Exception as _audit_save_err:
+            logger.warning("[config] no se pudo guardar audit: %s", _audit_save_err)
+
+        # ---------- ui.autocomplete_limit_* (v6.6.1) ----------
+        try:
+            ui_cfg = cfg.get("ui") or {}
+            ui_cfg["autocomplete_limit_productos"] = int(self.cfg_spn_autocomp_prod.value())
+            ui_cfg["autocomplete_limit_clientes"] = int(self.cfg_spn_autocomp_cli.value())
+            cfg["ui"] = ui_cfg
+        except Exception as _ui_save_err:
+            logger.warning("[config] no se pudo guardar ui.autocomplete_limit: %s", _ui_save_err)
 
         # ---------- theme ----------
         th = cfg.get("theme") or {}

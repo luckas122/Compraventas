@@ -1,6 +1,6 @@
 # Tu local 2025 — Guía maestra para retomar el proyecto
 
-> **Versión actual:** 6.5.1
+> **Versión actual:** 6.6.4
 > **Stack:** Python 3.14 · PyQt5 · SQLAlchemy · SQLite · AfipSDK REST · Firebase REST · PyInstaller · Inno Setup 6
 > **Repositorio raíz:** `C:\Users\Lucas\Desktop\aplicaciones\Compraventas`
 
@@ -113,15 +113,25 @@ Compraventas/
 
 ---
 
-## 4. Estado actual (v6.5.1)
+## 4. Estado actual (v6.6.4)
 
 ### Cambios recientes (changelog corto)
 
-**v6.5.1 (último)** — Historial: filtro principal **CAE: Todas / Sin CAE / Con CAE** + subfiltro **Pago: Todos / Efectivo / Tarjeta**, ambos siempre visibles y combinados en AND. Reemplaza el viejo combo `Forma:` que confundía comprobante fiscal con medio de pago. Aplica también al tab Estadísticas.
+**v6.6.4 (último)** — Patch de performance + apply de tarjeta. (1) **Bug crítico**: `_apply_venta` skipeaba ventas con `numero_ticket=null` (caso v6.5.1 con tarjeta/CAE) → Salta nunca recibía esas ventas. Ahora usa `numero_ticket_cae` o `afip_numero_comprobante` como identidad fallback. (2) **Velocidad force_pull 10x**: thread session usa `PRAGMA synchronous=NORMAL` (commits ~1ms vs ~10ms), retry timeout reducido de 5×(3,6,12,24,48s)=93s → 3×(1,2,4s)=7s, progress callback cada 25 items. (3) Antes de force_pull, se commitea la sesión principal y se pausa el `_sync_timer` para liberar locks SQLite (la mitad del tiempo se perdía esperando que la BD se libere). (4) Cancelación de force_pull es ahora más rápida (chequea entre cada item, no solo entre páginas).
 
-**v6.5.0** — Fix RuntimeError `wrapped C/C++ object of type QTableWidgetItem has been deleted` al aplicar descuento (causa: `setItem` en handler de `itemChanged` destruía el item en uso). Solucionado con flag `_cesta_updating` + `QSignalBlocker`. Agregadas columnas Total CAE / IVA Ventas / IVA Compras al label resumen del Historial. Notas de Crédito se restan correctamente. Nueva columna `incluye_iva` en `PagoProveedor` con migración + checkbox en diálogo. Dashboard: cards CAE (monto + cantidad con sub-totales Efectivo/Tarjeta) + nueva pestaña Proveedores con form para registrar pagos y replicarlos a la app vía Firebase. `build.bat`: ya no borra `installer_output/`, preserva versiones anteriores.
+**v6.6.3** — Patch crítico post-v6.6.2. (1) **Dashboard merge key fix**: ventas con `numero_ticket=null` (publicadas por v6.5.1 con tarjeta/CAE) colisionaban en `?|sucursal` y solo aparecía 1 — ahora usa `K:fbKey` como fallback de identidad, así cada venta aparece independientemente. (2) Dashboard "Detalle de ventas" ahora muestra `Fecha / Hora` (DD/MM HH:MM) en lugar de solo HH:MM. (3) **Force pull con progress real**: QThread + QProgressDialog cancelable que muestra "Procesando productos pagina 4/30 (1500 aplicados)". (4) **Diagnose comparativo**: nuevo `diagnose_full()` cuenta filas locales (BD) y entradas Firebase (con `shallow=true`, gratis en cuota), muestra diff real local vs Firebase. (5) Audit log defensivo: providers usan `getattr` y `_ctx` loguea tipo de excepción una vez. (6) `cleanup.safe_window_days` default subido de 7 → 30 días para que el dashboard mantenga histórico.
 
-**v6.2.4** — Fix dummy de descuento (precursor del v6.5.0).
+**v6.6.2** — Patch crítico de sync. (1) Fix `diagnose_pending` que usaba `getattr(self, "last_processed_keys", {})` (atributo inexistente) → contaba todo como pendiente. Ahora usa el método real `_get_last_processed_keys()`. (2) **Skip-on-fail**: si un cambio de Firebase falla 3 veces seguidas en aplicarse, se avanza cursor y se registra en `sync_skipped.log` para inspección — antes el cursor quedaba atascado y nunca avanzaba. (3) Botón **"Forzar descarga completa desde Firebase"** que resetea `last_processed_keys` + fail counter y dispara `pull_changes()` desde cero. (4) Botón **"Ver items con error (skipeados)"** muestra el log de items skipeados. (5) Dashboard fix: ticket "#-" ya no aparece (renderiza `-` cuando no hay número), y el merge create+update prioriza `numero_ticket_cae` para ventas con tarjeta. (6) Audit log: formato cambiado de `[user@sucursal]` a `user=X suc=Y` (más legible).
+
+**v6.6.1** — Patch de bugs reportados sobre v6.6.0. (1) Fix botón "Verificar pendientes": atributo equivocado en `sync_config.py` (`_sync_manager` → `_firebase_sync`). (2) Audit log ahora captura **F1-F12, Ctrl+letra/dígito y cambios de pestaña** (antes solo clicks de botón y diálogos), loguea `INIT file=...` al arrancar para confirmar la ruta. (3) Carpeta del log de auditoría configurable desde Configuración → General → Auditoría (botón "Cambiar..."). (4) Expuestas en UI: `sync.cleanup.{enabled, safe_window_days}` (pestaña Sincronización) y `ui.autocomplete_limit_productos/clientes` (pestaña General → Rendimiento de búsquedas).
+
+**v6.6.0** — Auditoría de actividad (eventFilter global con retención configurable), single-instance (QSharedMemory + QLocalServer; popup + restore al lanzar 2da instancia), botón "Verificar pendientes" con diff Local↔Firebase, auto-cleanup de Firebase tras pull con `safe_window_days=7`, columna "Nº Comprobante" en Historial, dashboard espejo correcto: NCs descontadas + badge con hover, fix tickets de tarjeta `#-`, columna Nº Comprobante AFIP. Backup default `%APPDATA%/CompraventasV2/backups` con validación al arrancar.
+
+**v6.5.2** — Bug fix reportes semanales (3 frecuencias paralelas DAILY/WEEKLY/MONTHLY con auto-migración), logging crítico en bloques except, build.bat con auto-versionado vía `sync_version_files.py`, GitHub Actions CI, `app/utils/format.py` para formato de moneda AR, `error_messages.py`, `confirm_dialogs.py`, `progress_helpers.py`, RotatingFileHandler centralizado, índice navegable en `configuracion_mixin.py`.
+
+**v6.5.1** — Historial: filtro principal **CAE: Todas / Sin CAE / Con CAE** + subfiltro **Pago: Todos / Efectivo / Tarjeta**, ambos siempre visibles y combinados en AND.
+
+**v6.5.0** — Fix RuntimeError `wrapped C/C++ object of type QTableWidgetItem has been deleted` al aplicar descuento. Columnas Total CAE / IVA Ventas / IVA Compras en Historial. Dashboard: cards CAE + pestaña Proveedores. `build.bat` preserva `installer_output/`.
 
 ### Estado de los instaladores
 
@@ -129,7 +139,13 @@ Compraventas/
 - `Tu.local.2025.v6.2.2.Setup.exe`
 - `Tu.local.2025.v6.2.4.Setup.exe`
 - `Tu.local.2025.v6.5.0.Setup.exe`
-- **`Tu.local.2025.v6.5.1.Setup.exe`** ← actual
+- `Tu.local.2025.v6.5.1.Setup.exe`
+- `Tu.local.2025.v6.5.2.Setup.exe`
+- `Tu.local.2025.v6.6.0.Setup.exe`
+- `Tu.local.2025.v6.6.1.Setup.exe`
+- `Tu.local.2025.v6.6.2.Setup.exe`
+- `Tu.local.2025.v6.6.3.Setup.exe`
+- **`Tu.local.2025.v6.6.4.Setup.exe`** ← actual
 
 ---
 
@@ -182,6 +198,9 @@ Runner alternativo (PowerShell con redirects para que no quede colgado): `C:\tmp
 - **Firebase anti-eco:** todo push lleva `sucursal_origen`. Todo pull descarta si origen == local.
 - **`installer_output/`:** **no borrar** al rebuild. Solo borrar el `.exe` de la versión actual antes de recompilar (idempotencia).
 - **Config separada:** `%APPDATA%\CompraventasV2\app_config.json` no se toca en updates. La app pregunta al iniciar si hay un backup pendiente.
+- **`backup.dir` (v6.6.0):** la ubicación de backup persiste en `app_config.json → backup.dir` y sobrevive a updates. Si la ruta queda inválida (USB desconectado, etc.) se cae al default `%APPDATA%\CompraventasV2\backups` con un warning en el log.
+- **Auto-cleanup de Firebase (`sync.cleanup`, v6.6.0):** borra registros viejos del nodo `cambios/{tipo}/` en Firebase Realtime DB para no llenar la cuota gratuita. **NO afecta los productos/ventas/proveedores en SQLite local de ninguna sucursal.** Una vez que un cambio se replicó, el dato vive permanentemente en la base local; el registro en `cambios/` es solo un buzón de tránsito. El borrado solo procede si el cambio tiene más de `safe_window_days` (default 7), para dar margen a sucursales que estuvieron offline. Configurable desde Configuración → Sincronización (v6.6.1).
+- **Audit log (`audit.log_dir`, v6.6.1):** ubicación del log de auditoría configurable desde UI. Si la carpeta no es escribible, cae al default `%APPDATA%\CompraventasV2\logs\activity.log`. Captura clicks, F1-F12, Ctrl+letra, cambios de pestaña, apertura/cierre de diálogos. **NO captura passwords ni texto de campos sensibles** (skip de QLineEdit con `echoMode=Password` o objectName "pass"/"clave"/"secret"/"token").
 
 ---
 

@@ -219,10 +219,14 @@ class HistorialVentasWidget(QWidget):
         self.cmb_pago.currentIndexChanged.connect(lambda *_: self.refrescar())
 
         # --- Tabla ---
-        self.tbl = QTableWidget(0, 15)
+        # v6.6.0: agregada columna "Nº Comprobante" en posicion 14 (antes de ID).
+        # Se pone al final para no romper indices existentes (11=CAE, 12=Vto CAE, 13=Comentario).
+        self.tbl = QTableWidget(0, 16)
         self.tbl.setHorizontalHeaderLabels([
             "Nº Ticket", "Fecha/Hora", "Sucursal", "Forma Pago",
-            "Cuotas","Interés", "Descuento", "Monto x cuota", "Total", "Pagado", "Vuelto", "CAE", "Vto CAE", "Comentario", "ID"
+            "Cuotas","Interés", "Descuento", "Monto x cuota", "Total", "Pagado", "Vuelto", "CAE", "Vto CAE", "Comentario",
+            "Nº Comprobante",  # v6.6.0: AFIP comprobante o # ticket si no hay CAE
+            "ID"
         ])
         hdr = self.tbl.horizontalHeader()
         hdr.setSectionResizeMode(QHeaderView.Interactive)
@@ -241,8 +245,9 @@ class HistorialVentasWidget(QWidget):
         self.tbl.setColumnWidth(11, 130) # CAE
         self.tbl.setColumnWidth(12, 100) # Vto CAE
         self.tbl.setColumnWidth(13, 120) # Comentario
-        # ID oculto
-        self.tbl.setColumnHidden(14, True)
+        self.tbl.setColumnWidth(14, 130) # v6.6.0: Nº Comprobante
+        # ID oculto (ahora pos 15)
+        self.tbl.setColumnHidden(15, True)
         self.tbl.verticalHeader().setVisible(False)
         self.tbl.setSelectionBehavior(QTableWidget.SelectRows)
         self.tbl.setEditTriggers(QTableWidget.NoEditTriggers)
@@ -894,13 +899,14 @@ class HistorialVentasWidget(QWidget):
         self._pintar_tabla()
 
     def _pintar_tabla(self):
-        # Asegurar 15 columnas y headers (por si no se hizo en __init__)
-        if self.tbl.columnCount() != 15:
+        # v6.6.0: 16 columnas (agregada Nº Comprobante en pos 14, ID corrido a 15)
+        if self.tbl.columnCount() != 16:
             self.tbl.setColumnCount(16)
             self.tbl.setHorizontalHeaderLabels([
                 "Nº Ticket", "Fecha/Hora", "Sucursal", "Forma Pago",
                 "Cuotas", "Interés", "Descuento", "Monto x cuota",
-                "Total", "Pagado", "Vuelto", "CAE", "Vto CAE", "Nota Crédito", "Comentario", "ID"
+                "Total", "Pagado", "Vuelto", "CAE", "Vto CAE", "Comentario",
+                "Nº Comprobante", "ID"
             ])
 
         self.tbl.setRowCount(0)
@@ -988,23 +994,37 @@ class HistorialVentasWidget(QWidget):
             # Orden EXACTO de columnas (coincide con headers)
             nc_cae = getattr(v, "nota_credito_cae", None) or ""
 
+            # v6.6.0: Nº Comprobante AFIP. Formato "PV-NNNNNNNN" si hay CAE; sino el #ticket.
+            num_compr = getattr(v, "afip_numero_comprobante", None)
+            if num_compr:
+                # Punto de venta: por sucursal si esta, sino global
+                try:
+                    from app.config import load as _load_cfg_pv
+                    _fiscal = (_load_cfg_pv().get("fiscal") or {})
+                    _pv = int((_fiscal.get("puntos_venta_por_sucursal") or {}).get(suc) or _fiscal.get("punto_venta") or 1)
+                except Exception:
+                    _pv = 1
+                comprobante_txt = f"{_pv:04d}-{int(num_compr):08d}"
+            else:
+                comprobante_txt = (f"#{nro}" if nro and nro != "-" else "-")
+
             data = [
-                nro,                                  # Nº Ticket
-                hora,                                 # Fecha/Hora
-                suc,                                  # Sucursal
-                forma,                                # Forma Pago
-                (str(cuotas) if cuotas else "-"),     # Cuotas
-                (f"${interes:.2f}" if interes else "-"),      # Interés
-                (f"${descuento:.2f}" if descuento else "-"),  # Descuento
-                (f"${monto_cuota:.2f}" if monto_cuota else "-"),  # Monto x cuota
-                f"${tot:.2f}",                        # Total
-                pagado_txt,                           # Pagado
-                vuelto_txt,                           # Vuelto
-                "",                                   # CAE (placeholder - se llena abajo)
-                str(cae_vto) if cae_vto else "-",     # Vto CAE
-                "",                                   # Nota Crédito (placeholder)
-                coment,                               # Comentario
-                str(getattr(v, "id", ""))             # ID
+                nro,                                  # 0  Nº Ticket
+                hora,                                 # 1  Fecha/Hora
+                suc,                                  # 2  Sucursal
+                forma,                                # 3  Forma Pago
+                (str(cuotas) if cuotas else "-"),     # 4  Cuotas
+                (f"${interes:.2f}" if interes else "-"),      # 5  Interés
+                (f"${descuento:.2f}" if descuento else "-"),  # 6  Descuento
+                (f"${monto_cuota:.2f}" if monto_cuota else "-"),  # 7  Monto x cuota
+                f"${tot:.2f}",                        # 8  Total
+                pagado_txt,                           # 9  Pagado
+                vuelto_txt,                           # 10 Vuelto
+                "",                                   # 11 CAE (placeholder - se llena abajo)
+                str(cae_vto) if cae_vto else "-",     # 12 Vto CAE
+                "",                                   # 13 Nota Crédito (placeholder)
+                comprobante_txt,                      # 14 Nº Comprobante (v6.6.0)
+                str(getattr(v, "id", ""))             # 15 ID
             ]
 
             for c, val in enumerate(data):
@@ -1071,18 +1091,19 @@ class HistorialVentasWidget(QWidget):
             fch = getattr(p, 'fecha', None)
             hora = fch.strftime("%Y-%m-%d %H:%M") if fch else ""
             pdata = [
-                str(getattr(p, 'numero_ticket', '') or ''),
-                hora,
-                getattr(p, 'sucursal', '') or '',
-                f"PAGO: {p.proveedor_nombre}",
-                p.metodo_pago,
-                '-', '-', '-',
-                f"-${p.monto:.2f}",
-                'Caja' if p.pago_de_caja else '-',
-                p.nota or '-',
-                '-', '-',
-                'Pago a proveedor',
-                ''
+                str(getattr(p, 'numero_ticket', '') or ''),  # 0  Nº Ticket
+                hora,                                         # 1  Fecha/Hora
+                getattr(p, 'sucursal', '') or '',             # 2  Sucursal
+                f"PAGO: {p.proveedor_nombre}",                # 3  Forma Pago
+                p.metodo_pago,                                # 4  Cuotas (uso para mostrar metodo)
+                '-', '-', '-',                                # 5,6,7 Interés/Descuento/Monto x cuota
+                f"-${p.monto:.2f}",                           # 8  Total
+                'Caja' if p.pago_de_caja else '-',            # 9  Pagado
+                p.nota or '-',                                # 10 Vuelto (uso para nota)
+                '-', '-',                                     # 11 CAE, 12 Vto CAE
+                'Pago a proveedor',                           # 13 Nota Crédito (slot)
+                '-',                                          # 14 Nº Comprobante (v6.6.0)
+                ''                                            # 15 ID
             ]
             for c, val in enumerate(pdata):
                 it = QTableWidgetItem(val)
@@ -1099,8 +1120,8 @@ class HistorialVentasWidget(QWidget):
             f" — Total CAE ${total_cae:.2f} — IVA Ventas ${iva_ventas:.2f} — IVA Compras ${iva_compras:.2f}{pagos_txt}"
         )
 
-        # Ocultar ID (última columna)
-        self.tbl.setColumnHidden(14, True)
+        # Ocultar ID (última columna, ahora 15 con la columna Nº Comprobante en v6.6.0)
+        self.tbl.setColumnHidden(15, True)
 
     def _obtener_comentario(self, v) -> str:
         # 1) Atributos directos de la venta
@@ -1272,7 +1293,8 @@ class HistorialVentasWidget(QWidget):
                     f"Error al emitir Nota de Crédito:\n{response.error_message}"
                 )
         except Exception as e:
-            QMessageBox.warning(self, "AFIP - Error", f"Error: {e}")
+            from app.gui.error_messages import show_error
+            show_error(self, "emitir la Nota de Credito", e, context="afip_nc")
 
     def _reintentar_cae_desde_tabla(self, venta_id):
         """Reintenta la emisión de CAE para una venta directamente desde la tabla."""
@@ -1475,8 +1497,10 @@ class HistorialVentasWidget(QWidget):
         if not path.lower().endswith(".xlsx"):
             path += ".xlsx"
 
+        from app.gui.progress_helpers import busy_dialog
         try:
-            out_path = self._crear_excel(path)
+            with busy_dialog(self, "Exportando", "Generando archivo Excel..."):
+                out_path = self._crear_excel(path)
             QMessageBox.information(self, "Exportar", f"Guardado:\n{out_path}")
         except Exception as e:
             QMessageBox.warning(

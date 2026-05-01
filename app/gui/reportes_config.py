@@ -18,27 +18,65 @@ class ReportesCorreoConfig(QWidget):
         self.cfg = load_config()
         root = QVBoxLayout(self)
 
-        # -------- Programación --------
-        gb_prog = QGroupBox("Programación de envíos automáticos")
-        f_prog = QFormLayout(gb_prog)
+        # -------- Programación (3 frecuencias INDEPENDIENTES) --------
+        gb_prog = QGroupBox("Programación de envíos automáticos (las 3 frecuencias funcionan en paralelo)")
+        f_prog = QVBoxLayout(gb_prog)
 
-        self.chk_enabled = QCheckBox("Activar envíos programados")
-        self.cmb_freq = NoScrollComboBox(); self.cmb_freq.addItems(["Diario", "Semanal", "Mensual"])
-        self.time_send = QTimeEdit(); self.time_send.setDisplayFormat("HH:mm")
-        self.time_send.setAlignment(Qt.AlignCenter); self.time_send.setMinimumWidth(90)
+        # --- Diario ---
+        gb_daily = QGroupBox("Diario")
+        gd = QHBoxLayout(gb_daily); gd.setContentsMargins(8, 4, 8, 4)
+        self.chk_daily_enabled = QCheckBox("Activar")
+        self.time_daily = QTimeEdit(); self.time_daily.setDisplayFormat("HH:mm")
+        self.time_daily.setAlignment(Qt.AlignCenter); self.time_daily.setMinimumWidth(90)
+        gd.addWidget(self.chk_daily_enabled)
+        gd.addSpacing(12)
+        gd.addWidget(QLabel("Hora:")); gd.addWidget(self.time_daily)
+        gd.addStretch(1)
+        f_prog.addWidget(gb_daily)
 
-        row_prog = QHBoxLayout()
-        row_prog.addWidget(QLabel("Frecuencia:")); row_prog.addWidget(self.cmb_freq)
-        row_prog.addSpacing(12)
-        row_prog.addWidget(QLabel("Hora:")); row_prog.addWidget(self.time_send)
-        row_prog.addStretch(1)
+        # --- Semanal ---
+        gb_weekly = QGroupBox("Semanal")
+        gw = QVBoxLayout(gb_weekly); gw.setContentsMargins(8, 4, 8, 4); gw.setSpacing(4)
+        gw_row1 = QHBoxLayout()
+        self.chk_weekly_enabled = QCheckBox("Activar")
+        self.time_weekly = QTimeEdit(); self.time_weekly.setDisplayFormat("HH:mm")
+        self.time_weekly.setAlignment(Qt.AlignCenter); self.time_weekly.setMinimumWidth(90)
+        gw_row1.addWidget(self.chk_weekly_enabled)
+        gw_row1.addSpacing(12)
+        gw_row1.addWidget(QLabel("Hora:")); gw_row1.addWidget(self.time_weekly)
+        gw_row1.addStretch(1)
+        gw.addLayout(gw_row1)
 
-        f_prog.addRow(self.chk_enabled)
-        f_prog.addRow(row_prog)
+        gw_row2 = QHBoxLayout()
+        gw_row2.addWidget(QLabel("Días:"))
+        self._chk_weekdays = []  # lista de QCheckBox con propiedad 'weekday' 1..7
+        for i, name in enumerate(["L", "M", "X", "J", "V", "S", "D"], start=1):
+            cb = QCheckBox(name)
+            cb.setProperty("weekday", i)  # 1..7 (L..D)
+            self._chk_weekdays.append(cb)
+            gw_row2.addWidget(cb)
+        gw_row2.addStretch(1)
+        gw.addLayout(gw_row2)
+        f_prog.addWidget(gb_weekly)
+
+        # --- Mensual ---
+        gb_monthly = QGroupBox("Mensual")
+        gm = QHBoxLayout(gb_monthly); gm.setContentsMargins(8, 4, 8, 4)
+        self.chk_monthly_enabled = QCheckBox("Activar")
+        self.time_monthly = QTimeEdit(); self.time_monthly.setDisplayFormat("HH:mm")
+        self.time_monthly.setAlignment(Qt.AlignCenter); self.time_monthly.setMinimumWidth(90)
+        self.spn_month_day = QSpinBox(); self.spn_month_day.setRange(1, 31); self.spn_month_day.setValue(1)
+        gm.addWidget(self.chk_monthly_enabled)
+        gm.addSpacing(12)
+        gm.addWidget(QLabel("Hora:")); gm.addWidget(self.time_monthly)
+        gm.addSpacing(12)
+        gm.addWidget(QLabel("Día del mes:")); gm.addWidget(self.spn_month_day)
+        gm.addStretch(1)
+        f_prog.addWidget(gb_monthly)
 
         btn_save_prog = QPushButton("Guardar programación")
         btn_save_prog.clicked.connect(self._save_prog)
-        f_prog.addRow(btn_save_prog)
+        f_prog.addWidget(btn_save_prog)
 
         root.addWidget(gb_prog)
 
@@ -79,27 +117,6 @@ class ReportesCorreoConfig(QWidget):
         f_cont.addRow(btn_save_cont)
 
         root.addWidget(gb_cont)
-        
-        # --- NUEVO: controles de Semanal y Mensual ---
-        row_week = QWidget()
-        hl_week = QHBoxLayout(row_week); hl_week.setContentsMargins(0,0,0,0); hl_week.setSpacing(4)
-        self._chk_weekdays = []  # lista de QCheckBox con propiedad 'weekday' 1..7
-        for i, name in enumerate(["L","M","X","J","V","S","D"], start=1):
-            cb = QCheckBox(name)
-            cb.setProperty("weekday", i)  # 1..7
-            self._chk_weekdays.append(cb)
-            hl_week.addWidget(cb)
-        hl_week.addStretch(1)
-        f_prog.addRow("Días (Semanal):", row_week)
-
-        row_month = QWidget()
-        hl_month = QHBoxLayout(row_month); hl_month.setContentsMargins(0,0,0,0); hl_month.setSpacing(6)
-        self.spn_month_day = QSpinBox()
-        self.spn_month_day.setRange(1, 31)
-        self.spn_month_day.setValue(1)
-        hl_month.addWidget(self.spn_month_day)
-        hl_month.addStretch(1)
-        f_prog.addRow("Día del mes:", row_month)
 
         # -------- Correo / SMTP --------
         gb_mail = QGroupBox("Correo / SMTP (Gmail)")
@@ -188,29 +205,45 @@ class ReportesCorreoConfig(QWidget):
     # ---------- load/save ----------
     def _load_all(self):
         cfg = self.cfg
-        # Prog
-        a = (((cfg.get("reports") or {}).get("historial") or {}).get("auto_send") or {})
-        auto = ((cfg.get("reports") or {}).get("historial") or {}).get("auto_send") or {}
+        # Prog: leer auto_send con migración automática a formato v2
+        from app.gui.main_window.reportes_mixin import migrate_auto_send_to_v2
+        auto_raw = ((cfg.get("reports") or {}).get("historial") or {}).get("auto_send") or {}
+        auto = migrate_auto_send_to_v2(auto_raw)
 
-        # Semanal
-        wd = auto.get("weekdays", [1,2,3,4,5,6,7])
+        def _set_time(widget, time_str, default=(21, 0)):
+            try:
+                hh, mm = [int(x) for x in (time_str or "").split(":")]
+            except Exception:
+                hh, mm = default
+            widget.setTime(QTime(hh, mm))
+
+        # --- Diario ---
+        d = auto.get("daily") or {}
+        self.chk_daily_enabled.setChecked(bool(d.get("enabled", False)))
+        _set_time(self.time_daily, d.get("time"), (21, 0))
+
+        # --- Semanal ---
+        w = auto.get("weekly") or {}
+        self.chk_weekly_enabled.setChecked(bool(w.get("enabled", False)))
+        _set_time(self.time_weekly, w.get("time"), (21, 0))
+        wd = w.get("weekdays") or [6]
         try:
-            wd = list(map(int, wd))
+            wd = [int(x) for x in wd]
         except Exception:
-            wd = [1,2,3,4,5,6,7]
+            wd = [6]
         for cb in getattr(self, "_chk_weekdays", []):
             cb.setChecked(int(cb.property("weekday")) in wd)
 
-        # Mensual
-        md = int(auto.get("month_day", 1) or 1)
+        # --- Mensual ---
+        m = auto.get("monthly") or {}
+        self.chk_monthly_enabled.setChecked(bool(m.get("enabled", False)))
+        _set_time(self.time_monthly, m.get("time"), (21, 0))
+        md = m.get("month_day")
+        try:
+            md = int(md) if md else 1
+        except Exception:
+            md = 1
         self.spn_month_day.setValue(max(1, min(31, md)))
-        
-        self.chk_enabled.setChecked(bool(a.get("enabled", False)))
-        freq = (a.get("freq") or a.get("frequency") or "Diario")
-        i = self.cmb_freq.findText(freq); self.cmb_freq.setCurrentIndex(0 if i < 0 else i)
-        t = (a.get("time") or "21:00")
-        hh, mm = (t.split(":") + ["0"])[:2]
-        self.time_send.setTime(QTime(int(hh), int(mm)))
 
         # Contenido
         ec = (((cfg.get("reports") or {}).get("historial") or {}).get("export_content") or {})
@@ -253,39 +286,49 @@ class ReportesCorreoConfig(QWidget):
         self.ed_wa_ticket_dir.setText(wa.get("ticket_save_dir") or "")
 
     def _save_prog(self):
+        """Guarda las 3 frecuencias independientes en formato v2."""
         from app.config import load as load_config, save as save_config
+        from app.gui.main_window.reportes_mixin import migrate_auto_send_to_v2
         cfg = load_config()
         reports = cfg.get("reports") or {}
         hist = reports.get("historial") or {}
 
-        # Asegurar el dict auto_send existente
-        auto = hist.get("auto_send") or {}
+        # Migrar lo que esté guardado (preserva last_sent existente)
+        prev_auto = migrate_auto_send_to_v2(hist.get("auto_send") or {})
 
-        # Básicos
-        auto["enabled"] = self.chk_enabled.isChecked()
-        auto["freq"]    = self.cmb_freq.currentText()            # "Diario" | "Semanal" | "Mensual"
-        auto["time"]    = self.time_send.time().toString("HH:mm")
-        # preservar last_sent si existía
-        auto["last_sent"] = (hist.get("auto_send") or {}).get("last_sent")
+        # Días seleccionados para Semanal (1..7 L..D)
+        wdays = [
+            int(cb.property("weekday"))
+            for cb in getattr(self, "_chk_weekdays", []) if cb.isChecked()
+        ] or [6]  # fallback: sábado
 
-        # Semanal: lista de días marcados (1..7 L..D) si esos checks existen
-        if hasattr(self, "_chk_weekdays") and self._chk_weekdays:
-            auto["weekdays"] = [
-                int(cb.property("weekday")) for cb in self._chk_weekdays if cb.isChecked()
-            ]
-        else:
-            # por defecto, todos los días (compat)
-            auto["weekdays"] = auto.get("weekdays", [1, 2, 3, 4, 5, 6, 7])
+        try:
+            month_day = int(self.spn_month_day.value())
+        except Exception:
+            month_day = 1
 
-        # Mensual: día del mes si el spin existe (1..31)
-        if hasattr(self, "spn_month_day") and self.spn_month_day is not None:
-            try:
-                auto["month_day"] = int(self.spn_month_day.value())
-            except Exception:
-                auto["month_day"] = auto.get("month_day", 1)
+        new_auto = {
+            "daily": {
+                "enabled": self.chk_daily_enabled.isChecked(),
+                "time": self.time_daily.time().toString("HH:mm"),
+                "last_sent": (prev_auto.get("daily") or {}).get("last_sent"),
+            },
+            "weekly": {
+                "enabled": self.chk_weekly_enabled.isChecked(),
+                "time": self.time_weekly.time().toString("HH:mm"),
+                "weekdays": wdays,
+                "last_sent": (prev_auto.get("weekly") or {}).get("last_sent"),
+            },
+            "monthly": {
+                "enabled": self.chk_monthly_enabled.isChecked(),
+                "time": self.time_monthly.time().toString("HH:mm"),
+                "month_day": month_day,
+                "last_sent": (prev_auto.get("monthly") or {}).get("last_sent"),
+            },
+        }
 
         # Guardar de vuelta
-        hist["auto_send"] = auto
+        hist["auto_send"] = new_auto
         reports["historial"] = hist
         cfg["reports"] = reports
 
@@ -296,18 +339,25 @@ class ReportesCorreoConfig(QWidget):
             "Programación",
             "Programación guardada." if ok else "Error al guardar."
         )
-        
+
         # Reiniciar el scheduler vivo en la ventana principal
         try:
             mw = self.parent()
             if mw and hasattr(mw, "_armar_reports_scheduler_desde_config"):
                 mw._armar_reports_scheduler_desde_config()
-                if getattr(mw, "_rep_sched", {}).get("enabled"):
+                # Arrancar si alguna frecuencia quedó activa
+                sched = getattr(mw, "_rep_sched", {}) or {}
+                any_enabled = any(
+                    (sched.get(k) or {}).get("enabled")
+                    for k in ("daily", "weekly", "monthly")
+                )
+                if any_enabled:
                     mw._reports_timer.start()
                 else:
                     mw._reports_timer.stop()
-        except Exception:
-            pass
+        except Exception as _e:
+            import logging as _logging
+            _logging.getLogger(__name__).warning("[reportes_config] no se pudo reiniciar scheduler: %s", _e)
 
 
     def _save_content(self):

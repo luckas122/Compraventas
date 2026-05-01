@@ -77,6 +77,65 @@ from app.firebase_sync import FirebaseSyncManager
 
 
 #---------------------------------------------------------------------------------------------------------------------
+# ╔═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════╗
+# ║                          MainWindow — DEPENDENCY MATRIX (mixins ↔ atributos compartidos)                          ║
+# ╠═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════╣
+# ║ MainWindow hereda de 13 mixins. Cada mixin asume que ciertos atributos en `self` ya existen (creados en           ║
+# ║ core.__init__ o por otro mixin antes en MRO). Esta tabla documenta el contrato. Si agregás un mixin o cambiás un  ║
+# ║ atributo, actualizá esta tabla — previene roturas silenciosas.                                                    ║
+# ║                                                                                                                   ║
+# ║   ATRIBUTO                  CREADO EN                CONSUMIDORES                          NOTAS                  ║
+# ║   ─────────────────────────────────────────────────────────────────────────────────────────────────────────────   ║
+# ║   self.session              core.__init__            TODOS los mixins (BD)                 Crash si None          ║
+# ║   self.sucursal             core.__init__            sync, stats, config, ventas           Default obligatorio    ║
+# ║   self.username             core.__init__ (param)    audit logs, ventas                    "" si vacío            ║
+# ║   self.es_admin             core.__init__ (param)    config, audit, eliminaciones masivas  bool (default False)   ║
+# ║   self.prod_repo            core.__init__            productos, stats, ventas              prod_repo(session)     ║
+# ║   self.venta_repo           core.__init__            ventas_finalizacion, stats, historial VentaRepo(session)     ║
+# ║   self.pago_prov_repo       core.__init__            historial, reportes (IVA compras)     PagoProveedorRepo      ║
+# ║   self.comprador_service    core.__init__            ventas_finalizacion, compradores      CompradorService       ║
+# ║   self.proveedor_service    core.__init__            proveedores, ventas_finalizacion      ProveedorService       ║
+# ║   self.tabs                 core.__init__            config, sync, _goto_tab               QTabWidget central     ║
+# ║   self.historial            core.__init__            reportes (_crear_excel)               HistorialVentasWidget  ║
+# ║   self._interes_pct         core.__init__            ventas_finalizacion                   default 0.0            ║
+# ║   self._descuento_pct       core.__init__            ventas_finalizacion                   default 0.0            ║
+# ║   self._total_actual        ventas (actualizar_total)ventas_finalizacion                   actualizado por venta  ║
+# ║   self._cesta_updating      ventas (flag temporal)   core._on_cesta_item_changed (handler) v6.5.0: anti-RuntimeErr ║
+# ║   self._datos_tarjeta       ventas (al pagar)        ventas_finalizacion, ticket           cuotas+interes payload ║
+# ║   self._completer           core.__init__ (None)     ventas (busqueda producto)            QCompleter             ║
+# ║   self._comp_proxy          core.__init__            idem, filtra autocomplete             LimitedFilterProxy     ║
+# ║   self._rep_sched           reportes (al armar)      reportes._tick_reports_scheduler      v6.5.2: dict 3 freqs   ║
+# ║   self._reports_timer       reportes._init           reportes._tick                        QTimer 60s             ║
+# ║   self._sync_manager        sync_mixin._setup        sync_mixin                            FirebaseSyncManager    ║
+# ║   self._stop_backup_evt     backups_mixin._init      backups_mixin (thread)                threading.Event        ║
+# ║   self._product_change_log  productos (en sesion)    productos (mostrar cambios recientes) lista de cambios       ║
+# ║                                                                                                                   ║
+# ║ MIXINS Y SUS PESTAÑAS PRIMARIAS:                                                                                  ║
+# ║   ProductosMixin              tab_productos()                                                                     ║
+# ║   VentasMixin                 tab_ventas()  (+ helpers actualizar_total, _descuento_en_fila, etc)                 ║
+# ║   VentasTicketMixin           render e impresion de ticket post-venta                                             ║
+# ║   VentasFinalizacionMixin     finalizar_venta(), llamadas a AFIP, persistencia                                    ║
+# ║   ProveedoresMixin            tab_proveedores()                                                                   ║
+# ║   CompradoresMixin            tab_compradores() ("Clientes")                                                      ║
+# ║   UsuariosMixin               tab_usuarios()                                                                      ║
+# ║   ConfiguracionMixin          tab_configuracion() — split en submixins por archivo (ver configuracion/)           ║
+# ║   TicketTemplatesMixin        tab de plantillas de ticket (10 slots)                                              ║
+# ║   ReportesMixin               scheduler de envio automatico (DAILY/WEEKLY/MONTHLY paralelos, v6.5.2)              ║
+# ║   BackupsMixin                automaticos + manual + restore                                                      ║
+# ║   SyncNotificationsMixin      bandeja, sync Firebase, _sync_push, _beep_ok                                        ║
+# ║   StatsMixin                  KPIs, graficos en Historial                                                         ║
+# ║                                                                                                                   ║
+# ║ INVARIANTES DE TABLAS PyQt5:                                                                                      ║
+# ║   - NUNCA llamar setItem(r, c, ...) desde un handler de itemChanged. Destruye el QTableWidgetItem original y      ║
+# ║     deja referencias Python wrapping objetos C++ muertos -> RuntimeError. Usar .setText() sobre el item existente ║
+# ║     o usar QSignalBlocker + flag (_cesta_updating) para updates programaticos. Ver bug v6.5.0 para detalles.      ║
+# ║                                                                                                                   ║
+# ║ INVARIANTES DE FIREBASE SYNC:                                                                                     ║
+# ║   - Cada cambio empujado a Firebase lleva sucursal_origen. Al hacer pull, descartar lo que origen == sucursal     ║
+# ║     local (anti-eco). Ver firebase_sync.py.                                                                       ║
+# ║                                                                                                                   ║
+# ║ Si modificás MainWindow, mantené esta tabla actualizada.                                                          ║
+# ╚═══════════════════════════════════════════════════════════════════════════════════════════════════════════════════╝
 
 class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizacionMixin, ProveedoresMixin, CompradoresMixin, UsuariosMixin, ConfiguracionMixin, TicketTemplatesMixin, ReportesMixin, BackupsMixin, SyncNotificationsMixin, StatsMixin, QMainWindow):
 
@@ -150,6 +209,22 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
         # Admin?
         self.es_admin = es_admin
         self.current_username = username
+
+        # v6.6.0: Audit logger - capturar clicks/dialogos/etc en TODA la app.
+        # Los context providers son closures que leen los atributos vivos
+        # (asi reflejan cambios de sucursal/usuario en runtime sin rewire).
+        try:
+            from app.audit_logger import install_audit_filter, get_audit_logger
+            # v6.6.3: getattr defensivo para que el lambda nunca raise AttributeError
+            # si el atributo aun no esta seteado en algun timing inesperado
+            install_audit_filter(
+                QApplication.instance(),
+                username_provider=lambda: getattr(self, "current_username", None) or "anon",
+                sucursal_provider=lambda: getattr(self, "sucursal", None) or "?",
+            )
+            get_audit_logger().log_action("LOGIN", f"user={self.current_username} sucursal={self.sucursal}")
+        except Exception as _audit_err:
+            logger.warning("[audit] no se pudo instalar audit filter: %s", _audit_err)
         # --- COMPLETER: atributos base (evita AttributeError) ---
         self._completer = None
         self._completer_model = None
@@ -207,6 +282,15 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
         tabs.setCornerWidget(self._btn_switch_user, Qt.TopRightCorner)
 
         self.setCentralWidget(tabs)
+
+        # v6.6.1: instrumentar QTabWidgets para que el audit log capture cambios de pestaña.
+        # Debe llamarse DESPUES de que todas las tabs esten creadas (incluyendo sub-tabs
+        # de configuracion que se construyen en tab_configuracion()).
+        try:
+            from app.audit_logger import wire_tab_widgets as _wire_tabs
+            _wire_tabs(self)
+        except Exception as _wt_err:
+            logger.warning("[audit] wire_tab_widgets fallo: %s", _wt_err)
 
         # Barra de estado
         self._setup_status_bar()
@@ -818,7 +902,13 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
         items = [f"{cb} - {nm}" for cb, nm in filas]
 
         self._comp_src = QStringListModel(items, self)
-        self._comp_proxy = LimitedFilterProxy(limit=100, parent=self)
+        # Limite configurable desde app_config.json -> ui.autocomplete_limit_productos
+        try:
+            from app.config import load as _load_cfg
+            _ac_limit = int((_load_cfg().get("ui") or {}).get("autocomplete_limit_productos", 200))
+        except Exception:
+            _ac_limit = 200
+        self._comp_proxy = LimitedFilterProxy(limit=_ac_limit, parent=self)
         self._comp_proxy.setSourceModel(self._comp_src)
         self._comp_proxy.setFilterCaseSensitivity(Qt.CaseInsensitive)
 

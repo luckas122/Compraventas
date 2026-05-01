@@ -254,10 +254,17 @@ class BackupConfigPanel(QWidget):
         bk = (cfg.get("backup") or {})
         self.chk_enabled.setChecked(bk.get("enabled", True))
 
-        default_dir = os.path.join(
-            os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")),
-            "backups"
-        )
+        # Default: %APPDATA%/CompraventasV2/backups (persistente entre updates).
+        # Antes era ./backups relativo al binario, fragil en frozen mode.
+        try:
+            from app.config import _get_app_data_dir
+            default_dir = os.path.join(_get_app_data_dir(), "backups")
+        except Exception:
+            # Fallback al comportamiento viejo si algo raro pasa
+            default_dir = os.path.join(
+                os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")),
+                "backups"
+            )
         self.edt_dir.setText(bk.get("dir") or default_dir)
 
         ret = bk.get("retention_days") or {}

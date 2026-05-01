@@ -392,10 +392,14 @@ class ProductosMixin:
         path, _ = QFileDialog.getOpenFileName(self, 'Importar Excel', '', 'Excel Files (*.xlsx *.xls)')
         if not path:
             return
+        # Mostrar progress mientras se lee el Excel (puede tardar segundos con archivos grandes)
+        from app.gui.progress_helpers import busy_dialog
         try:
-            df = pd.read_excel(path, dtype={'codigo_barra': str})
+            with busy_dialog(self, "Importando Excel", f"Leyendo archivo:\n{path}"):
+                df = pd.read_excel(path, dtype={'codigo_barra': str})
         except Exception as e:
-            QMessageBox.warning(self, 'Error', f'No se pudo leer el archivo:\n{e}')
+            from app.gui.error_messages import show_error
+            show_error(self, "leer el archivo Excel", e, context="import_excel_read")
             return
 
         # Clasificar filas: nuevos, modificados, sin cambios

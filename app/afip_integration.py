@@ -620,8 +620,8 @@ class AfipSDKClient:
                     f"Error al emitir Factura B: {e}",
                     details=f"Tipo: Factura B\nImporte: {importe}\nError: {e}"
                 )
-            except Exception:
-                pass
+            except Exception as _alert_err:
+                logger.warning("[AFIP] no se pudo enviar AlertManager tras error de Factura B: %s", _alert_err)
             return AfipResponse(
                 success=False,
                 error_message=str(e)
@@ -856,8 +856,8 @@ class AfipSDKClient:
                     f"Error al emitir Factura A: {e}",
                     details=f"Tipo: Factura A\nImporte: {importe}\nError: {e}"
                 )
-            except Exception:
-                pass
+            except Exception as _alert_err:
+                logger.warning("[AFIP] no se pudo enviar AlertManager tras error de Factura A: %s", _alert_err)
             return AfipResponse(
                 success=False,
                 error_message=str(e)

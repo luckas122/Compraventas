@@ -329,6 +329,20 @@ class SyncNotificationsMixin:
             recibidos = resultado.get("recibidos", 0)
             errores = resultado.get("errores", [])
 
+            # v6.7.0: persistir resultado completo (con desglose por tipo) para el panel de Estado
+            self._last_sync_resultado = dict(resultado)
+            self._last_sync_resultado["timestamp"] = self._last_sync_time
+            if not hasattr(self, '_sync_history'):
+                self._sync_history = []
+            self._sync_history.append({
+                "timestamp": self._last_sync_time,
+                "enviados": enviados,
+                "recibidos": recibidos,
+                "errores": len(errores) if isinstance(errores, list) else int(errores or 0),
+                "por_tipo": resultado.get("por_tipo", {}),
+            })
+            self._sync_history = self._sync_history[-10:]
+
             self._actualizar_indicador_sync(
                 enviados=enviados,
                 recibidos=recibidos,
@@ -366,6 +380,12 @@ class SyncNotificationsMixin:
                 self.cargar_lista_proveedores()
             except Exception:
                 pass
+
+            # v6.7.1: si hay borrados pendientes de confirmacion, mostrarlos
+            try:
+                self._procesar_pending_deletes()
+            except Exception as _pd_err:
+                logger.warning("[SYNC] Error procesando pending_deletes: %s", _pd_err)
             try:
                 if hasattr(self, 'recargar_ventas_dia'):
                     self.recargar_ventas_dia()
@@ -644,6 +664,8 @@ class SyncNotificationsMixin:
                     self._firebase_sync.push_venta(entity)
                 elif tipo == "venta_mod":
                     self._firebase_sync.push_venta_modificada(entity)
+                elif tipo == "venta_del":
+                    self._firebase_sync.push_venta_eliminada(entity)
                 elif tipo == "producto":
                     self._firebase_sync.push_producto(entity, accion)
                 elif tipo == "producto_del":
@@ -654,6 +676,10 @@ class SyncNotificationsMixin:
                     self._firebase_sync.push_proveedor_eliminado(entity)
                 elif tipo == "pago_proveedor":
                     self._firebase_sync.push_pago_proveedor(entity)
+                elif tipo == "comprador":
+                    self._firebase_sync.push_comprador(entity, accion)
+                elif tipo == "comprador_del":
+                    self._firebase_sync.push_comprador_eliminado(entity)
             except Exception as e:
                 self._firebase_sync._log(f"Push {tipo} error: {e}")
         threading.Thread(target=_do, daemon=True).start()
@@ -1025,3 +1051,80 @@ class SyncNotificationsMixin:
     def _update_online_indicator(self, online: bool, pending: int):
         """Stub para compatibilidad — ya no hay indicador online separado."""
         pass
+
+    # ─── Pending deletes (v6.7.1) ─────────────────────────────────────
+
+    def _procesar_pending_deletes(self):
+        """v6.7.1: tras un sync, si hay productos cuya baja fue recibida desde otra
+        sucursal y `confirm_delete_productos` esta activo, mostrar popup por cada uno
+        para que el admin acepte (borrar local) o rechace (re-publicar para deshacer).
+
+        Usa una bandera reentrante para no apilar dialogos si el sync corre denso.
+        """
+        if not self._firebase_sync:
+            return
+        if getattr(self, "_pending_deletes_dialog_open", False):
+            return
+        try:
+            pending = self._firebase_sync.get_pending_deletes()
+        except Exception:
+            pending = []
+        if not pending:
+            return
+
+        # Solo admins pueden decidir borrados — para no admins, dejar pendientes
+        if not getattr(self, "es_admin", False):
+            return
+
+        self._pending_deletes_dialog_open = True
+        try:
+            # Procesar de uno en uno (popups secuenciales para no abrumar)
+            # Recorremos copia de la lista; la lista real cambia tras cada accept/reject
+            i = 0
+            while True:
+                pendings_now = self._firebase_sync.get_pending_deletes()
+                if i >= len(pendings_now):
+                    break
+                item = pendings_now[i]
+                tipo = item.get("tipo")
+                if tipo != "productos":
+                    i += 1
+                    continue
+                data = item.get("data", {}) or {}
+                origen = item.get("origen") or "otra sucursal"
+                codigo = data.get("codigo_barra", "?")
+                nombre = data.get("nombre", "")
+                precio = data.get("precio")
+                msg = (
+                    f"La sucursal <b>{origen}</b> elimino este producto:<br><br>"
+                    f"<b>{nombre}</b> (codigo: {codigo})<br>"
+                )
+                if precio is not None:
+                    msg += f"Precio actual local: ${precio}<br>"
+                msg += "<br>Queres eliminarlo tambien aqui?"
+
+                box = QMessageBox(self)
+                box.setIcon(QMessageBox.Question)
+                box.setWindowTitle("Confirmar borrado entre sucursales")
+                box.setTextFormat(Qt.RichText)
+                box.setText(msg)
+                btn_yes = box.addButton("Si, eliminar tambien", QMessageBox.YesRole)
+                btn_no = box.addButton("No, mantener aqui", QMessageBox.NoRole)
+                btn_skip = box.addButton("Decidir despues", QMessageBox.RejectRole)
+                box.exec_()
+                clicked = box.clickedButton()
+                if clicked is btn_yes:
+                    self._firebase_sync.accept_pending_delete(i)
+                    # No incrementar i: la lista se acorto en 1
+                elif clicked is btn_no:
+                    self._firebase_sync.reject_pending_delete(i)
+                    # No incrementar i
+                else:
+                    # Decidir despues — saltarlo, queda en la cola para el proximo sync
+                    i += 1
+            try:
+                self.refrescar_productos()
+            except Exception:
+                pass
+        finally:
+            self._pending_deletes_dialog_open = False

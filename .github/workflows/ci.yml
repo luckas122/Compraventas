@@ -1,0 +1,50 @@
+name: CI - Lint & Syntax Check
+
+# Corre en cada push a cualquier branch y en cada PR a main.
+# Detecta errores de sintaxis y problemas básicos de estilo antes de mergear.
+
+on:
+  push:
+    branches-ignore: []  # todos los branches
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  lint:
+    name: Lint Python (ruff + py_compile)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install ruff
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install ruff
+
+      - name: Compile-check all .py files (sintaxis)
+        run: |
+          python -m compileall -q app/ main.py version.py
+
+      - name: Ruff lint - solo errores criticos (F y E9)
+        run: |
+          # Conservador: solo bugs reales (variables indefinidas, imports rotos, syntax).
+          # Whitespace y estilo se ignoran (hay deuda preexistente que limpiaremos aparte).
+          ruff check app/ main.py version.py \
+            --select F,E9 \
+            --output-format=concise \
+            --exit-zero  # nunca bloquea el build, solo informa
+
+      - name: Verify version.py importable
+        run: |
+          python -c "from version import __version__, __app_name__; print(f'{__app_name__} v{__version__}')"
+
+      - name: Verify sync_version_files.py runs (no-op test)
+        run: |
+          python sync_version_files.py

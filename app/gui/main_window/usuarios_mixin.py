@@ -104,7 +104,19 @@ class UsuariosMixin:
     def eliminar_usuario(self):
         if not getattr(self,'selected_user_id',None):
             return
-        if QMessageBox.question(self,'Confirmar','¿Eliminar usuario seleccionado?', QMessageBox.Yes|QMessageBox.No) != QMessageBox.Yes:
+        # Buscar el username actual para incluirlo en el mensaje
+        try:
+            _user = self.user_repo.obtener(self.selected_user_id)
+            _user_name = getattr(_user, 'username', '') or '(desconocido)'
+        except Exception:
+            _user_name = '(desconocido)'
+        from app.gui.confirm_dialogs import confirm_destructive
+        if not confirm_destructive(
+            self,
+            title="Eliminar usuario",
+            action=f"Vas a eliminar el usuario '{_user_name}'.",
+            warning="El usuario perdera acceso inmediatamente. Esta accion NO se puede deshacer.",
+        ):
             return
         self.user_repo.eliminar(self.selected_user_id)
         self.cargar_lista_usuarios()

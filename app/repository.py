@@ -197,8 +197,11 @@ class VentaRepo:
             )
             if last_pago and getattr(last_pago, 'numero_ticket', None):
                 max_ticket = max(max_ticket, last_pago.numero_ticket)
-        except Exception:
-            pass
+        except Exception as _err:
+            # Tabla pagos_proveedores puede no existir aun (migracion pendiente) o columna numero_ticket falta.
+            # Degrada bien: usamos max_ticket de ventas. Logueamos para detectar problemas reales.
+            import logging as _logging
+            _logging.getLogger(__name__).debug("[repo] no se pudo leer ultimo numero_ticket de PagoProveedor: %s", _err)
         return max_ticket + 1
 
     def siguiente_ticket_cae(self, sucursal: str) -> int:

@@ -43,13 +43,11 @@ class VentasFinalizacionMixin:
     def _abrir_dialogo_tarjeta(self):
         """Abre el dialogo para configurar pago con tarjeta."""
         from app.gui.dialogs import PagoTarjetaDialog
+        from app.utils.format import parse_money
 
-        # Obtener total actual
-        try:
-            txt = (self.lbl_total.text() or "").replace("Total:", "").replace("$", "").strip()
-            total = float(txt.replace(",", ""))
-        except Exception:
-            total = 0.0
+        # Obtener total actual desde el label "Total: $1234.56"
+        txt = (self.lbl_total.text() or "").replace("Total:", "")
+        total = parse_money(txt)
 
         dlg = PagoTarjetaDialog(total_actual=total, parent=self, session=self.session)
         if dlg.exec_() == QDialog.Accepted:
@@ -77,9 +75,10 @@ class VentasFinalizacionMixin:
             self.rb_tarjeta.blockSignals(False)
 
     def _update_cuota_label(self, cuotas):
+        from app.utils.format import parse_money
         try:
-            txt = (self.lbl_total.text() or "").replace("Total:", "").replace("$", "").strip()
-            total = float(txt.replace(",", ""))
+            txt = (self.lbl_total.text() or "").replace("Total:", "")
+            total = parse_money(txt)
             if cuotas:
                 self.cuota_label.setText(f"$ {total / float(cuotas):.2f}")
             else:
@@ -239,8 +238,9 @@ class VentasFinalizacionMixin:
                 continue  # Saltar si no hay codigo
 
             # Conversiones seguras con try-except
+            from app.utils.format import parse_money, parse_qty
             try:
-                cant = int(float(item_cant.text().replace(",", ".").strip() or "0"))
+                cant = int(parse_qty(item_cant.text()))
                 # Leer precio base desde UserRole (el texto puede tener "→" por descuento)
                 pu_data = item_pu.data(Qt.UserRole)
                 if pu_data is not None:
@@ -248,7 +248,7 @@ class VentasFinalizacionMixin:
                     pct_item = float(item_pu.data(Qt.UserRole + 1) or 0.0)
                     pu = round(base_price * (1.0 - pct_item / 100.0), 2)
                 else:
-                    pu = float(item_pu.text().replace("$", "").replace(",", ".").strip() or "0")
+                    pu = parse_money(item_pu.text())
             except (ValueError, AttributeError, TypeError):
                 continue  # Saltar filas con valores invalidos
 
@@ -369,7 +369,7 @@ class VentasFinalizacionMixin:
         if _datos_comprador.get("cuit_cliente"):
             try:
                 from app.gui.compradores import CompradorService
-                CompradorService(self.session).guardar_o_actualizar(
+                _comp = CompradorService(self.session).guardar_o_actualizar(
                     cuit=_datos_comprador["cuit_cliente"],
                     nombre=_datos_comprador.get("nombre_cliente", ""),
                     domicilio=_datos_comprador.get("domicilio_cliente", ""),
@@ -377,6 +377,12 @@ class VentasFinalizacionMixin:
                     codigo_postal=_datos_comprador.get("codigo_postal_cliente", ""),
                     condicion=_datos_comprador.get("condicion_cliente", ""),
                 )
+                # v6.7.0: replicar el alta/edición de cliente a otras sucursales
+                if _comp is not None and hasattr(self, '_sync_push'):
+                    try:
+                        self._sync_push("comprador", _comp)
+                    except Exception:
+                        pass
                 # Refrescar tabla de Clientes si existe
                 if hasattr(self, 'cargar_lista_compradores'):
                     self.cargar_lista_compradores()

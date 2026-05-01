@@ -128,11 +128,17 @@ class CompradoresMixin:
         codigo_postal = self.input_comp_codigo_postal.text().strip()
         condicion = self.input_comp_condicion.currentText()
 
-        self.compradores_svc.guardar_o_actualizar(
+        c = self.compradores_svc.guardar_o_actualizar(
             cuit=cuit, nombre=nombre, domicilio=domicilio,
             localidad=localidad, codigo_postal=codigo_postal,
             condicion=condicion,
         )
+        # v6.7.0: replicar cliente a otras sucursales via Firebase
+        if c is not None and hasattr(self, '_sync_push'):
+            try:
+                self._sync_push("comprador", c)
+            except Exception:
+                pass
         self.statusBar().showMessage('Cliente guardado', 3000)
         self.limpiar_inputs_comprador()
         self.cargar_lista_compradores()
@@ -145,11 +151,25 @@ class CompradoresMixin:
             return
 
         eliminados = 0
+        cuits_borrados = []
         for r in range(self.table_compradores.rowCount()):
             if self.table_compradores.item(r, 0).checkState() == Qt.Checked:
                 cid = int(self.table_compradores.item(r, 1).text())
+                # v6.7.0: capturar el CUIT antes de eliminar para poder propagar la baja
+                cuit_item = self.table_compradores.item(r, 2)
+                cuit_val = cuit_item.text().strip() if cuit_item else ""
                 if self.compradores_svc.eliminar(cid):
                     eliminados += 1
+                    if cuit_val:
+                        cuits_borrados.append(cuit_val)
+
+        # v6.7.0: replicar bajas a otras sucursales
+        if cuits_borrados and hasattr(self, '_sync_push'):
+            for _cuit in cuits_borrados:
+                try:
+                    self._sync_push("comprador_del", _cuit)
+                except Exception:
+                    pass
 
         self.statusBar().showMessage(f'Clientes eliminados: {eliminados}', 3000)
         self.cargar_lista_compradores()

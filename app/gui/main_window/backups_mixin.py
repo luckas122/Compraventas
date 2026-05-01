@@ -412,16 +412,39 @@ class BackupsMixin:
         if dest_dir:
             # Normaliza: soporta "~" y %VARIABLES%
             dest_dir = os.path.abspath(os.path.expanduser(os.path.expandvars(dest_dir)))
-        else:
-            # ./backups junto al proyecto (fallback)
-            base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-            dest_dir = os.path.join(base_dir, "backups")
 
+        # Fallback robusto: %APPDATA%/CompraventasV2/backups (persistente entre updates)
+        def _safe_default_dir():
+            try:
+                from app.config import _get_app_data_dir
+                return os.path.join(_get_app_data_dir(), "backups")
+            except Exception:
+                base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+                return os.path.join(base_dir, "backups")
+
+        if not dest_dir:
+            dest_dir = _safe_default_dir()
+
+        # Validar que el destino sea utilizable (puede fallar si es un USB desconectado)
         try:
             os.makedirs(dest_dir, exist_ok=True)
+            # Test de escritura: tocar un archivo temporal
+            _test_path = os.path.join(dest_dir, ".write_test")
+            with open(_test_path, "w") as _f:
+                _f.write("ok")
+            os.remove(_test_path)
         except Exception as e:
-            logger.error("[BACKUP] No se pudo crear la carpeta destino '%s': %r", dest_dir, e)
-            return None
+            # Ruta guardada inválida (USB desconectado, etc): fallback al default
+            logger.warning(
+                "[BACKUP] Ruta destino '%s' no accesible (%r). Usando default '%s'.",
+                dest_dir, e, _safe_default_dir()
+            )
+            dest_dir = _safe_default_dir()
+            try:
+                os.makedirs(dest_dir, exist_ok=True)
+            except Exception as e2:
+                logger.error("[BACKUP] No se pudo crear la carpeta destino '%s': %r", dest_dir, e2)
+                return None
         # --------- localizar DB (preferir self.session) ---------
         db_path = None
         try:
@@ -556,13 +579,28 @@ class BackupsMixin:
             return
 
         # 3) Confirmación fuerte (esto reemplaza la DB)
-        if QMessageBox.question(
-            self, "Confirmar restauración",
-            "La base de datos actual será reemplazada.\n"
-            "Se hará un backup automático antes de continuar.\n\n"
-            "¿Deseás seguir?",
-            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
-        ) != QMessageBox.Yes:
+        # Intentar contar ventas/productos del backup vs los actuales para informar
+        _resumen_actual = ""
+        try:
+            from sqlalchemy import func
+            from app.models import Venta, Producto
+            _n_ventas = self.session.query(func.count(Venta.id)).scalar() or 0
+            _n_prod = self.session.query(func.count(Producto.id)).scalar() or 0
+            _resumen_actual = f"Estado actual: {_n_ventas} ventas y {_n_prod} productos."
+        except Exception:
+            pass
+
+        from app.gui.confirm_dialogs import confirm_destructive
+        if not confirm_destructive(
+            self,
+            title="Confirmar restauracion",
+            action=(
+                "La base de datos actual sera REEMPLAZADA por el contenido del backup.\n"
+                + (_resumen_actual + "\n" if _resumen_actual else "")
+                + "Se hara un backup automatico antes de continuar (se guarda con prefijo 'pre_restore')."
+            ),
+            warning="Si el backup es viejo, perderas las ventas posteriores. Esta accion NO se puede deshacer (salvo restaurando otro backup).",
+        ):
             return
 
         # 4) Detectar ruta actual de la DB (preferir bind de la sesión)
@@ -579,11 +617,15 @@ class BackupsMixin:
             QMessageBox.critical(self, "Restaurar", "No se pudo ubicar el archivo de base de datos actual.")
             return
 
-        # 5) Backup previo automático
+        # 5) Backup previo automático (con feedback visual: puede tardar)
+        from app.gui.progress_helpers import busy_dialog
         try:
-            self._run_backup(tag="pre-restore")
-        except Exception:
-            pass  # si falla, igual seguimos (el usuario ya confirmó)
+            with busy_dialog(self, "Backup pre-restore", "Creando backup automatico antes de restaurar..."):
+                self._run_backup(tag="pre-restore")
+        except Exception as _bk_err:
+            import logging as _logging
+            _logging.getLogger(__name__).warning("[restore] backup previo fallo: %s", _bk_err)
+            # si falla, igual seguimos (el usuario ya confirmó)
 
         # 6) Abrir ZIP y localizar la DB adentro
         try:

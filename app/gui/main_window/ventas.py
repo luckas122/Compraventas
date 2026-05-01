@@ -1112,7 +1112,8 @@ class VentasMixin:
 
         except Exception as e:
             self.session.rollback()
-            QMessageBox.critical(self, "Error", f"No se pudo guardar el borrador:\n{str(e)}")
+            from app.gui.error_messages import show_error
+            show_error(self, "guardar el borrador", e, context="borrador_save")
 
     def _abrir_borradores(self):
         """Abre diálogo para cargar o eliminar borradores"""
@@ -1259,7 +1260,8 @@ class VentasMixin:
                 QMessageBox.information(self, "Eliminado", "Borrador eliminado correctamente.")
             except Exception as e:
                 self.session.rollback()
-                QMessageBox.critical(self, "Error", f"No se pudo eliminar:\n{str(e)}")
+                from app.gui.error_messages import show_error
+                show_error(self, "eliminar el borrador", e, context="borrador_delete")
 
     def _add_row_to_cesta_custom(self, codigo, nombre, cantidad, precio):
         """Agrega un item custom a la cesta (para cargar borradores)"""
