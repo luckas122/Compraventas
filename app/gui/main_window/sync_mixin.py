@@ -129,8 +129,74 @@ class SyncNotificationsMixin:
             sys.exit(0)
 
     # ============================
-    #  SINCRONIZACION (Firebase)
+    #  SINCRONIZACION (Firebase / Supabase)
     # ============================
+
+    def _make_sync_manager(self, session, sucursal):
+        """v6.8.0: factory que devuelve FirebaseSyncManager o SupabaseSyncManager
+        segun `sync.backend` en config. Mantenemos el atributo `_firebase_sync`
+        en MainWindow por compat con los 30+ callsites existentes — el nombre
+        ya no refleja el backend, es solo el slot.
+        """
+        cfg = load_config()
+        backend = (cfg.get("sync") or {}).get("backend", "firebase")
+        if backend == "supabase":
+            try:
+                from app.supabase_sync import SupabaseSyncManager
+                return SupabaseSyncManager(session, sucursal)
+            except Exception as e:
+                logger.error(f"[SYNC] Falla creando SupabaseSyncManager, fallback Firebase: {e}")
+        return FirebaseSyncManager(session, sucursal)
+
+    def _start_supabase_realtime(self):
+        """v6.8.0: arranca el QThread de Realtime contra Supabase si es posible."""
+        if not self._firebase_sync:
+            return
+        if not hasattr(self._firebase_sync, "start_realtime"):
+            return  # backend no soporta realtime (Firebase)
+        try:
+            worker = self._firebase_sync.start_realtime(on_event=None)
+            if worker is None:
+                return
+            # Conectar signals al hilo principal — los applies usan la session principal
+            worker.event_received.connect(self._on_realtime_event)
+            worker.connection_changed.connect(self._on_realtime_connection_changed)
+            logger.info("[SYNC] Realtime worker arrancado")
+        except Exception as e:
+            logger.warning(f"[SYNC] start_realtime fallo: {e}")
+
+    def _on_realtime_event(self, tipo, action, row):
+        """v6.8.0: cada evento INSERT/UPDATE/DELETE de Supabase Realtime se
+        aplica al SQLite local con el mismo `_apply_*` que usa el polling.
+        El cursor `last_pull_supabase` no se mueve aqui — el proximo polling
+        recoje el `updated_at` y avanza correctamente sin reaplicar."""
+        if not self._firebase_sync:
+            return
+        if not hasattr(self._firebase_sync, "_apply_row"):
+            return
+        try:
+            # Marcar deleted_at para mapear a delete en _apply_row
+            if action == "DELETE":
+                row = dict(row)
+                row["deleted_at"] = row.get("deleted_at") or "now"
+            self._firebase_sync._apply_row(tipo, row)
+            # Refrescos minimos en UI segun tipo
+            try:
+                if tipo == "productos":
+                    self.refrescar_productos()
+                elif tipo == "proveedores":
+                    self.cargar_lista_proveedores()
+            except Exception:
+                pass
+        except Exception as e:
+            logger.warning(f"[SYNC] Realtime apply {tipo}/{action} fallo: {e}")
+
+    def _on_realtime_connection_changed(self, connected: bool):
+        """v6.8.0: actualizar status bar con estado de Realtime."""
+        if connected:
+            self._update_sync_button_text("Realtime ON")
+        # Si se cae, dejamos el texto que estaba (polling sigue activo)
+
     def _setup_sync_scheduler(self):
         """Configura el scheduler de sincronizacion desde app_config.json"""
         cfg = load_config()
@@ -148,10 +214,19 @@ class SyncNotificationsMixin:
             self._update_sync_button_text("Sync desactivada")
             return
 
-        # Crear FirebaseSyncManager usando la sesion principal de la app
+        # v6.8.0: dispatcher segun sync.backend (firebase/supabase)
         sucursal_actual = getattr(self, 'sucursal', 'Sarmiento')
-        self._firebase_sync = FirebaseSyncManager(self.session, sucursal_actual)
-        logger.info(f"[SYNC] Sync activada, modo={mode}, intervalo={interval_min}min")
+        self._firebase_sync = self._make_sync_manager(self.session, sucursal_actual)
+        backend_name = sync_cfg.get("backend", "firebase")
+        logger.info(f"[SYNC] Sync activada (backend={backend_name}), modo={mode}, intervalo={interval_min}min")
+
+        # v6.8.0: si backend es Supabase y realtime esta activo, arrancar WebSocket
+        try:
+            sb_cfg = sync_cfg.get("supabase") or {}
+            if backend_name == "supabase" and sb_cfg.get("realtime_enabled", True):
+                self._start_supabase_realtime()
+        except Exception as _e:
+            logger.warning(f"[SYNC] No se pudo iniciar Realtime: {_e}")
 
         if mode == "interval":
             ms = max(interval_min * 60 * 1000, 120_000)  # mínimo 2 minutos
@@ -183,7 +258,7 @@ class SyncNotificationsMixin:
 
         if not self._firebase_sync:
             sucursal_actual = getattr(self, 'sucursal', 'Sarmiento')
-            self._firebase_sync = FirebaseSyncManager(self.session, sucursal_actual)
+            self._firebase_sync = self._make_sync_manager(self.session, sucursal_actual)
 
         # Evitar multiples syncs simultaneas - pero verificar si realmente hay hilo vivo
         if self._sync_running:
@@ -236,7 +311,7 @@ class SyncNotificationsMixin:
                     pass
                 try:
                     sucursal = getattr(self, 'sucursal', 'Sarmiento')
-                    sync_manager = FirebaseSyncManager(thread_session, sucursal)
+                    sync_manager = self._make_sync_manager(thread_session, sucursal)
                     resultado = sync_manager.ejecutar_sincronizacion_completa()
                     mismatches = sync_manager.get_price_mismatches()
                     resultado["_mismatches"] = mismatches

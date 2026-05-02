@@ -53,6 +53,12 @@ hiddenimports = list(set(
         # QR Code (usado para QR AFIP en tickets)
         "qrcode",
         "qrcode.main",
+        # v6.8.0-rc1: Supabase Realtime via WebSocket
+        "websocket",
+        "websocket._app",
+        "websocket._core",
+        "app.supabase_sync",
+        "app.supabase_realtime",
     ]
 ))
 

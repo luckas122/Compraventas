@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QFormLayout, QHBoxLayout, QGridLayout, QGroupBox, QLabel,
     QCheckBox, QLineEdit, QPushButton, QMessageBox, QSpinBox,
     QFrame, QProgressBar, QProgressDialog, QTableWidget, QTableWidgetItem,
-    QHeaderView, QSizePolicy,
+    QHeaderView, QSizePolicy, QRadioButton, QButtonGroup, QStackedWidget,
 )
 from app.config import load as load_config, save as save_config
 from app.gui.qt_helpers import NoScrollComboBox
@@ -130,27 +130,94 @@ class SyncConfigPanel(QWidget):
         self.cmb_modo.currentIndexChanged.connect(self._on_modo_changed)
         root.addWidget(gb_modo)
 
-        # ===== FIREBASE =====
-        gb_fb = QGroupBox("Firebase Realtime Database")
-        lay_fb = QFormLayout(gb_fb)
+        # ===== BACKEND (v6.8.0) =====
+        gb_backend = QGroupBox("Backend de sincronizacion")
+        gb_backend.setStyleSheet(
+            "QGroupBox { border: 2px solid #2E7D32; border-radius: 6px; "
+            "margin-top: 10px; padding-top: 14px; font-weight: bold; } "
+            "QGroupBox::title { subcontrol-origin: margin; left: 10px; "
+            "padding: 0 6px; color: #2E7D32; }"
+        )
+        lay_backend = QVBoxLayout(gb_backend)
 
+        row_radio = QHBoxLayout()
+        self.rb_backend_firebase = QRadioButton("Firebase Realtime DB (legacy)")
+        self.rb_backend_supabase = QRadioButton("Supabase Postgres (recomendado)")
+        self._backend_group = QButtonGroup(self)
+        self._backend_group.addButton(self.rb_backend_firebase)
+        self._backend_group.addButton(self.rb_backend_supabase)
+        row_radio.addWidget(self.rb_backend_firebase)
+        row_radio.addWidget(self.rb_backend_supabase)
+        row_radio.addStretch(1)
+        lay_backend.addLayout(row_radio)
+
+        lbl_backend_warn = QLabel(
+            "<span style='color:#888; font-size:10px;'>Cambiar de backend requiere "
+            "reiniciar la app para que tome efecto.</span>"
+        )
+        lbl_backend_warn.setWordWrap(True)
+        lay_backend.addWidget(lbl_backend_warn)
+
+        # StackedWidget con la config de cada backend
+        self.stack_backend = QStackedWidget()
+        # ─ Firebase (igual que antes)
+        page_fb = QWidget()
+        lay_fb = QFormLayout(page_fb)
         self.ed_db_url = QLineEdit()
         self.ed_db_url.setPlaceholderText("https://tu-proyecto.firebaseio.com")
         lay_fb.addRow("URL de base de datos:", self.ed_db_url)
-
         self.ed_auth_token = QLineEdit()
         self.ed_auth_token.setEchoMode(QLineEdit.Password)
         self.ed_auth_token.setPlaceholderText("Database secret (token de autenticacion)")
         lay_fb.addRow("Token de autenticacion:", self.ed_auth_token)
-
         help_fb = QLabel(
             '<a href="https://console.firebase.google.com/">Abrir Firebase Console</a> '
-            '- Ve a Project Settings > Service accounts > Database secrets'
+            '- Project Settings > Service accounts > Database secrets'
         )
         help_fb.setOpenExternalLinks(True)
         help_fb.setStyleSheet("color: #4A90E2; font-size: 10px;")
         lay_fb.addRow("", help_fb)
-        root.addWidget(gb_fb)
+        self.stack_backend.addWidget(page_fb)
+
+        # ─ Supabase (nuevo)
+        page_sb = QWidget()
+        lay_sb = QFormLayout(page_sb)
+        self.ed_sb_url = QLineEdit()
+        self.ed_sb_url.setPlaceholderText("https://xxxxx.supabase.co")
+        lay_sb.addRow("Project URL:", self.ed_sb_url)
+        self.ed_sb_publishable = QLineEdit()
+        self.ed_sb_publishable.setPlaceholderText("sb_publishable_...")
+        lay_sb.addRow("Publishable key (anon):", self.ed_sb_publishable)
+        self.ed_sb_secret = QLineEdit()
+        self.ed_sb_secret.setEchoMode(QLineEdit.Password)
+        self.ed_sb_secret.setPlaceholderText("sb_secret_...")
+        lay_sb.addRow("Secret key (service_role):", self.ed_sb_secret)
+        self.chk_sb_realtime = QCheckBox("Activar Realtime via WebSocket (recomendado)")
+        self.chk_sb_realtime.setChecked(True)
+        self.chk_sb_realtime.setToolTip(
+            "Cuando esta activo, los cambios entre sucursales aparecen en <1 segundo "
+            "via WebSocket. Si la conexion WS se cae, el polling cada X minutos sirve "
+            "de fallback."
+        )
+        lay_sb.addRow(self.chk_sb_realtime)
+        self.btn_sb_test = QPushButton("Probar conexion Supabase")
+        self.btn_sb_test.clicked.connect(self._test_supabase_connection)
+        lay_sb.addRow(self.btn_sb_test)
+        help_sb = QLabel(
+            '<a href="https://supabase.com/dashboard">Abrir Supabase Dashboard</a> '
+            '- Project Settings > API. Schema SQL en docs/supabase_schema.sql'
+        )
+        help_sb.setOpenExternalLinks(True)
+        help_sb.setStyleSheet("color: #2E7D32; font-size: 10px;")
+        lay_sb.addRow("", help_sb)
+        self.stack_backend.addWidget(page_sb)
+
+        lay_backend.addWidget(self.stack_backend)
+        root.addWidget(gb_backend)
+
+        # Conectar cambio de radio -> mostrar la pagina correspondiente
+        self.rb_backend_firebase.toggled.connect(self._on_backend_changed)
+        self.rb_backend_supabase.toggled.connect(self._on_backend_changed)
 
         # ===== QUE SINCRONIZAR =====
         gb_que = QGroupBox("Que sincronizar")
@@ -636,6 +703,47 @@ class SyncConfigPanel(QWidget):
         self.lbl_intervalo.setVisible(visible)
         self.spn_intervalo.setVisible(visible)
 
+    def _on_backend_changed(self, checked: bool):
+        """v6.8.0: cambia la pagina del stack y muestra warning si difiere del actual."""
+        if not checked:
+            return
+        idx = 1 if self.rb_backend_supabase.isChecked() else 0
+        self.stack_backend.setCurrentIndex(idx)
+
+    def _test_supabase_connection(self):
+        """v6.8.0: prueba la conexion contra Supabase con los valores actuales del form."""
+        url = self.ed_sb_url.text().strip().rstrip("/")
+        pub = self.ed_sb_publishable.text().strip()
+        secret = self.ed_sb_secret.text().strip()
+        if not url or not pub or not secret:
+            QMessageBox.warning(self, "Supabase", "Completa URL, publishable y secret antes de probar.")
+            return
+        try:
+            from app.supabase_sync import SupabaseSyncManager
+        except Exception as e:
+            QMessageBox.critical(self, "Supabase", f"No se pudo importar SupabaseSyncManager:\n{e}")
+            return
+        # Sin sesion real — solo testeamos REST
+        class _DummySession:
+            def query(self, *a, **k): raise NotImplementedError
+        # Persistir temporal en config para que SupabaseSyncManager los lea
+        cfg = load_config()
+        old_supabase = (cfg.get("sync") or {}).get("supabase", {})
+        cfg.setdefault("sync", {})["supabase"] = {
+            "url": url, "publishable_key": pub, "secret_key": secret,
+            "realtime_enabled": old_supabase.get("realtime_enabled", True),
+        }
+        save_config(cfg)
+        try:
+            mgr = SupabaseSyncManager(_DummySession(), getattr(self._find_main_window(), "sucursal", "Sarmiento"))
+            ok, msg = mgr.test_connection()
+            if ok:
+                QMessageBox.information(self, "Supabase", msg)
+            else:
+                QMessageBox.warning(self, "Supabase", msg)
+        except Exception as e:
+            QMessageBox.critical(self, "Supabase", f"Error: {e}")
+
     def _load_config(self):
         sync_cfg = self.cfg.get("sync", {})
 
@@ -653,6 +761,20 @@ class SyncConfigPanel(QWidget):
         fb = sync_cfg.get("firebase", {})
         self.ed_db_url.setText(fb.get("database_url", ""))
         self.ed_auth_token.setText(fb.get("auth_token", ""))
+
+        # v6.8.0: backend toggle + Supabase
+        backend = sync_cfg.get("backend", "firebase")
+        if backend == "supabase":
+            self.rb_backend_supabase.setChecked(True)
+            self.stack_backend.setCurrentIndex(1)
+        else:
+            self.rb_backend_firebase.setChecked(True)
+            self.stack_backend.setCurrentIndex(0)
+        sb = sync_cfg.get("supabase", {}) or {}
+        self.ed_sb_url.setText(sb.get("url", ""))
+        self.ed_sb_publishable.setText(sb.get("publishable_key", ""))
+        self.ed_sb_secret.setText(sb.get("secret_key", ""))
+        self.chk_sb_realtime.setChecked(bool(sb.get("realtime_enabled", True)))
 
         self.chk_sync_productos.setChecked(sync_cfg.get("sync_productos", True))
         self.chk_sync_proveedores.setChecked(sync_cfg.get("sync_proveedores", True))
@@ -672,18 +794,26 @@ class SyncConfigPanel(QWidget):
 
         cfg["sync"] = {
             "enabled": self.chk_enabled.isChecked(),
+            # v6.8.0: backend toggle
+            "backend": "supabase" if self.rb_backend_supabase.isChecked() else "firebase",
             "mode": self.cmb_modo.currentData(),
             "interval_minutes": self.spn_intervalo.value(),
             "firebase": {
                 "database_url": self.ed_db_url.text().strip().rstrip("/"),
                 "auth_token": self.ed_auth_token.text().strip(),
             },
+            "supabase": {
+                "url": self.ed_sb_url.text().strip().rstrip("/"),
+                "publishable_key": self.ed_sb_publishable.text().strip(),
+                "secret_key": self.ed_sb_secret.text().strip(),
+                "realtime_enabled": self.chk_sb_realtime.isChecked(),
+            },
             "sync_productos": self.chk_sync_productos.isChecked(),
             "sync_proveedores": self.chk_sync_proveedores.isChecked(),
-            "confirm_delete_productos": self.chk_confirm_delete_prod.isChecked(),  # v6.7.1
+            "confirm_delete_productos": self.chk_confirm_delete_prod.isChecked(),
             "last_sync": old_sync.get("last_sync"),
             "last_processed_keys": old_sync.get("last_processed_keys", {}),
-            # v6.6.1: cleanup configurable desde UI
+            "last_pull_supabase": old_sync.get("last_pull_supabase", {}),  # v6.8.0
             "cleanup": {
                 "enabled": self.chk_cleanup_enabled.isChecked(),
                 "safe_window_days": int(self.spn_safe_window.value()),

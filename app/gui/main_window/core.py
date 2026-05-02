@@ -435,6 +435,14 @@ class MainWindow(ProductosMixin, VentasMixin, VentasTicketMixin, VentasFinalizac
 
     def _cleanup_resources(self):
         """Libera recursos antes de cerrar la aplicación."""
+        # v6.8.0: detener Supabase Realtime worker si esta activo
+        try:
+            sync = getattr(self, "_firebase_sync", None)
+            if sync is not None and hasattr(sync, "stop_realtime"):
+                sync.stop_realtime()
+        except Exception:
+            pass
+
         # Cerrar sesión de base de datos para evitar memory leaks
         try:
             if hasattr(self, 'session') and self.session is not None:

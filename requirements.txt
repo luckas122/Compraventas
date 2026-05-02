@@ -11,4 +11,5 @@ pytz
 rapidfuzz>=3.0.0
 matplotlib>=3.5.0
 qrcode[pil]>=7.4.2
+websocket-client>=1.7.0
 
