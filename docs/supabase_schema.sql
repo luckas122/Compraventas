@@ -199,7 +199,103 @@ alter publication supabase_realtime add table public.ventas;
 alter publication supabase_realtime add table public.venta_items;
 alter publication supabase_realtime add table public.pagos_proveedores;
 
+-- ═══ VIEWS de "solo activos" (v6.8.4) ═══
+-- Cada tabla soportada con soft-delete tiene su VIEW que filtra deleted_at IS NULL.
+-- Para consultas desde la app o el panel: ver `productos_activos` en lugar de `productos`.
+
+create or replace view public.productos_activos as
+  select * from public.productos where deleted_at is null;
+
+create or replace view public.proveedores_activos as
+  select * from public.proveedores where deleted_at is null;
+
+create or replace view public.compradores_activos as
+  select * from public.compradores where deleted_at is null;
+
+create or replace view public.ventas_activas as
+  select * from public.ventas where deleted_at is null;
+
+create or replace view public.pagos_proveedores_activos as
+  select * from public.pagos_proveedores where deleted_at is null;
+
+-- Permitir lectura anon de las views (heredan de la tabla)
+grant select on public.productos_activos          to anon, authenticated;
+grant select on public.proveedores_activos        to anon, authenticated;
+grant select on public.compradores_activos        to anon, authenticated;
+grant select on public.ventas_activas             to anon, authenticated;
+grant select on public.pagos_proveedores_activos  to anon, authenticated;
+
+-- ═══ CLEANUP AUTOMATICO de filas soft-deleted (v6.8.4) ═══
+-- Funcion que hard-deletea filas con deleted_at de mas de N dias.
+-- Despues de N dias todas las sucursales tuvieron tiempo de procesar la baja.
+
+create or replace function public.cleanup_soft_deleted(days_old int default 30)
+returns table(tabla text, eliminadas bigint)
+language plpgsql
+security definer
+as $$
+declare
+  cutoff timestamptz := now() - (days_old || ' days')::interval;
+  n bigint;
+begin
+  delete from public.productos          where deleted_at < cutoff; get diagnostics n = row_count;
+  return query select 'productos'::text, n;
+
+  delete from public.proveedores        where deleted_at < cutoff; get diagnostics n = row_count;
+  return query select 'proveedores'::text, n;
+
+  delete from public.compradores        where deleted_at < cutoff; get diagnostics n = row_count;
+  return query select 'compradores'::text, n;
+
+  delete from public.ventas             where deleted_at < cutoff; get diagnostics n = row_count;
+  return query select 'ventas'::text, n;
+  -- venta_items se borra cascade (ON DELETE CASCADE en venta_id)
+
+  delete from public.pagos_proveedores  where deleted_at < cutoff; get diagnostics n = row_count;
+  return query select 'pagos_proveedores'::text, n;
+end;
+$$;
+
+-- pg_cron: schedule diario a las 03:00 UTC (00:00 hora AR)
+-- Si pg_cron no esta habilitado, este bloque va a fallar — habilitalo en
+-- Supabase Dashboard -> Database -> Extensions -> buscar "pg_cron" -> Enable.
+do $$
+begin
+  -- Enable extension if posible (puede requerir permisos extra; si falla,
+  -- el usuario debe habilitarla desde el dashboard)
+  create extension if not exists pg_cron;
+exception when others then
+  raise notice 'pg_cron no disponible automaticamente. Habilitalo desde Supabase Dashboard > Database > Extensions.';
+end $$;
+
+-- Reprogramar idempotente: borrar el schedule anterior si existe, luego crear uno nuevo
+do $$
+begin
+  if exists (select 1 from pg_extension where extname = 'pg_cron') then
+    perform cron.unschedule('cleanup-soft-deleted-daily');
+  end if;
+exception when others then
+  null;  -- ignorar "job no existe"
+end $$;
+
+do $$
+begin
+  if exists (select 1 from pg_extension where extname = 'pg_cron') then
+    perform cron.schedule(
+      'cleanup-soft-deleted-daily',
+      '0 3 * * *',  -- 03:00 UTC = 00:00 AR
+      $cron$select public.cleanup_soft_deleted(30)$cron$
+    );
+    raise notice 'Cleanup automatico programado: diariamente 03:00 UTC, retencion 30 dias.';
+  else
+    raise notice 'pg_cron no esta habilitado. Cleanup quedara manual (correr public.cleanup_soft_deleted(30) cuando quieras).';
+  end if;
+end $$;
+
 -- ═══════════════════════════════════════════════════════════════════════
 -- FIN — Si no hay errores, todo listo.
--- Verificar: SELECT count(*) from public.productos;  -> debería devolver 0
+-- Verificar:
+--   SELECT count(*) from public.productos;          -> total (incluye soft-deleted)
+--   SELECT count(*) from public.productos_activos;  -> solo activos
+--   SELECT * from public.cleanup_soft_deleted(30);  -> ejecucion manual del cleanup
 -- ═══════════════════════════════════════════════════════════════════════
