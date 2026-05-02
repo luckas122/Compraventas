@@ -1,0 +1,2112 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Supabase - Tu Local 2025</title>
+    <style>
+        :root {
+            --font-titulo: 22px;
+            --font-cards: 28px;
+            --font-labels: 12px;
+            --font-tabla: 14px;
+            --color-header: #1a237e;
+            --color-header-hover: #283593;
+            --color-card-total: #1a237e;
+            --color-efectivo: #2e7d32;
+            --color-tarjeta: #ff9800;
+            --color-cantidad: #7b1fa2;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f0f2f5;
+            color: #333;
+            min-height: 100vh;
+        }
+        /* Header */
+        .header {
+            background: linear-gradient(135deg, var(--color-header) 0%, var(--color-header-hover) 100%);
+            color: white;
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+        }
+        .header h1 { font-size: var(--font-titulo); font-weight: 600; }
+        .header .status {
+            font-size: 13px;
+            opacity: 0.85;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .header .status .dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            background: #4caf50;
+            display: inline-block;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+
+        /* Tabs */
+        .tabs {
+            display: flex;
+            background: #fff;
+            margin: 0;
+            border-bottom: 2px solid #e0e0e0;
+            padding: 0 16px;
+        }
+        .tab {
+            padding: 14px 28px;
+            font-size: 15px;
+            font-weight: 500;
+            color: #666;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            margin-bottom: -2px;
+            transition: all 0.2s;
+            user-select: none;
+        }
+        .tab:hover { color: var(--color-header); background: #f5f5ff; }
+        .tab.active {
+            color: var(--color-header);
+            border-bottom-color: var(--color-header);
+            font-weight: 600;
+        }
+
+        /* Config panel */
+        .config-panel {
+            background: #fff;
+            margin: 16px;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+        }
+        .config-panel h2 { font-size: 16px; margin-bottom: 12px; color: var(--color-header); }
+        .config-row {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            align-items: flex-end;
+        }
+        .config-row label {
+            display: block;
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 4px;
+        }
+        .config-row input, .config-row select {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            min-width: 200px;
+        }
+        .config-row input:focus, .config-row select:focus {
+            outline: none;
+            border-color: var(--color-header);
+            box-shadow: 0 0 0 2px rgba(26,35,126,0.1);
+        }
+        .btn {
+            padding: 8px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.2s;
+        }
+        .btn-primary {
+            background: var(--color-header);
+            color: white;
+        }
+        .btn-primary:hover { background: var(--color-header-hover); }
+        .btn-success {
+            background: #2e7d32;
+            color: white;
+        }
+        .btn-success:hover { background: #388e3c; }
+        .btn-outline {
+            background: transparent;
+            border: 1px solid var(--color-header);
+            color: var(--color-header);
+        }
+        .btn-outline:hover { background: #e8eaf6; }
+        .btn-sm { padding: 6px 14px; font-size: 12px; }
+        .btn-danger { background: #c62828; color: white; }
+        .btn-danger:hover { background: #d32f2f; }
+
+        /* Cards */
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 16px;
+            margin: 16px;
+        }
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+        }
+        .card .label {
+            font-size: var(--font-labels);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #888;
+            margin-bottom: 4px;
+        }
+        .card .value {
+            font-size: var(--font-cards);
+            font-weight: 700;
+            color: var(--color-card-total);
+        }
+        .card.efectivo .value { color: var(--color-efectivo); }
+        .card.tarjeta .value { color: var(--color-tarjeta); }
+        .card.cantidad .value { color: var(--color-cantidad); }
+        .card .sub { font-size: 13px; color: #666; margin-top: 4px; }
+        .card.sarmiento { border-left: 4px solid #1565c0; }
+        .card.salta { border-left: 4px solid #e65100; }
+        .card.total { border-left: 4px solid var(--color-card-total); }
+        .card.efectivo { border-left: 4px solid var(--color-efectivo); }
+        .card.tarjeta { border-left: 4px solid var(--color-tarjeta); }
+        .card.cantidad { border-left: 4px solid var(--color-cantidad); }
+
+        /* Filters */
+        .filters {
+            display: flex;
+            gap: 12px;
+            margin: 0 16px 8px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .filters label { font-size: 13px; color: #666; }
+        .filters input, .filters select {
+            padding: 6px 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 13px;
+        }
+
+        /* Table */
+        .table-container {
+            margin: 0 16px 16px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+            overflow: auto;
+        }
+        .table-container h3 {
+            padding: 16px 20px 8px;
+            font-size: 15px;
+            color: var(--color-header);
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        th {
+            background: #f5f5f5;
+            padding: 10px 14px;
+            text-align: left;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: #666;
+            border-bottom: 2px solid #e0e0e0;
+            position: sticky;
+            top: 0;
+        }
+        td {
+            padding: 10px 14px;
+            font-size: var(--font-tabla);
+            border-bottom: 1px solid #f0f0f0;
+        }
+        tr:hover td { background: #fafafa; }
+        .suc-sarmiento { color: #1565c0; font-weight: 500; }
+        .suc-salta { color: #e65100; font-weight: 500; }
+        .pago-efectivo { color: #2e7d32; }
+        .pago-tarjeta { color: #e65100; }
+        .pago-proveedor { color: #c62828; font-weight: 500; }
+        .monto { font-weight: 600; font-family: 'Consolas', monospace; }
+        .no-data {
+            text-align: center;
+            padding: 40px;
+            color: #999;
+            font-size: 15px;
+        }
+
+        /* Footer */
+        .footer {
+            text-align: center;
+            padding: 16px;
+            color: #999;
+            font-size: 12px;
+        }
+
+        /* Hidden */
+        .hidden { display: none !important; }
+
+        /* Loading */
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+        .loading .spinner {
+            display: inline-block;
+            width: 30px; height: 30px;
+            border: 3px solid #e0e0e0;
+            border-top-color: var(--color-header);
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+            margin-bottom: 12px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ==================== Precios Tab ==================== */
+        .precios-search {
+            display: flex;
+            gap: 12px;
+            margin: 16px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .precios-search input {
+            flex: 1;
+            min-width: 250px;
+            padding: 10px 16px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 15px;
+            transition: border-color 0.2s;
+        }
+        .precios-search input:focus {
+            outline: none;
+            border-color: var(--color-header);
+            box-shadow: 0 0 0 3px rgba(26,35,126,0.1);
+        }
+        .precios-count {
+            margin: 0 16px 8px;
+            font-size: 13px;
+            color: #666;
+        }
+        .btn-edit {
+            background: none;
+            border: 1px solid var(--color-header);
+            color: var(--color-header);
+            padding: 6px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            min-width: 44px;
+            min-height: 44px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+        .btn-edit:hover { background: #e8eaf6; }
+
+        /* Inline editor */
+        .precio-editor {
+            background: #e8eaf6;
+            border: 2px solid var(--color-header);
+            border-radius: 10px;
+            padding: 16px 20px;
+            margin: 8px 16px 16px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            align-items: center;
+        }
+        .precio-editor .editor-title {
+            width: 100%;
+            font-weight: 600;
+            color: var(--color-header);
+            font-size: 15px;
+            margin-bottom: 4px;
+        }
+        .precio-editor .editor-field {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .precio-editor label {
+            font-size: 14px;
+            color: #333;
+            white-space: nowrap;
+        }
+        .precio-editor input[type="number"] {
+            padding: 10px 14px;
+            border: 2px solid var(--color-header);
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            width: 160px;
+            font-family: 'Consolas', monospace;
+        }
+        .precio-editor input[type="number"]:focus {
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(26,35,126,0.2);
+        }
+        .precio-editor .editor-actions {
+            display: flex;
+            gap: 8px;
+            margin-left: auto;
+        }
+        .precio-actual {
+            font-size: 14px;
+            color: #666;
+            font-family: 'Consolas', monospace;
+        }
+
+        /* Toast notification */
+        .toast {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            background: #2e7d32;
+            color: white;
+            padding: 14px 24px;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 500;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            z-index: 9999;
+            transform: translateY(100px);
+            opacity: 0;
+            transition: all 0.3s ease;
+        }
+        .toast.show {
+            transform: translateY(0);
+            opacity: 1;
+        }
+        .toast.error { background: #c62828; }
+
+        /* Visibility classes (controlled by config or responsive) */
+        .col-hidden { display: none !important; }
+        .card-hidden { display: none !important; }
+
+        /* ==================== Responsive Breakpoints ==================== */
+
+        /* Tablet grande: hasta 1024px */
+        @media (max-width: 1024px) {
+            .cards {
+                grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+                gap: 12px;
+                margin: 12px;
+            }
+            .header { padding: 14px 16px; }
+            .filters { margin: 0 12px 8px; }
+            .table-container { margin: 0 12px 12px; }
+        }
+
+        /* Tablet / telefono grande: hasta 768px */
+        @media (max-width: 768px) {
+            .cards {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 10px;
+                margin: 10px;
+            }
+            .card { padding: 16px; }
+            .card .value { font-size: 24px; }
+            .card .label { font-size: 11px; }
+            .card .sub { font-size: 12px; }
+
+            .header h1 { font-size: 18px; }
+            .tab { padding: 12px 18px; font-size: 14px; }
+
+            .config-panel { margin: 10px; padding: 16px; }
+            .config-row { flex-direction: column; }
+            .config-row input, .config-row select { min-width: 100%; }
+
+            /* Tabla: ocultar columnas menos importantes */
+            .col-cuotas-auto, .col-cae-auto, .col-comprobante-auto { display: none; }
+
+            td, th { padding: 8px 10px; font-size: 13px; }
+
+            .filters { flex-direction: column; align-items: stretch; gap: 8px; }
+            .filters label[style*="margin-left"] { margin-left: 0 !important; }
+
+            .precios-search { flex-direction: column; }
+            .precios-search input { min-width: 100%; }
+            .precio-editor { flex-direction: column; align-items: stretch; }
+            .precio-editor .editor-actions { margin-left: 0; justify-content: flex-end; }
+            .precio-editor input[type="number"] { width: 100%; }
+        }
+
+        /* Telefono: hasta 480px */
+        @media (max-width: 480px) {
+            .cards {
+                grid-template-columns: 1fr;
+                gap: 8px;
+                margin: 8px;
+            }
+            .card { padding: 14px; }
+            .card .value { font-size: 22px; }
+
+            .header {
+                padding: 12px;
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 6px;
+            }
+            .header h1 { font-size: 16px; }
+            .header .status { font-size: 12px; }
+
+            .tabs { padding: 0 8px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+            .tab { padding: 10px 14px; font-size: 13px; white-space: nowrap; }
+
+            .table-container { margin: 0 8px 8px; border-radius: 8px; }
+            .table-container h3 { padding: 12px 14px 6px; font-size: 14px; }
+            td, th { padding: 6px 8px; font-size: 12px; }
+
+            /* Tabla: ocultar aun mas columnas */
+            .col-cuotas-auto, .col-cae-auto, .col-comprobante-auto, .col-items-auto { display: none; }
+
+            /* Touch-friendly: tap targets mas grandes */
+            .btn { min-height: 44px; min-width: 44px; }
+            .btn-sm { min-height: 40px; }
+            .filters input, .filters select { padding: 10px 12px; font-size: 14px; }
+            .btn-edit { min-width: 48px; min-height: 48px; }
+
+            .config-panel { margin: 8px; padding: 12px; }
+            .config-row input { min-width: 100% !important; }
+            .toast { bottom: 12px; right: 12px; left: 12px; text-align: center; }
+        }
+
+        /* v6.6.0: badge "NC" en columna CAE cuando hay nota de credito */
+        .nc-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            background: #c62828;
+            color: white;
+            border-radius: 4px;
+            font-size: 0.85em;
+            font-weight: 600;
+            cursor: help;
+            white-space: pre;
+        }
+        .nc-badge:hover {
+            background: #b71c1c;
+        }
+        .col-comprobante {
+            font-family: 'Courier New', monospace;
+            font-size: 0.95em;
+            white-space: nowrap;
+        }
+    </style>
+    <!-- CDN: Export libraries (PDF + Excel) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.2/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.4/jspdf.plugin.autotable.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+
+    <!-- Header -->
+    <div class="header">
+        <h1>Tu Local 2025 - Dashboard</h1>
+        <div class="status">
+            <span class="dot" id="statusDot"></span>
+            <span id="statusText">Conectando...</span>
+        </div>
+    </div>
+
+    <!-- Config Supabase (shown initially) -->
+    <div class="config-panel" id="configPanel">
+        <h2>Configurar conexion Supabase</h2>
+        <p style="font-size:13px; color:#666; margin-bottom:12px;">
+            Ingresa las credenciales de Supabase (las mismas que usa la app en Configuracion > Sincronizacion > Backend Supabase).
+            La <b>publishable key</b> permite leer todas las ventas/productos. La <b>secret key</b> permite editar precios desde el panel.
+        </p>
+        <div class="config-row">
+            <div>
+                <label>Project URL</label>
+                <input type="text" id="cfgUrl" placeholder="https://xxxxx.supabase.co" style="min-width:350px;">
+            </div>
+            <div>
+                <label>Publishable key (anon)</label>
+                <input type="password" id="cfgPublishable" placeholder="sb_publishable_..." style="min-width:300px;">
+            </div>
+            <div>
+                <label>Secret key (service_role)</label>
+                <input type="password" id="cfgSecret" placeholder="sb_secret_... (solo para editar)" style="min-width:300px;">
+            </div>
+            <button class="btn btn-primary" onclick="conectar()">Conectar</button>
+        </div>
+        <p style="font-size:11px; color:#888; margin-top:8px;">
+            Nota: la secret key solo es necesaria para editar precios desde aqui.
+            Si solo queres ver datos, alcanza con la publishable.
+        </p>
+        <p id="cfgError" style="color:#c62828; font-size:13px; margin-top:8px;" class="hidden"></p>
+    </div>
+
+    <!-- Dashboard (hidden until connected) -->
+    <div id="dashboard" class="hidden">
+
+        <!-- Tabs -->
+        <div class="tabs">
+            <div class="tab active" onclick="cambiarTab('ventas')" id="tabVentas">Ventas</div>
+            <div class="tab" onclick="cambiarTab('precios')" id="tabPrecios">Precios</div>
+            <div class="tab" onclick="cambiarTab('proveedores')" id="tabProveedores">Proveedores</div>
+        </div>
+
+        <!-- ==================== TAB VENTAS ==================== -->
+        <div id="tabContentVentas">
+            <!-- Filters -->
+            <div class="filters" style="margin-top:16px;">
+                <label>Desde:</label>
+                <input type="date" id="filterDateDesde">
+                <label>Hasta:</label>
+                <input type="date" id="filterDateHasta">
+                <label>Sucursal:</label>
+                <select id="filterSuc">
+                    <option value="">Todas</option>
+                </select>
+                <label>Pago:</label>
+                <select id="filterModo">
+                    <option value="">Todas</option>
+                    <option value="efec">Efectivo</option>
+                    <option value="tarj">Tarjeta</option>
+                </select>
+                <button class="btn btn-outline btn-sm" onclick="cargarDatos()">Actualizar</button>
+                <button class="btn btn-outline btn-sm" onclick="exportarPDF()" title="Exportar a PDF">PDF</button>
+                <button class="btn btn-outline btn-sm" onclick="exportarExcel()" title="Exportar a Excel">Excel</button>
+                <label style="margin-left: auto;">
+                    <input type="checkbox" id="autoRefresh" checked>
+                    <span id="autoRefreshLabel">Auto-refresh (30s)</span>
+                </label>
+            </div>
+
+            <!-- Cards -->
+            <div class="cards" id="cardsContainer">
+                <div class="card total" data-card-id="total_dia">
+                    <div class="label">Total del dia</div>
+                    <div class="value" id="totalDia">$0.00</div>
+                    <div class="sub" id="totalCantidad">0 ventas</div>
+                </div>
+                <div class="card efectivo" data-card-id="efectivo">
+                    <div class="label">Efectivo</div>
+                    <div class="value" id="totalEfectivo">$0.00</div>
+                    <div class="sub" id="cantEfectivo">0 ventas</div>
+                </div>
+                <div class="card tarjeta" data-card-id="tarjeta">
+                    <div class="label">Tarjeta</div>
+                    <div class="value" id="totalTarjeta">$0.00</div>
+                    <div class="sub" id="cantTarjeta">0 ventas</div>
+                </div>
+                <div class="card cantidad" data-card-id="cantidad">
+                    <div class="label">Cantidad de ventas</div>
+                    <div class="value" id="cantTotal">0</div>
+                    <div class="sub" id="cantConCAE">0 con CAE</div>
+                </div>
+                <div class="card" data-card-id="monto_cae" style="border-left: 4px solid #1565c0;">
+                    <div class="label">Monto Ventas con CAE</div>
+                    <div class="value" style="color:#1565c0;" id="montoCAE">$0.00</div>
+                    <div class="sub" id="montoCAESub">Efectivo $0.00 · Tarjeta $0.00</div>
+                </div>
+                <div class="card" data-card-id="cant_cae" style="border-left: 4px solid #2e7d32;">
+                    <div class="label">Cantidad Ventas con CAE</div>
+                    <div class="value" style="color:#2e7d32;" id="cantCAE">0</div>
+                    <div class="sub" id="cantCAESub">Efectivo 0 · Tarjeta 0</div>
+                </div>
+            </div>
+
+            <!-- Cards IVA -->
+            <div class="cards" id="ivaCardsContainer">
+                <div class="card" data-card-id="iva_ventas" style="border-left: 4px solid #7b1fa2;">
+                    <div class="label">IVA Ventas (Mes)</div>
+                    <div class="value" style="color:#7b1fa2;" id="ivaVentas">$0.00</div>
+                    <div class="sub" id="ivaVentasSub">Acumulado del mes</div>
+                </div>
+                <div class="card" data-card-id="pagos_proveedores" style="border-left: 4px solid #00796b;">
+                    <div class="label">Pagos Proveedores (Mes)</div>
+                    <div class="value" style="color:#00796b;" id="totalPagos">$0.00</div>
+                    <div class="sub" id="cantPagos">0 pagos</div>
+                </div>
+                <div class="card" data-card-id="iva_compras" style="border-left: 4px solid #455a64;">
+                    <div class="label">IVA Compras (Mes)</div>
+                    <div class="value" style="color:#455a64;" id="ivaCompras">$0.00</div>
+                    <div class="sub" id="ivaSaldo">Saldo IVA: $0.00</div>
+                </div>
+            </div>
+
+            <!-- Cards por sucursal -->
+            <div class="cards" id="sucursalCards"></div>
+
+            <!-- Table -->
+            <div class="table-container">
+                <h3>Detalle de ventas</h3>
+                <div id="tableLoading" class="loading hidden">
+                    <div class="spinner"></div>
+                    <div>Cargando ventas...</div>
+                </div>
+                <table id="ventasTable" class="hidden">
+                    <thead>
+                        <tr>
+                            <th class="col-ticket">Ticket</th>
+                            <th class="col-hora">Fecha / Hora</th>
+                            <th class="col-sucursal">Sucursal</th>
+                            <th class="col-total">Total</th>
+                            <th class="col-pago">Pago</th>
+                            <th class="col-cuotas col-cuotas-auto">Cuotas</th>
+                            <th class="col-cae col-cae-auto">CAE</th>
+                            <th class="col-comprobante col-comprobante-auto">Nº Comprobante</th>
+                            <th class="col-items col-items-auto">Items</th>
+                        </tr>
+                    </thead>
+                    <tbody id="ventasBody"></tbody>
+                </table>
+                <div id="noData" class="no-data hidden">No hay ventas para la fecha seleccionada.</div>
+            </div>
+        </div>
+
+        <!-- ==================== TAB PRECIOS ==================== -->
+        <div id="tabContentPrecios" class="hidden">
+            <!-- Search bar -->
+            <div class="precios-search">
+                <input type="text" id="preciosBuscar" placeholder="Buscar por codigo o nombre de producto..."
+                       onkeydown="if(event.key==='Enter')buscarProductos()">
+                <button class="btn btn-primary" onclick="buscarProductos()">Buscar</button>
+                <button class="btn btn-outline btn-sm" onclick="recargarProductos()">Recargar productos</button>
+            </div>
+
+            <!-- Loading productos -->
+            <div id="preciosLoading" class="loading hidden">
+                <div class="spinner"></div>
+                <div>Cargando productos desde Firebase...</div>
+            </div>
+
+            <!-- Info -->
+            <div class="precios-count" id="preciosCount"></div>
+
+            <!-- Editor inline -->
+            <div id="precioEditor" class="precio-editor hidden">
+                <div class="editor-title" id="editorTitle">Editando producto</div>
+                <div class="editor-field">
+                    <label>Precio actual:</label>
+                    <span class="precio-actual" id="editorPrecioActual">$0.00</span>
+                </div>
+                <div class="editor-field">
+                    <label>Nuevo precio: $</label>
+                    <input type="number" id="editorNuevoPrecio" min="0" step="0.01"
+                           onkeydown="if(event.key==='Enter')guardarPrecio()">
+                </div>
+                <div class="editor-actions">
+                    <button class="btn btn-outline btn-sm" onclick="cancelarEdicion()">Cancelar</button>
+                    <button class="btn btn-success" onclick="guardarPrecio()">Guardar</button>
+                </div>
+            </div>
+
+            <!-- Table productos -->
+            <div class="table-container">
+                <table id="productosTable" class="hidden">
+                    <thead>
+                        <tr>
+                            <th>Codigo</th>
+                            <th>Nombre</th>
+                            <th>Categoria</th>
+                            <th>Precio</th>
+                            <th>Accion</th>
+                        </tr>
+                    </thead>
+                    <tbody id="productosBody"></tbody>
+                </table>
+                <div id="noProductos" class="no-data">Busca un producto por codigo o nombre para ver resultados.</div>
+            </div>
+        </div>
+
+        <!-- ==================== TAB PROVEEDORES ==================== -->
+        <div id="tabContentProveedores" class="hidden">
+            <div class="table-container" style="margin-top:16px;">
+                <h3>Registrar pago a proveedor</h3>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;max-width:780px;">
+                    <div>
+                        <label style="display:block;font-size:13px;color:#555;">Proveedor</label>
+                        <select id="provSelect" style="width:100%;padding:6px;"></select>
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:13px;color:#555;">Nombre nuevo (si "Otro")</label>
+                        <input type="text" id="provNombreNuevo" placeholder="Nombre del proveedor" style="width:100%;padding:6px;" disabled>
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:13px;color:#555;">Monto ($)</label>
+                        <input type="number" id="provMonto" min="0.01" step="0.01" style="width:100%;padding:6px;">
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:13px;color:#555;">Método de pago</label>
+                        <select id="provMetodo" style="width:100%;padding:6px;">
+                            <option>Efectivo</option>
+                            <option>Tarjeta</option>
+                            <option>Transferencia</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:13px;color:#555;">Sucursal</label>
+                        <select id="provSucursal" style="width:100%;padding:6px;"></select>
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:13px;color:#555;">Nota</label>
+                        <input type="text" id="provNota" placeholder="Opcional" style="width:100%;padding:6px;">
+                    </div>
+                    <label style="display:flex;align-items:center;gap:6px;">
+                        <input type="checkbox" id="provPagoCaja"> Pago de caja (descontar del efectivo)
+                    </label>
+                    <label style="display:flex;align-items:center;gap:6px;">
+                        <input type="checkbox" id="provIncluyeIva"> Incluye IVA (21%)
+                    </label>
+                </div>
+                <div style="margin-top:12px;">
+                    <button class="btn btn-success" onclick="registrarPagoProveedor()">Registrar Pago</button>
+                    <button class="btn btn-outline btn-sm" onclick="cargarPagosProveedores()">Actualizar lista</button>
+                    <span id="provMsg" style="margin-left:12px;font-size:13px;"></span>
+                </div>
+            </div>
+
+            <div class="table-container" style="margin-top:20px;">
+                <h3>Pagos recientes</h3>
+                <table id="pagosProvTable">
+                    <thead>
+                        <tr>
+                            <th>Fecha</th>
+                            <th>Sucursal</th>
+                            <th>Proveedor</th>
+                            <th>Monto</th>
+                            <th>Método</th>
+                            <th>IVA</th>
+                            <th>Caja</th>
+                            <th>Nota</th>
+                        </tr>
+                    </thead>
+                    <tbody id="pagosProvBody"></tbody>
+                </table>
+                <div id="noPagosProv" class="no-data hidden">Sin pagos registrados.</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast notification -->
+    <div class="toast" id="toast"></div>
+
+    <div class="footer">
+        Tu Local 2025 - Dashboard v2.0
+    </div>
+
+    <script>
+    // ==================== Estado ====================
+    // Supabase credentials (replaces Firebase URL/Token)
+    let SB_URL = '';
+    let SB_PUBLISHABLE = '';
+    let SB_SECRET = '';        // opcional: solo para editar precios desde el panel
+    // Aliases para compat con codigo no migrado todavia (que aun referencia FB_*)
+    // Estos NO se usan; quedan como sentinel para fallar fuerte si algo se filtra.
+    let FB_URL = '__supabase_mode__';
+    let FB_TOKEN = '__supabase_mode__';
+    let refreshInterval = null;
+    let ventasCache = [];
+
+    // Productos
+    let productosCache = {};      // Map codigo_barra -> {nombre, precio, categoria, ...}
+    let productosCargados = false;
+    let editandoCodigo = null;     // codigo_barra del producto en edicion
+
+    // Dashboard config (desde Firebase config/dashboard)
+    let dashboardConfig = null;
+
+    // ==================== Persistencia en localStorage ====================
+    function guardarCredenciales() {
+        try {
+            localStorage.setItem('sb_dashboard_url', SB_URL);
+            localStorage.setItem('sb_dashboard_publishable', SB_PUBLISHABLE);
+            // Solo guardar secret si el usuario la cargo expresamente
+            if (SB_SECRET) localStorage.setItem('sb_dashboard_secret', SB_SECRET);
+            else localStorage.removeItem('sb_dashboard_secret');
+        } catch(e) {}
+    }
+    function cargarCredenciales() {
+        try {
+            const url = localStorage.getItem('sb_dashboard_url');
+            const pub = localStorage.getItem('sb_dashboard_publishable');
+            const sec = localStorage.getItem('sb_dashboard_secret') || '';
+            if (url && pub) {
+                document.getElementById('cfgUrl').value = url;
+                document.getElementById('cfgPublishable').value = pub;
+                if (sec) document.getElementById('cfgSecret').value = sec;
+                return true;
+            }
+        } catch(e) {}
+        return false;
+    }
+
+    // ==================== Tabs ====================
+    function cambiarTab(tab) {
+        // Update tab buttons
+        document.getElementById('tabVentas').classList.toggle('active', tab === 'ventas');
+        document.getElementById('tabPrecios').classList.toggle('active', tab === 'precios');
+        const tP = document.getElementById('tabProveedores');
+        if (tP) tP.classList.toggle('active', tab === 'proveedores');
+
+        // Show/hide content
+        document.getElementById('tabContentVentas').classList.toggle('hidden', tab !== 'ventas');
+        document.getElementById('tabContentPrecios').classList.toggle('hidden', tab !== 'precios');
+        const cP = document.getElementById('tabContentProveedores');
+        if (cP) cP.classList.toggle('hidden', tab !== 'proveedores');
+
+        // Lazy-load productos on first visit
+        if (tab === 'precios' && !productosCargados) {
+            cargarProductos();
+        }
+        if (tab === 'proveedores') {
+            inicializarTabProveedores();
+        }
+    }
+
+    // ==================== Conexion ====================
+    async function conectar() {
+        const url = document.getElementById('cfgUrl').value.trim().replace(/\/+$/, '');
+        const pub = document.getElementById('cfgPublishable').value.trim();
+        const sec = document.getElementById('cfgSecret').value.trim();
+        const errEl = document.getElementById('cfgError');
+
+        if (!url || !pub) {
+            errEl.textContent = 'Completa al menos URL y Publishable key. (Secret es opcional, solo para editar.)';
+            errEl.classList.remove('hidden');
+            return;
+        }
+
+        errEl.classList.add('hidden');
+
+        // Test de conexion: GET /rest/v1/productos con publishable
+        try {
+            const resp = await fetch(`${url}/rest/v1/productos?select=id&limit=0`, {
+                headers: { 'apikey': pub }
+            });
+            if (!resp.ok) {
+                const t = await resp.text();
+                throw new Error(`HTTP ${resp.status}: ${t.substring(0, 200)}`);
+            }
+            // Conexion OK
+            SB_URL = url;
+            SB_PUBLISHABLE = pub;
+            SB_SECRET = sec;
+            guardarCredenciales();
+
+            document.getElementById('configPanel').classList.add('hidden');
+            document.getElementById('dashboard').classList.remove('hidden');
+            actualizarStatus('Conectado a Supabase', true);
+
+            // Setear fechas de hoy
+            document.getElementById('filterDateDesde').value = hoy();
+            document.getElementById('filterDateHasta').value = hoy();
+
+            // Cargar config del dashboard + datos
+            await cargarDashboardConfig();
+            await cargarDatos();
+            iniciarAutoRefresh();
+
+        } catch(e) {
+            errEl.textContent = `Error de conexion: ${e.message}`;
+            errEl.classList.remove('hidden');
+            actualizarStatus('Error', false);
+        }
+    }
+
+    // ==================== Supabase REST ====================
+    // Headers: apikey (publishable o secret). NO Authorization Bearer (las nuevas
+    // keys no son JWT y se rechazaria con 401).
+    function _supaHeaders(useSecret = false) {
+        const key = (useSecret && SB_SECRET) ? SB_SECRET : SB_PUBLISHABLE;
+        return { 'apikey': key };
+    }
+
+    async function supabaseGet(table, query = '') {
+        const sep = query.startsWith('?') || query === '' ? '' : '?';
+        const url = `${SB_URL}/rest/v1/${table}${sep}${query}`;
+        const resp = await fetch(url, { headers: _supaHeaders(false) });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status} en ${table}`);
+        return await resp.json();
+    }
+
+    async function supabasePatch(table, filter, body) {
+        // PATCH /rest/v1/{table}?{filter}  con body JSON. Requiere secret.
+        if (!SB_SECRET) throw new Error('Necesitas la secret key configurada para editar.');
+        const url = `${SB_URL}/rest/v1/${table}?${filter}`;
+        const headers = { ..._supaHeaders(true), 'Content-Type': 'application/json',
+                          'Prefer': 'return=minimal' };
+        const resp = await fetch(url, { method: 'PATCH', headers,
+                                         body: JSON.stringify(body) });
+        if (!resp.ok) {
+            const t = await resp.text();
+            throw new Error(`HTTP ${resp.status}: ${t.substring(0,200)}`);
+        }
+        return true;
+    }
+
+    async function supabaseUpsert(table, body, onConflict) {
+        if (!SB_SECRET) throw new Error('Necesitas la secret key configurada para editar.');
+        let url = `${SB_URL}/rest/v1/${table}`;
+        if (onConflict) url += `?on_conflict=${encodeURIComponent(onConflict)}`;
+        const headers = { ..._supaHeaders(true), 'Content-Type': 'application/json',
+                          'Prefer': 'resolution=merge-duplicates,return=minimal' };
+        const resp = await fetch(url, { method: 'POST', headers,
+                                         body: JSON.stringify(body) });
+        if (!resp.ok) {
+            const t = await resp.text();
+            throw new Error(`HTTP ${resp.status}: ${t.substring(0,200)}`);
+        }
+        return true;
+    }
+
+    // Stubs para mantener compat con codigo viejo (si quedo alguno) — todos lanzan
+    function firebaseGet() { throw new Error('firebaseGet llamado en dashboard-supabase'); }
+    function firebasePost() { throw new Error('firebasePost llamado en dashboard-supabase'); }
+
+    // ==================== Cargar datos (Ventas) ====================
+    // En Supabase la tabla `ventas` ya guarda el ESTADO FINAL (incluyendo NCs,
+    // devoluciones, soft-deletes). NO necesitamos mergear creates+updates como
+    // en Firebase. Una sola query devuelve todo listo.
+    async function cargarDatos() {
+        const desde = document.getElementById('filterDateDesde').value;
+        const hasta = document.getElementById('filterDateHasta').value;
+        const sucFiltro = document.getElementById('filterSuc').value;
+        const modoFiltro = document.getElementById('filterModo').value;
+
+        document.getElementById('tableLoading').classList.remove('hidden');
+        document.getElementById('ventasTable').classList.add('hidden');
+        document.getElementById('noData').classList.add('hidden');
+
+        try {
+            // Construir el query a `ventas`. Filtros nativos de PostgREST:
+            //   ?deleted_at=is.null  → solo activas
+            //   &fecha=gte.YYYY-MM-DD&fecha=lt.YYYY-MM-DD+1
+            //   &sucursal=eq.X
+            //   &modo_pago=ilike.efec*  (LIKE case-insensitive)
+            //   &select=*,venta_items(*) → join automatico con items
+            //   &order=fecha.desc
+            const params = new URLSearchParams();
+            params.set('select', '*,venta_items(*)');
+            params.set('deleted_at', 'is.null');
+            if (desde) params.append('fecha', `gte.${desde}T00:00:00`);
+            if (hasta) {
+                // Suma 1 dia para incluir todo el dia "hasta"
+                const d = new Date(hasta + 'T00:00:00');
+                d.setDate(d.getDate() + 1);
+                const next = d.toISOString().substring(0, 10);
+                params.append('fecha', `lt.${next}T00:00:00`);
+            }
+            if (sucFiltro) params.set('sucursal', `eq.${sucFiltro}`);
+            if (modoFiltro) params.set('modo_pago', `ilike.${modoFiltro}*`);
+            params.set('order', 'fecha.desc');
+            params.set('limit', '5000');
+
+            const pagosParams = new URLSearchParams();
+            pagosParams.set('deleted_at', 'is.null');
+            if (desde) pagosParams.append('fecha', `gte.${desde}T00:00:00`);
+            if (hasta) {
+                const d = new Date(hasta + 'T00:00:00');
+                d.setDate(d.getDate() + 1);
+                const next = d.toISOString().substring(0, 10);
+                pagosParams.append('fecha', `lt.${next}T00:00:00`);
+            }
+            if (sucFiltro) pagosParams.set('sucursal', `eq.${sucFiltro}`);
+            pagosParams.set('order', 'fecha.desc');
+            pagosParams.set('limit', '5000');
+
+            // Para el IVA mensual (separado, sin filtros de fecha — el calculo lo hace
+            // por mes actual). Pedimos solo los campos necesarios.
+            const ivaVentasParams = new URLSearchParams();
+            ivaVentasParams.set('select', 'fecha,total,afip_cae');
+            ivaVentasParams.set('deleted_at', 'is.null');
+            ivaVentasParams.set('afip_cae', 'not.is.null');
+            ivaVentasParams.set('limit', '10000');
+            const ivaPagosParams = new URLSearchParams();
+            ivaPagosParams.set('select', 'fecha,monto,incluye_iva');
+            ivaPagosParams.set('deleted_at', 'is.null');
+            ivaPagosParams.set('limit', '10000');
+
+            // 4 queries en paralelo
+            const [ventasRows, pagosRows, ivaVentasRows, ivaPagosRows] = await Promise.all([
+                supabaseGet('ventas', '?' + params.toString()),
+                supabaseGet('pagos_proveedores', '?' + pagosParams.toString()),
+                supabaseGet('ventas', '?' + ivaVentasParams.toString()).catch(() => []),
+                supabaseGet('pagos_proveedores', '?' + ivaPagosParams.toString()).catch(() => []),
+            ]);
+            actualizarStatus('Conectado a Supabase', true);
+
+            // IVA mensual con los datasets crudos pre-filtros
+            calcularIVAMensual(ivaVentasRows, ivaPagosRows);
+
+            // Mapear filas Supabase al shape que ya espera el resto del JS
+            // (mismo objeto que producia la version Firebase)
+            const ventas = (ventasRows || []).map(v => ({
+                key: 'sb-' + v.id,
+                ticket: v.numero_ticket || v.numero_ticket_cae || '-',
+                numero_ticket: v.numero_ticket || null,
+                numero_ticket_cae: v.numero_ticket_cae || null,
+                fecha: v.fecha || '',
+                sucursal: v.sucursal || '',
+                total: parseFloat(v.total || 0),
+                modo_pago: v.modo_pago || 'Efectivo',
+                cuotas: parseInt(v.cuotas || 0),
+                cae: v.afip_cae || '',
+                afip_numero_comprobante: v.afip_numero_comprobante || null,
+                punto_venta: v.punto_venta || null,
+                tipo_comprobante: v.tipo_comprobante || '',
+                nota_credito_cae: v.nota_credito_cae || '',
+                nota_credito_numero: v.nota_credito_numero || null,
+                items: (v.venta_items || []).map(it => ({
+                    codigo_barra: it.codigo_barra || '',
+                    nombre: it.nombre || '',
+                    cantidad: it.cantidad || 0,
+                    precio_unit: it.precio_unit || 0,
+                })),
+                pagado: parseFloat(v.pagado || 0),
+                vuelto: parseFloat(v.vuelto || 0),
+                interes: parseFloat(v.interes_monto || 0),
+                descuento: parseFloat(v.descuento_monto || 0),
+                timestamp: v.fecha ? new Date(v.fecha).getTime() : 0,
+                esPago: false,
+            }));
+
+            // Pagos a proveedores (modo "PAGO ..." con total negativo, igual que antes)
+            let pagosProveedores = [];
+            if (!modoFiltro) {  // modo filtra solo ventas; los pagos son aparte
+                pagosProveedores = (pagosRows || []).map(p => ({
+                    key: 'sb-pago-' + p.id,
+                    ticket: p.numero_ticket || '-',
+                    fecha: p.fecha || '',
+                    sucursal: p.sucursal || '',
+                    total: -(Math.abs(parseFloat(p.monto || 0))),
+                    modo_pago: 'PAGO: ' + (p.proveedor_nombre || 'Proveedor'),
+                    cuotas: 0,
+                    cae: '',
+                    items: [],
+                    pagado: 0,
+                    vuelto: 0,
+                    interes: 0,
+                    descuento: 0,
+                    timestamp: p.fecha ? new Date(p.fecha).getTime() : 0,
+                    esPago: true,
+                    proveedor: p.proveedor_nombre || '',
+                    monto: parseFloat(p.monto || 0),
+                    nota: p.nota || ''
+                }));
+            }
+
+            // Combinar ventas + pagos, ordenar por timestamp
+            const todo = [...ventas, ...pagosProveedores];
+            todo.sort((a, b) => b.timestamp - a.timestamp);
+            ventasCache = todo;
+
+            // Descubrir sucursales
+            actualizarSucursales(todo);
+
+            // Actualizar UI (pasar pagos por separado para IVA)
+            actualizarCards(todo, pagosProveedores);
+            actualizarTabla(todo);
+
+        } catch(e) {
+            console.error('Error cargando datos:', e);
+            actualizarStatus('Error: ' + e.message, false);
+        }
+    }
+
+    // ==================== UI Updates (Ventas) ====================
+    function actualizarCards(ventas, pagosProveedores = []) {
+        let totalEfectivo = 0, totalTarjeta = 0;
+        let cantEf = 0, cantTar = 0, cantCAE = 0;
+        let totalVentasReal = 0, totalCAE = 0;
+        let caeEf = 0, caeTar = 0, caeCantEf = 0, caeCantTar = 0;
+        const porSucursal = {};
+
+        // Filtrar solo ventas reales (no pagos) y excluir anuladas por NC
+        // v6.7.1: vuelve al modelo original de v6.6.x — la NC mutó la venta y se descuenta.
+        for (const v of ventas) {
+            if (v.esPago) continue;
+            if (v.nota_credito_cae) continue; // anulada: no suma
+
+            totalVentasReal += v.total;
+            const esTarjeta = v.modo_pago.toLowerCase().startsWith('tarj');
+            if (esTarjeta) {
+                totalTarjeta += v.total;
+                cantTar++;
+            } else {
+                totalEfectivo += v.total;
+                cantEf++;
+            }
+            if (v.cae) {
+                cantCAE++;
+                totalCAE += v.total;
+                if (esTarjeta) { caeTar += v.total; caeCantTar++; }
+                else { caeEf += v.total; caeCantEf++; }
+            }
+
+            // Por sucursal
+            const suc = v.sucursal || '(sin sucursal)';
+            if (!porSucursal[suc]) {
+                porSucursal[suc] = { total: 0, efectivo: 0, tarjeta: 0, cantidad: 0, cae: 0 };
+            }
+            porSucursal[suc].total += v.total;
+            porSucursal[suc].cantidad++;
+            if (esTarjeta) porSucursal[suc].tarjeta += v.total;
+            else porSucursal[suc].efectivo += v.total;
+            if (v.cae) porSucursal[suc].cae++;
+        }
+
+        const cantVentas = ventas.filter(v => !v.esPago && !v.nota_credito_cae).length;
+
+        document.getElementById('totalDia').textContent = `$${totalVentasReal.toFixed(2)}`;
+        document.getElementById('totalCantidad').textContent = `${cantVentas} ventas`;
+        document.getElementById('totalEfectivo').textContent = `$${totalEfectivo.toFixed(2)}`;
+        document.getElementById('cantEfectivo').textContent = `${cantEf} ventas`;
+        document.getElementById('totalTarjeta').textContent = `$${totalTarjeta.toFixed(2)}`;
+        document.getElementById('cantTarjeta').textContent = `${cantTar} ventas`;
+        document.getElementById('cantTotal').textContent = cantVentas;
+        document.getElementById('cantConCAE').textContent = `${cantCAE} con CAE`;
+
+        // Cards CAE
+        const elMontoCAE = document.getElementById('montoCAE');
+        if (elMontoCAE) elMontoCAE.textContent = `$${totalCAE.toFixed(2)}`;
+        const elMontoCAESub = document.getElementById('montoCAESub');
+        if (elMontoCAESub) elMontoCAESub.textContent = `Efectivo $${caeEf.toFixed(2)} · Tarjeta $${caeTar.toFixed(2)}`;
+        const elCantCAE = document.getElementById('cantCAE');
+        if (elCantCAE) elCantCAE.textContent = cantCAE;
+        const elCantCAESub = document.getElementById('cantCAESub');
+        if (elCantCAESub) elCantCAESub.textContent = `Efectivo ${caeCantEf} · Tarjeta ${caeCantTar}`;
+
+        // IVA cards se actualizan en calcularIVAMensual() (acumulado del mes)
+
+        // Cards por sucursal
+        const container = document.getElementById('sucursalCards');
+        container.innerHTML = '';
+        const sucClasses = ['sarmiento', 'salta'];
+        let i = 0;
+        for (const [suc, datos] of Object.entries(porSucursal)) {
+            const cls = sucClasses[i % sucClasses.length];
+            container.innerHTML += `
+                <div class="card ${cls}">
+                    <div class="label">${suc}</div>
+                    <div class="value">$${datos.total.toFixed(2)}</div>
+                    <div class="sub">${datos.cantidad} ventas | Ef: $${datos.efectivo.toFixed(2)} | Tar: $${datos.tarjeta.toFixed(2)}</div>
+                </div>
+            `;
+            i++;
+        }
+    }
+
+    // ==================== IVA Mensual Acumulado ====================
+    // Supabase version: rawVentas y rawPagos son ARRAYS de filas (no dicts).
+    function calcularIVAMensual(rawVentas, rawPagos) {
+        // Rango: 1ro del mes actual → hoy
+        const ahora = new Date();
+        const anio = ahora.getFullYear();
+        const mes = ahora.getMonth() + 1;
+        const mesDesde = anio + '-' + String(mes).padStart(2, '0') + '-01';
+        const mesHasta = hoy();
+
+        const meses = ['Enero','Febrero','Marzo','Abril','Mayo','Junio',
+                       'Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre'];
+        const nombreMes = meses[mes - 1];
+        const diaHoy = ahora.getDate();
+
+        // Sumar ventas con CAE del mes
+        let totalCAEMensual = 0;
+        let cantCAEMensual = 0;
+        for (const v of (rawVentas || [])) {
+            const vFecha = (v.fecha || '').substring(0, 10);
+            if (vFecha < mesDesde || vFecha > mesHasta) continue;
+            if (v.afip_cae) {
+                totalCAEMensual += parseFloat(v.total || 0);
+                cantCAEMensual++;
+            }
+        }
+
+        // Sumar pagos proveedores del mes
+        let totalPagosMensual = 0;
+        let cantPagosMensual = 0;
+        let totalPagosIvaMensual = 0;   // solo pagos con incluye_iva
+        for (const p of (rawPagos || [])) {
+            const pFecha = (p.fecha || '').substring(0, 10);
+            if (pFecha < mesDesde || pFecha > mesHasta) continue;
+            const monto = Math.abs(parseFloat(p.monto || 0));
+            totalPagosMensual += monto;
+            cantPagosMensual++;
+            if (p.incluye_iva) totalPagosIvaMensual += monto;
+        }
+
+        // Calcular IVA (21% embebido)
+        const ivaVentas = totalCAEMensual > 0 ? (totalCAEMensual - totalCAEMensual / 1.21) : 0;
+        const ivaCompras = totalPagosIvaMensual > 0 ? (totalPagosIvaMensual - totalPagosIvaMensual / 1.21) : 0;
+        const saldoIva = ivaCompras - ivaVentas;
+
+        // Actualizar cards
+        document.getElementById('ivaVentas').textContent = `$${ivaVentas.toFixed(2)}`;
+        document.getElementById('ivaVentasSub').textContent =
+            `${nombreMes} ${anio}: 1/${mes} al ${diaHoy}/${mes} | 21% sobre $${totalCAEMensual.toFixed(2)} (${cantCAEMensual} facturas)`;
+
+        document.getElementById('totalPagos').textContent = `$${totalPagosMensual.toFixed(2)}`;
+        document.getElementById('cantPagos').textContent = `${cantPagosMensual} pagos (mes)`;
+
+        document.getElementById('ivaCompras').textContent = `$${ivaCompras.toFixed(2)}`;
+        const saldoPrefix = saldoIva < 0 ? '-' : '';
+        document.getElementById('ivaSaldo').textContent =
+            `Saldo IVA (${nombreMes}): ${saldoPrefix}$${Math.abs(saldoIva).toFixed(2)}`;
+    }
+
+    function actualizarTabla(ventas) {
+        const body = document.getElementById('ventasBody');
+        const table = document.getElementById('ventasTable');
+        const loading = document.getElementById('tableLoading');
+        const noData = document.getElementById('noData');
+
+        loading.classList.add('hidden');
+
+        if (ventas.length === 0) {
+            table.classList.add('hidden');
+            noData.classList.remove('hidden');
+            return;
+        }
+
+        table.classList.remove('hidden');
+        noData.classList.add('hidden');
+
+        body.innerHTML = '';
+        for (const v of ventas) {
+            // v6.6.3: mostrar DD/MM HH:MM (fecha + hora) en lugar de solo HH:MM
+            const hora = v.fecha
+                ? `${v.fecha.substring(8, 10)}/${v.fecha.substring(5, 7)} ${v.fecha.substring(11, 16)}`
+                : '-';
+            const sucClass = v.sucursal.toLowerCase().includes('sarmiento') ? 'suc-sarmiento' : 'suc-salta';
+            const esPago = v.total < 0 || v.modo_pago.toUpperCase().includes('PAGO');
+            const pagoClass = esPago ? 'pago-proveedor' : (v.modo_pago.toLowerCase().startsWith('tarj') ? 'pago-tarjeta' : 'pago-efectivo');
+            const itemsCount = Array.isArray(v.items) ? v.items.length : 0;
+            const itemsTooltip = Array.isArray(v.items)
+                ? v.items.map(it => `${it.cantidad}x ${it.nombre} ($${parseFloat(it.precio_unit||0).toFixed(2)})`).join('\n')
+                : '';
+            const rowStyle = esPago ? ' style="background:#fff3e0;"' : '';
+            const tipoLabel = esPago ? 'PAGO PROV.' : v.modo_pago;
+
+            // v6.6.0: badge "NC" cuando hay nota de credito; tooltip muestra ambos CAEs.
+            // Si no hay NC pero hay CAE, mostrar el ✓ verde de antes. Sino "-".
+            let caeCell;
+            if (v.nota_credito_cae) {
+                const caeOriginal = v.cae || '(sin CAE)';
+                const caeNC = v.nota_credito_cae;
+                const numNC = v.nota_credito_numero ? ` Nº ${v.nota_credito_numero}` : '';
+                const tooltip = `Venta original CAE: ${caeOriginal}\nNota de Credito CAE: ${caeNC}${numNC}`;
+                caeCell = `<span class="nc-badge" title="${tooltip.replace(/"/g, '&quot;')}">NC</span>`;
+            } else if (v.cae) {
+                caeCell = `<span title="CAE: ${v.cae}">&#10004;</span>`;
+            } else {
+                caeCell = '-';
+            }
+
+            // v6.6.0: columna "Nº Comprobante AFIP". Si tiene afip_numero_comprobante,
+            // formatear como "PV-NNNNNNNN". Sino, fallback al ticket.
+            let comprobanteCell;
+            if (v.afip_numero_comprobante && v.punto_venta) {
+                const pv = String(v.punto_venta).padStart(4, '0');
+                const num = String(v.afip_numero_comprobante).padStart(8, '0');
+                comprobanteCell = `${pv}-${num}`;
+            } else if (v.afip_numero_comprobante) {
+                comprobanteCell = String(v.afip_numero_comprobante);
+            } else {
+                comprobanteCell = v.ticket && v.ticket !== '-' ? `#${v.ticket}` : '-';
+            }
+
+            // v6.7.0: ticket interno con fallback (s/n) si solo hay comprobante AFIP
+            let ticketCell;
+            if (v.ticket && v.ticket !== '-') {
+                ticketCell = `<strong>#${v.ticket}</strong>`;
+            } else if (v.afip_numero_comprobante) {
+                ticketCell = `<span style="color:#666;font-size:0.9em;" title="Sin ticket interno; ver columna Nº Comprobante">(s/n)</span>`;
+            } else {
+                ticketCell = '-';
+            }
+
+            body.innerHTML += `
+                <tr${rowStyle}>
+                    <td class="col-ticket">${ticketCell}</td>
+                    <td class="col-hora">${hora}</td>
+                    <td class="col-sucursal ${sucClass}">${v.sucursal}</td>
+                    <td class="col-total monto" style="${esPago ? 'color:#c62828;' : ''}">$${v.total.toFixed(2)}</td>
+                    <td class="col-pago ${pagoClass}">${tipoLabel}${!esPago && v.cuotas > 1 ? ` (${v.cuotas}c)` : ''}</td>
+                    <td class="col-cuotas col-cuotas-auto">${v.cuotas || '-'}</td>
+                    <td class="col-cae col-cae-auto">${caeCell}</td>
+                    <td class="col-comprobante col-comprobante-auto">${comprobanteCell}</td>
+                    <td class="col-items col-items-auto" title="${itemsTooltip.replace(/"/g, '&quot;')}">${itemsCount} items</td>
+                </tr>
+            `;
+        }
+        // Re-aplicar visibilidad de columnas desde config
+        _aplicarColumnaVisibility();
+    }
+
+    function mostrarVacio() {
+        document.getElementById('tableLoading').classList.add('hidden');
+        document.getElementById('ventasTable').classList.add('hidden');
+        document.getElementById('noData').classList.remove('hidden');
+        actualizarCards([]);
+    }
+
+    function actualizarSucursales(ventas) {
+        const select = document.getElementById('filterSuc');
+        const current = select.value;
+        const sucursales = new Set();
+        for (const v of ventas) {
+            if (v.sucursal) sucursales.add(v.sucursal);
+        }
+
+        // Mantener opciones existentes y agregar nuevas
+        const existentes = new Set();
+        for (const opt of select.options) existentes.add(opt.value);
+
+        for (const suc of sucursales) {
+            if (!existentes.has(suc)) {
+                const opt = document.createElement('option');
+                opt.value = suc;
+                opt.textContent = suc;
+                select.appendChild(opt);
+            }
+        }
+        select.value = current;
+    }
+
+    function actualizarStatus(text, ok) {
+        document.getElementById('statusText').textContent = text;
+        const dot = document.getElementById('statusDot');
+        dot.style.background = ok ? '#4caf50' : '#f44336';
+        dot.style.animation = ok ? 'pulse 2s infinite' : 'none';
+    }
+
+    // ==================== Auto Refresh ====================
+    function iniciarAutoRefresh() {
+        if (refreshInterval) clearInterval(refreshInterval);
+        const interval = (dashboardConfig && dashboardConfig.refresh_interval)
+            ? parseInt(dashboardConfig.refresh_interval) * 1000
+            : 30000;
+        refreshInterval = setInterval(() => {
+            if (document.getElementById('autoRefresh').checked) {
+                cargarDatos();
+            }
+        }, Math.max(interval, 10000));
+    }
+
+    // ==================== Dashboard Config (desde Firebase) ====================
+    async function cargarDashboardConfig() {
+        // Supabase version: por ahora no replicamos la tabla `config/dashboard` que
+        // existe en Firebase. Usamos defaults. Si en el futuro lo migramos, basta
+        // con `await supabaseGet('dashboard_config', '?nombre=eq.default&select=*')`
+        // y mapear el primer row a dashboardConfig.
+        dashboardConfig = null;
+        console.log('[supabase dashboard] usando defaults (no hay config/dashboard en Supabase)');
+    }
+
+    function aplicarDashboardConfig() {
+        if (!dashboardConfig) return;
+
+        // Titulo
+        if (dashboardConfig.titulo) {
+            document.querySelector('.header h1').textContent = dashboardConfig.titulo;
+            document.title = dashboardConfig.titulo;
+        }
+
+        // Cards visibilidad
+        const cardsVis = dashboardConfig.cards_visibles || {};
+        document.querySelectorAll('[data-card-id]').forEach(card => {
+            const id = card.dataset.cardId;
+            if (id in cardsVis) {
+                card.classList.toggle('card-hidden', cardsVis[id] === false);
+            }
+        });
+
+        // Columnas visibilidad (headers)
+        _aplicarColumnaVisibility();
+
+        // Actualizar label de auto-refresh
+        if (dashboardConfig.refresh_interval) {
+            const secs = dashboardConfig.refresh_interval;
+            const label = document.getElementById('autoRefreshLabel');
+            if (label) label.textContent = `Auto-refresh (${secs}s)`;
+        }
+
+        // Estilos personalizados (fuentes y colores)
+        _aplicarEstilos();
+    }
+
+    function _aplicarEstilos() {
+        const estilos = (dashboardConfig && dashboardConfig.estilos) || {};
+        const r = document.documentElement.style;
+
+        // Tamanos de fuente
+        if (estilos.font_size_titulo) r.setProperty('--font-titulo', estilos.font_size_titulo + 'px');
+        if (estilos.font_size_cards)  r.setProperty('--font-cards', estilos.font_size_cards + 'px');
+        if (estilos.font_size_labels) r.setProperty('--font-labels', estilos.font_size_labels + 'px');
+        if (estilos.font_size_tabla)  r.setProperty('--font-tabla', estilos.font_size_tabla + 'px');
+
+        // Colores
+        if (estilos.color_header) {
+            r.setProperty('--color-header', estilos.color_header);
+            // Calcular hover (ligeramente mas claro)
+            r.setProperty('--color-header-hover', _lightenColor(estilos.color_header, 15));
+        }
+        if (estilos.color_card_total) r.setProperty('--color-card-total', estilos.color_card_total);
+        if (estilos.color_efectivo)   r.setProperty('--color-efectivo', estilos.color_efectivo);
+        if (estilos.color_tarjeta)    r.setProperty('--color-tarjeta', estilos.color_tarjeta);
+        if (estilos.color_cantidad)   r.setProperty('--color-cantidad', estilos.color_cantidad);
+
+        // Aplicar colores a cards con inline styles (IVA cards y efectivo/tarjeta values)
+        _aplicarColoresCards(estilos);
+    }
+
+    function _aplicarColoresCards(estilos) {
+        // Cards principales: actualizar color del .value
+        const cardMap = {
+            'total_dia': estilos.color_card_total,
+            'efectivo': estilos.color_efectivo,
+            'tarjeta': estilos.color_tarjeta,
+            'cantidad': estilos.color_cantidad,
+        };
+        for (const [cardId, color] of Object.entries(cardMap)) {
+            if (!color) continue;
+            const card = document.querySelector(`[data-card-id="${cardId}"]`);
+            if (card) {
+                const val = card.querySelector('.value');
+                if (val) val.style.color = color;
+                // Actualizar border-left para las cards que lo tienen
+                if (['efectivo', 'tarjeta', 'cantidad'].includes(cardId)) {
+                    card.style.borderLeftColor = color;
+                }
+                if (cardId === 'total_dia') {
+                    card.style.borderLeftColor = color;
+                }
+            }
+        }
+    }
+
+    function _lightenColor(hex, percent) {
+        // Aclara un color hex por un porcentaje dado
+        hex = hex.replace('#', '');
+        const num = parseInt(hex, 16);
+        const r = Math.min(255, (num >> 16) + Math.round(255 * percent / 100));
+        const g = Math.min(255, ((num >> 8) & 0x00FF) + Math.round(255 * percent / 100));
+        const b = Math.min(255, (num & 0x0000FF) + Math.round(255 * percent / 100));
+        return '#' + (0x1000000 + (r << 16) + (g << 8) + b).toString(16).slice(1);
+    }
+
+    function _aplicarColumnaVisibility() {
+        if (!dashboardConfig || !dashboardConfig.columnas_visibles) return;
+        const colsVis = dashboardConfig.columnas_visibles;
+        const colNames = ['ticket', 'hora', 'sucursal', 'total', 'pago', 'cuotas', 'cae', 'comprobante', 'items'];
+
+        colNames.forEach(name => {
+            if (colsVis[name] === false) {
+                // Ocultar header y todas las celdas de esa columna
+                document.querySelectorAll(`.col-${name}`).forEach(el => {
+                    el.classList.add('col-hidden');
+                });
+            } else {
+                // Mostrar (pero respetar responsive auto-hide)
+                document.querySelectorAll(`.col-${name}`).forEach(el => {
+                    el.classList.remove('col-hidden');
+                });
+            }
+        });
+    }
+
+    // ==================== PRECIOS: Cargar productos ====================
+    // Supabase: una sola query GET /productos?deleted_at=is.null trae el estado final.
+    async function cargarProductos() {
+        document.getElementById('preciosLoading').classList.remove('hidden');
+        document.getElementById('productosTable').classList.add('hidden');
+        document.getElementById('noProductos').classList.add('hidden');
+        document.getElementById('preciosCount').textContent = '';
+
+        try {
+            const params = new URLSearchParams();
+            params.set('select', 'codigo_barra,nombre,precio,categoria,telefono,numero_cuenta,cbu,updated_at');
+            params.set('deleted_at', 'is.null');
+            params.set('order', 'nombre.asc');
+            params.set('limit', '50000');
+            const rows = await supabaseGet('productos', '?' + params.toString());
+            actualizarStatus('Conectado a Supabase', true);
+
+            productosCache = {};
+            for (const r of (rows || [])) {
+                if (!r.codigo_barra) continue;
+                productosCache[r.codigo_barra] = {
+                    codigo_barra: r.codigo_barra,
+                    nombre: r.nombre || '',
+                    precio: parseFloat(r.precio || 0),
+                    categoria: r.categoria || '',
+                    telefono: r.telefono || null,
+                    numero_cuenta: r.numero_cuenta || null,
+                    cbu: r.cbu || null,
+                    _timestamp: r.updated_at ? new Date(r.updated_at).getTime() : 0,
+                };
+            }
+
+            productosCargados = true;
+            const total = Object.keys(productosCache).length;
+            document.getElementById('preciosLoading').classList.add('hidden');
+            document.getElementById('preciosCount').textContent =
+                `${total} productos cargados. Busca por codigo o nombre.`;
+            document.getElementById('noProductos').classList.remove('hidden');
+            document.getElementById('noProductos').textContent =
+                'Busca un producto por codigo o nombre para ver resultados.';
+
+            mostrarToast(`${total} productos cargados`);
+
+        } catch(e) {
+            console.error('Error cargando productos:', e);
+            document.getElementById('preciosLoading').classList.add('hidden');
+            document.getElementById('noProductos').classList.remove('hidden');
+            document.getElementById('noProductos').textContent = 'Error al cargar productos: ' + e.message;
+            mostrarToast('Error al cargar productos', true);
+        }
+    }
+
+    async function recargarProductos() {
+        productosCargados = false;
+        await cargarProductos();
+    }
+
+    // ==================== PRECIOS: Buscar ====================
+    function buscarProductos() {
+        const texto = document.getElementById('preciosBuscar').value.trim().toLowerCase();
+
+        if (!productosCargados) {
+            mostrarToast('Espera a que se carguen los productos', true);
+            return;
+        }
+
+        if (!texto) {
+            // Mostrar todos (hasta 200)
+            const todos = Object.values(productosCache);
+            todos.sort((a, b) => a.nombre.localeCompare(b.nombre));
+            mostrarProductos(todos.slice(0, 200));
+            document.getElementById('preciosCount').textContent =
+                `Mostrando ${Math.min(todos.length, 200)} de ${todos.length} productos.`;
+            return;
+        }
+
+        // Filtrar por codigo o nombre
+        const resultados = [];
+        for (const prod of Object.values(productosCache)) {
+            if (prod.codigo_barra.toLowerCase().includes(texto) ||
+                prod.nombre.toLowerCase().includes(texto)) {
+                resultados.push(prod);
+            }
+        }
+
+        resultados.sort((a, b) => a.nombre.localeCompare(b.nombre));
+        document.getElementById('preciosCount').textContent =
+            `${resultados.length} producto(s) encontrado(s).`;
+        mostrarProductos(resultados.slice(0, 200));
+    }
+
+    // ==================== PRECIOS: Mostrar tabla ====================
+    function mostrarProductos(productos) {
+        const body = document.getElementById('productosBody');
+        const table = document.getElementById('productosTable');
+        const noData = document.getElementById('noProductos');
+
+        if (productos.length === 0) {
+            table.classList.add('hidden');
+            noData.classList.remove('hidden');
+            noData.textContent = 'No se encontraron productos.';
+            return;
+        }
+
+        table.classList.remove('hidden');
+        noData.classList.add('hidden');
+
+        body.innerHTML = '';
+        for (const p of productos) {
+            const escapedCodigo = p.codigo_barra.replace(/'/g, "\\'");
+            body.innerHTML += `
+                <tr id="row-${p.codigo_barra}">
+                    <td><strong>${esc(p.codigo_barra)}</strong></td>
+                    <td>${esc(p.nombre)}</td>
+                    <td>${esc(p.categoria)}</td>
+                    <td class="monto">$${p.precio.toFixed(2)}</td>
+                    <td>
+                        <button class="btn-edit" onclick="editarPrecio('${escapedCodigo}')"
+                                title="Editar precio">&#9998;</button>
+                    </td>
+                </tr>
+            `;
+        }
+    }
+
+    // ==================== PRECIOS: Editar ====================
+    function editarPrecio(codigo) {
+        const prod = productosCache[codigo];
+        if (!prod) return;
+
+        editandoCodigo = codigo;
+        const editor = document.getElementById('precioEditor');
+        document.getElementById('editorTitle').textContent =
+            `Editando: ${prod.nombre} (${prod.codigo_barra})`;
+        document.getElementById('editorPrecioActual').textContent =
+            `$${prod.precio.toFixed(2)}`;
+
+        const input = document.getElementById('editorNuevoPrecio');
+        input.value = prod.precio.toFixed(2);
+        editor.classList.remove('hidden');
+
+        // Scroll to editor and focus
+        editor.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setTimeout(() => { input.focus(); input.select(); }, 200);
+
+        // Highlight the row
+        document.querySelectorAll('#productosBody tr').forEach(tr => {
+            tr.style.background = '';
+        });
+        const row = document.getElementById(`row-${codigo}`);
+        if (row) row.style.background = '#e8eaf6';
+    }
+
+    function cancelarEdicion() {
+        editandoCodigo = null;
+        document.getElementById('precioEditor').classList.add('hidden');
+        document.querySelectorAll('#productosBody tr').forEach(tr => {
+            tr.style.background = '';
+        });
+    }
+
+    async function guardarPrecio() {
+        if (!editandoCodigo) return;
+
+        const prod = productosCache[editandoCodigo];
+        if (!prod) return;
+
+        const nuevoPrecio = parseFloat(document.getElementById('editorNuevoPrecio').value);
+        if (isNaN(nuevoPrecio) || nuevoPrecio < 0) {
+            mostrarToast('Ingresa un precio valido', true);
+            return;
+        }
+
+        if (Math.abs(nuevoPrecio - prod.precio) < 0.01) {
+            mostrarToast('El precio no cambio');
+            cancelarEdicion();
+            return;
+        }
+
+        // Confirmar
+        const precioAnterior = prod.precio;
+        const diff = nuevoPrecio - precioAnterior;
+        const diffStr = diff > 0 ? `+$${diff.toFixed(2)}` : `-$${Math.abs(diff).toFixed(2)}`;
+
+        if (!confirm(`Cambiar precio de "${prod.nombre}":\n\nAnterior: $${precioAnterior.toFixed(2)}\nNuevo: $${nuevoPrecio.toFixed(2)} (${diffStr})\n\nEsto se sincronizara con todas las sucursales.`)) {
+            return;
+        }
+
+        if (!SB_SECRET) {
+            mostrarToast('Para editar precios necesitas la secret key configurada. Reconectate con la secret.', true);
+            return;
+        }
+        try {
+            // PATCH /productos?codigo_barra=eq.X — UPDATE solo el precio (los triggers
+            // actualizan updated_at y la app local lo recibe via Realtime/polling).
+            await supabasePatch(
+                'productos',
+                `codigo_barra=eq.${encodeURIComponent(prod.codigo_barra)}`,
+                {
+                    precio: nuevoPrecio,
+                    sucursal_origen: 'Dashboard Web',
+                }
+            );
+
+            // Update local cache
+            prod.precio = nuevoPrecio;
+            prod._timestamp = Date.now();
+
+            // Update table row
+            const row = document.getElementById(`row-${editandoCodigo}`);
+            if (row) {
+                const tds = row.querySelectorAll('td');
+                if (tds[3]) tds[3].innerHTML = `$${nuevoPrecio.toFixed(2)}`;
+            }
+
+            mostrarToast(`Precio de "${prod.nombre}" actualizado a $${nuevoPrecio.toFixed(2)}`);
+            cancelarEdicion();
+
+        } catch(e) {
+            console.error('Error guardando precio:', e);
+            mostrarToast('Error al guardar: ' + e.message, true);
+        }
+    }
+
+    // ==================== Toast ====================
+    function mostrarToast(msg, isError = false) {
+        const toast = document.getElementById('toast');
+        toast.textContent = msg;
+        toast.className = 'toast' + (isError ? ' error' : '');
+        // Trigger reflow for animation
+        toast.offsetHeight;
+        toast.classList.add('show');
+        setTimeout(() => { toast.classList.remove('show'); }, 3000);
+    }
+
+    // ==================== Utilidades ====================
+    function hoy() {
+        const d = new Date();
+        return d.getFullYear() + '-' +
+            String(d.getMonth() + 1).padStart(2, '0') + '-' +
+            String(d.getDate()).padStart(2, '0');
+    }
+
+    function esc(str) {
+        if (!str) return '';
+        const div = document.createElement('div');
+        div.textContent = str;
+        return div.innerHTML;
+    }
+
+    // ==================== Exportar PDF ====================
+    function exportarPDF() {
+        if (typeof window.jspdf === 'undefined') {
+            mostrarToast('Libreria PDF no cargada. Verifica conexion a internet.', true);
+            return;
+        }
+
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF();
+
+        const desde = document.getElementById('filterDateDesde').value || 'Sin limite';
+        const hasta = document.getElementById('filterDateHasta').value || 'Sin limite';
+        const titulo = document.querySelector('.header h1').textContent || 'Dashboard';
+
+        // Titulo
+        doc.setFontSize(16);
+        doc.text(titulo, 14, 20);
+        doc.setFontSize(10);
+        doc.text('Periodo: ' + desde + ' al ' + hasta, 14, 28);
+        doc.text('Generado: ' + new Date().toLocaleString('es-AR'), 14, 34);
+
+        // Resumen
+        doc.setFontSize(12);
+        doc.text('Resumen', 14, 44);
+
+        const resumenData = [
+            ['Total del periodo', document.getElementById('totalDia').textContent],
+            ['Efectivo', document.getElementById('totalEfectivo').textContent],
+            ['Tarjeta', document.getElementById('totalTarjeta').textContent],
+            ['Cantidad de ventas', document.getElementById('cantTotal').textContent],
+            ['IVA Ventas (Mes)', document.getElementById('ivaVentas').textContent],
+            ['Pagos Proveedores (Mes)', document.getElementById('totalPagos').textContent],
+            ['IVA Compras (Mes)', document.getElementById('ivaCompras').textContent],
+        ];
+
+        doc.autoTable({
+            startY: 48,
+            head: [['Concepto', 'Valor']],
+            body: resumenData,
+            theme: 'grid',
+            headStyles: { fillColor: [26, 35, 126] },
+            margin: { left: 14 }
+        });
+
+        // Detalle ventas
+        const ventasSolo = ventasCache.filter(v => !v.esPago);
+        if (ventasSolo.length > 0) {
+            const detalleData = ventasSolo.map(v => [
+                '#' + v.ticket,
+                v.fecha ? v.fecha.substring(0, 10) : '',
+                v.fecha ? v.fecha.substring(11, 16) : '',
+                v.sucursal,
+                '$' + v.total.toFixed(2),
+                v.modo_pago,
+                v.cae ? 'Si' : 'No'
+            ]);
+
+            doc.autoTable({
+                startY: doc.lastAutoTable.finalY + 10,
+                head: [['Ticket', 'Fecha', 'Hora', 'Sucursal', 'Total', 'Pago', 'CAE']],
+                body: detalleData,
+                theme: 'striped',
+                headStyles: { fillColor: [26, 35, 126] },
+                margin: { left: 14 },
+                styles: { fontSize: 8 }
+            });
+        }
+
+        // Pagos proveedores
+        const pagos = ventasCache.filter(v => v.esPago);
+        if (pagos.length > 0) {
+            doc.autoTable({
+                startY: doc.lastAutoTable.finalY + 10,
+                head: [['Ticket', 'Fecha', 'Sucursal', 'Monto', 'Proveedor']],
+                body: pagos.map(p => [
+                    '#' + p.ticket,
+                    p.fecha ? p.fecha.substring(0, 10) : '',
+                    p.sucursal,
+                    '$' + Math.abs(p.total).toFixed(2),
+                    (p.modo_pago || '').replace('PAGO: ', '')
+                ]),
+                theme: 'striped',
+                headStyles: { fillColor: [0, 121, 107] },
+                margin: { left: 14 },
+                styles: { fontSize: 8 }
+            });
+        }
+
+        doc.save('ventas_' + desde + '_' + hasta + '.pdf');
+        mostrarToast('PDF exportado');
+    }
+
+    // ==================== Exportar Excel ====================
+    function exportarExcel() {
+        if (typeof XLSX === 'undefined') {
+            mostrarToast('Libreria Excel no cargada. Verifica conexion a internet.', true);
+            return;
+        }
+
+        const desde = document.getElementById('filterDateDesde').value || 'Sin limite';
+        const hasta = document.getElementById('filterDateHasta').value || 'Sin limite';
+
+        // Hoja 1: Resumen
+        const resumen = [
+            ['Concepto', 'Valor'],
+            ['Periodo', desde + ' al ' + hasta],
+            ['Total del periodo', document.getElementById('totalDia').textContent],
+            ['Efectivo', document.getElementById('totalEfectivo').textContent],
+            ['Tarjeta', document.getElementById('totalTarjeta').textContent],
+            ['Cantidad de ventas', document.getElementById('cantTotal').textContent],
+            ['IVA Ventas (Mes)', document.getElementById('ivaVentas').textContent],
+            ['Pagos Proveedores (Mes)', document.getElementById('totalPagos').textContent],
+            ['IVA Compras (Mes)', document.getElementById('ivaCompras').textContent],
+        ];
+        const ws1 = XLSX.utils.aoa_to_sheet(resumen);
+
+        // Hoja 2: Detalle ventas
+        const ventasSolo = ventasCache.filter(v => !v.esPago);
+        const detalleRows = [['Ticket', 'Fecha', 'Hora', 'Sucursal', 'Total', 'Modo Pago', 'Cuotas', 'CAE', 'Items']];
+        for (const v of ventasSolo) {
+            detalleRows.push([
+                v.ticket,
+                v.fecha ? v.fecha.substring(0, 10) : '',
+                v.fecha ? v.fecha.substring(11, 16) : '',
+                v.sucursal,
+                v.total,
+                v.modo_pago,
+                v.cuotas || 0,
+                v.cae ? 'Si' : 'No',
+                Array.isArray(v.items) ? v.items.length : 0
+            ]);
+        }
+        const ws2 = XLSX.utils.aoa_to_sheet(detalleRows);
+
+        // Hoja 3: Pagos proveedores
+        const pagos = ventasCache.filter(v => v.esPago);
+        const pagosRows = [['Ticket', 'Fecha', 'Sucursal', 'Monto', 'Proveedor', 'Nota']];
+        for (const p of pagos) {
+            pagosRows.push([
+                p.ticket,
+                p.fecha ? p.fecha.substring(0, 10) : '',
+                p.sucursal,
+                Math.abs(p.total),
+                p.proveedor || '',
+                p.nota || ''
+            ]);
+        }
+        const ws3 = XLSX.utils.aoa_to_sheet(pagosRows);
+
+        // Crear workbook
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws1, 'Resumen');
+        XLSX.utils.book_append_sheet(wb, ws2, 'Detalle Ventas');
+        if (pagos.length > 0) {
+            XLSX.utils.book_append_sheet(wb, ws3, 'Pagos Proveedores');
+        }
+
+        XLSX.writeFile(wb, 'ventas_' + desde + '_' + hasta + '.xlsx');
+        mostrarToast('Excel exportado');
+    }
+
+    // ==================== Eventos ====================
+    document.getElementById('filterDateDesde').addEventListener('change', cargarDatos);
+    document.getElementById('filterDateHasta').addEventListener('change', cargarDatos);
+    document.getElementById('filterSuc').addEventListener('change', cargarDatos);
+    document.getElementById('filterModo').addEventListener('change', cargarDatos);
+
+    // ==================== Proveedores (pagos) ====================
+    let _provTabInit = false;
+
+    async function inicializarTabProveedores() {
+        if (_provTabInit) {
+            cargarPagosProveedores();
+            return;
+        }
+        _provTabInit = true;
+        try {
+            // Supabase: GET /proveedores activos
+            const raw = await supabaseGet('proveedores',
+                '?select=nombre&deleted_at=is.null&order=nombre.asc&limit=1000');
+            const nombres = new Set();
+            for (const r of (raw || [])) {
+                const n = (r.nombre || '').trim();
+                if (n) nombres.add(n);
+            }
+            const sel = document.getElementById('provSelect');
+            sel.innerHTML = '';
+            [...nombres].sort().forEach(n => {
+                const o = document.createElement('option');
+                o.value = n;
+                o.textContent = n;
+                sel.appendChild(o);
+            });
+            const oOtro = document.createElement('option');
+            oOtro.value = '__nuevo__';
+            oOtro.textContent = '-- Otro (nuevo) --';
+            sel.appendChild(oOtro);
+            sel.onchange = () => {
+                document.getElementById('provNombreNuevo').disabled = sel.value !== '__nuevo__';
+            };
+
+            // Sucursales: desde filterSuc
+            const sucSel = document.getElementById('provSucursal');
+            sucSel.innerHTML = '';
+            const filterSuc = document.getElementById('filterSuc');
+            if (filterSuc) {
+                for (const opt of filterSuc.options) {
+                    if (!opt.value) continue;
+                    const o = document.createElement('option');
+                    o.value = opt.value;
+                    o.textContent = opt.value;
+                    sucSel.appendChild(o);
+                }
+            }
+            if (!sucSel.options.length) {
+                const o = document.createElement('option');
+                o.value = 'Dashboard';
+                o.textContent = 'Dashboard';
+                sucSel.appendChild(o);
+            }
+        } catch (e) {
+            console.error('Error inicializar proveedores:', e);
+        }
+        cargarPagosProveedores();
+    }
+
+    async function registrarPagoProveedor() {
+        const msg = document.getElementById('provMsg');
+        msg.style.color = '#333';
+        msg.textContent = '';
+        const sel = document.getElementById('provSelect');
+        let nombre = sel.value;
+        if (nombre === '__nuevo__') {
+            nombre = document.getElementById('provNombreNuevo').value.trim();
+            if (!nombre) { msg.style.color = '#c62828'; msg.textContent = 'Ingresá el nombre del proveedor.'; return; }
+        }
+        const monto = parseFloat(document.getElementById('provMonto').value || '0');
+        if (!(monto > 0)) { msg.style.color = '#c62828'; msg.textContent = 'Monto inválido.'; return; }
+        const metodo = document.getElementById('provMetodo').value;
+        const suc = document.getElementById('provSucursal').value || 'Dashboard';
+        const nota = document.getElementById('provNota').value.trim();
+        const pagoCaja = document.getElementById('provPagoCaja').checked;
+        const incluyeIva = document.getElementById('provIncluyeIva').checked;
+
+        if (!SB_SECRET) {
+            msg.style.color = '#c62828';
+            msg.textContent = 'Para registrar pagos necesitas la secret key configurada.';
+            return;
+        }
+
+        // INSERT en pagos_proveedores. on_conflict por (sucursal, numero_ticket)
+        // — pero como no tenemos numero_ticket todavia, dejamos null y supabase asigna
+        // un id propio. La sucursal 'Dashboard' funciona como marca de origen.
+        const payload = {
+            proveedor_nombre: nombre,
+            monto: monto,
+            metodo_pago: metodo,
+            pago_de_caja: pagoCaja,
+            incluye_iva: incluyeIva,
+            nota: nota,
+            sucursal: suc,
+            fecha: new Date().toISOString(),
+            sucursal_origen: 'Dashboard Web',
+            deleted_at: null,
+        };
+
+        try {
+            await supabaseUpsert('pagos_proveedores', payload, null);
+            msg.style.color = '#2e7d32';
+            msg.textContent = 'Pago registrado en Supabase. Se replicara en las apps via Realtime.';
+            document.getElementById('provMonto').value = '';
+            document.getElementById('provNota').value = '';
+            document.getElementById('provPagoCaja').checked = false;
+            document.getElementById('provIncluyeIva').checked = false;
+            cargarPagosProveedores();
+        } catch (e) {
+            msg.style.color = '#c62828';
+            msg.textContent = 'Error: ' + e.message;
+        }
+    }
+
+    async function cargarPagosProveedores() {
+        const tbody = document.getElementById('pagosProvBody');
+        const noData = document.getElementById('noPagosProv');
+        try {
+            // Supabase: GET ultimos 100 pagos activos ordenados por fecha desc
+            const raw = await supabaseGet('pagos_proveedores',
+                '?deleted_at=is.null&order=fecha.desc&limit=100');
+            const rows = (raw || []).map(d => ({
+                fecha: d.fecha || '',
+                sucursal: d.sucursal || '',
+                proveedor: d.proveedor_nombre || '',
+                monto: parseFloat(d.monto || 0),
+                metodo: d.metodo_pago || '',
+                iva: !!d.incluye_iva,
+                caja: !!d.pago_de_caja,
+                nota: d.nota || '',
+                ts: d.fecha ? new Date(d.fecha).getTime() : 0,
+            }));
+            const top = rows.slice(0, 100);
+            tbody.innerHTML = '';
+            if (!top.length) {
+                noData.classList.remove('hidden');
+                return;
+            }
+            noData.classList.add('hidden');
+            for (const r of top) {
+                const tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td>${(r.fecha || '').substring(0, 19).replace('T', ' ')}</td>
+                    <td>${r.sucursal}</td>
+                    <td>${r.proveedor}</td>
+                    <td>$${r.monto.toFixed(2)}</td>
+                    <td>${r.metodo}</td>
+                    <td>${r.iva ? 'Sí' : '-'}</td>
+                    <td>${r.caja ? 'Sí' : '-'}</td>
+                    <td>${r.nota}</td>
+                `;
+                tbody.appendChild(tr);
+            }
+        } catch (e) {
+            console.error('Error cargando pagos proveedores:', e);
+        }
+    }
+
+    // ==================== Init ====================
+    window.addEventListener('DOMContentLoaded', () => {
+        document.getElementById('filterDateDesde').value = hoy();
+        document.getElementById('filterDateHasta').value = hoy();
+        // Intentar auto-conectar con credenciales guardadas
+        if (cargarCredenciales()) {
+            conectar();
+        }
+    });
+    </script>
+</body>
+</html>
