@@ -764,12 +764,16 @@ class SupabaseSyncManager:
             if cancel_check and cancel_check():
                 break
             page_num += 1
+            # v6.8.3: SIN filtro anti-eco por sucursal_origen.
+            # En el modelo Supabase la tabla guarda el ESTADO (no eventos), y el cursor
+            # `updated_at` evita procesar lo viejo. Si llegan rows de mi propia sucursal
+            # (porque el panel web las edito y `sucursal_origen` quedo en mi nombre, o
+            # porque acabo de pushearlas yo), `_apply_producto` compara timestamps y las
+            # skipea. Mantener el filtro hacia invisible la edicion desde el panel.
             params = {
                 "select": "*",
                 "order": "updated_at.asc",
                 "limit": str(PAGE_SIZE),
-                # Anti-eco: ignorar lo que mando esta sucursal
-                "sucursal_origen": f"neq.{self.sucursal_local}",
             }
             if cursor:
                 params["updated_at"] = f"gt.{cursor}"
@@ -1307,8 +1311,8 @@ class SupabaseSyncManager:
 
         cursors = self._get_last_pull_cursors()
         for tipo in TIPOS_BACKEND:
+            # v6.8.3: sin filtro anti-eco (ver explicacion en _pull_tabla)
             params = {"select": "*", "limit": str(max_per_type),
-                      "sucursal_origen": f"neq.{self.sucursal_local}",
                       "order": "updated_at.asc"}
             cur = cursors.get(tipo)
             if cur:

@@ -149,11 +149,10 @@ class SupabaseRealtimeWorker(QThread):
         record = data.get("record") or data.get("new") or {}
         old = data.get("old_record") or data.get("old") or {}
 
-        # Anti-eco: si el origen es la misma sucursal, ignorar
-        origen = (record.get("sucursal_origen") if record else None) or \
-                 (old.get("sucursal_origen") if old else None)
-        if origen and origen == self.sucursal_local:
-            return
+        # v6.8.3: sin filtro anti-eco. La logica de aplicacion local compara
+        # timestamps y skipea redundantes. Asi capturamos tambien las ediciones
+        # hechas desde el panel web de Supabase, que mantienen sucursal_origen
+        # con el valor original (mi propia sucursal cuando yo cree la fila).
 
         # Mapear table -> tipo logico (en este caso son iguales)
         tipo = table
