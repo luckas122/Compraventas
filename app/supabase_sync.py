@@ -1188,19 +1188,28 @@ class SupabaseSyncManager:
             return False, "Faltan claves (publishable o secret)."
 
         # v6.8.1: las nuevas keys (sb_publishable_*, sb_secret_*) van solo en apikey,
-        # NO en Authorization Bearer (no son JWT). Ese era el bug del 401.
+        # NO en Authorization Bearer (no son JWT).
+        # v6.8.2: el endpoint root /rest/v1/ no admite anon (devuelve 401 aunque la key
+        # sea valida). Tenemos que testear contra una tabla concreta. /rest/v1/productos
+        # con la publishable debe responder 200 si RLS tiene policy "Allow read all".
 
-        # 1) Ping con publishable (lectura anon)
+        # 1) Test publishable contra /rest/v1/productos (lectura anon)
         try:
-            r = requests.get(f"{url}/rest/v1/",
+            r = requests.get(f"{url}/rest/v1/productos",
+                             params={"select": "id", "limit": 0},
                              headers={"apikey": pub},
                              timeout=10)
             if r.status_code == 401:
                 return False, ("HTTP 401 con la publishable key. "
-                               "Verifica que copiaste bien la 'sb_publishable_*' "
-                               "(NO la secret).")
-            if r.status_code not in (200, 404):
-                return False, f"URL invalida (HTTP {r.status_code}): {r.text[:120]}"
+                               "Verifica que copiaste bien la 'sb_publishable_*'. "
+                               "Tambien revisa que las policies RLS permitan SELECT "
+                               "anon (las del schema oficial las crean — re-ejecuta "
+                               "docs/supabase_schema.sql si dudas).")
+            if r.status_code == 404:
+                return False, ("Tabla 'productos' no existe — corre el schema SQL "
+                               "primero (docs/supabase_schema.sql).")
+            if r.status_code not in (200, 206):
+                return False, f"Error con publishable (HTTP {r.status_code}): {r.text[:120]}"
         except requests.ConnectionError:
             return False, "No se pudo conectar. Revisa internet o la URL."
         except requests.Timeout:
@@ -1212,16 +1221,16 @@ class SupabaseSyncManager:
                              params={"select": "id", "limit": 0},
                              headers={"apikey": secret, "Prefer": "count=exact"},
                              timeout=10)
-            if r.status_code == 200:
+            if r.status_code in (200, 206):
                 cr = r.headers.get("Content-Range", "?")
                 count = cr.split("/")[-1] if "/" in cr else "?"
-                return True, f"Conexion OK con Supabase. Productos: {count}"
+                return True, (f"Conexion OK con Supabase.\n"
+                              f"Publishable: OK\nSecret: OK\n"
+                              f"Productos en Supabase: {count}")
             elif r.status_code == 401:
                 return False, ("HTTP 401 con la secret key. "
                                "Verifica que copiaste bien la 'sb_secret_*'.")
-            elif r.status_code == 404:
-                return False, "Tabla 'productos' no existe — corre el schema SQL primero."
-            return False, f"Error HTTP {r.status_code}: {r.text[:120]}"
+            return False, f"Error con secret (HTTP {r.status_code}): {r.text[:120]}"
         except Exception as e:
             return False, f"Error: {e}"
 
