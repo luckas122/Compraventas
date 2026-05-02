@@ -143,11 +143,21 @@ class SyncConfigPanel(QWidget):
         row_radio = QHBoxLayout()
         self.rb_backend_firebase = QRadioButton("Firebase Realtime DB (legacy)")
         self.rb_backend_supabase = QRadioButton("Supabase Postgres (recomendado)")
+        # v6.9.0: modo dual para validacion previo al cutover
+        self.rb_backend_dual = QRadioButton("Dual: Firebase primario + Supabase secundario")
+        self.rb_backend_dual.setToolTip(
+            "Modo de validacion. Cada cambio se publica a AMBOS backends.\n"
+            "La lectura es del primario (Firebase). Sirve para confirmar que\n"
+            "Supabase queda en sync antes de hacer el cutover real.\n"
+            "Si Supabase falla, no afecta a Firebase."
+        )
         self._backend_group = QButtonGroup(self)
         self._backend_group.addButton(self.rb_backend_firebase)
         self._backend_group.addButton(self.rb_backend_supabase)
+        self._backend_group.addButton(self.rb_backend_dual)
         row_radio.addWidget(self.rb_backend_firebase)
         row_radio.addWidget(self.rb_backend_supabase)
+        row_radio.addWidget(self.rb_backend_dual)
         row_radio.addStretch(1)
         lay_backend.addLayout(row_radio)
 
@@ -218,6 +228,7 @@ class SyncConfigPanel(QWidget):
         # Conectar cambio de radio -> mostrar la pagina correspondiente
         self.rb_backend_firebase.toggled.connect(self._on_backend_changed)
         self.rb_backend_supabase.toggled.connect(self._on_backend_changed)
+        self.rb_backend_dual.toggled.connect(self._on_backend_changed)
 
         # ===== QUE SINCRONIZAR =====
         gb_que = QGroupBox("Que sincronizar")
@@ -704,11 +715,19 @@ class SyncConfigPanel(QWidget):
         self.spn_intervalo.setVisible(visible)
 
     def _on_backend_changed(self, checked: bool):
-        """v6.8.0: cambia la pagina del stack y muestra warning si difiere del actual."""
+        """v6.8.0/v6.9.0: cambia la pagina del stack segun radio activo.
+
+        - Firebase: pagina 0 (form Firebase)
+        - Supabase: pagina 1 (form Supabase)
+        - Dual: pagina 1 (Supabase visible — la config Firebase se hereda del form;
+          el usuario debe llenar AMBOS forms; cambiamos a pagina 1 porque es la nueva)
+        """
         if not checked:
             return
-        idx = 1 if self.rb_backend_supabase.isChecked() else 0
-        self.stack_backend.setCurrentIndex(idx)
+        if self.rb_backend_supabase.isChecked() or self.rb_backend_dual.isChecked():
+            self.stack_backend.setCurrentIndex(1)
+        else:
+            self.stack_backend.setCurrentIndex(0)
 
     def _test_supabase_connection(self):
         """v6.8.0: prueba la conexion contra Supabase con los valores actuales del form."""
@@ -762,10 +781,13 @@ class SyncConfigPanel(QWidget):
         self.ed_db_url.setText(fb.get("database_url", ""))
         self.ed_auth_token.setText(fb.get("auth_token", ""))
 
-        # v6.8.0: backend toggle + Supabase
+        # v6.8.0/v6.9.0: backend toggle (firebase / supabase / dual)
         backend = sync_cfg.get("backend", "firebase")
         if backend == "supabase":
             self.rb_backend_supabase.setChecked(True)
+            self.stack_backend.setCurrentIndex(1)
+        elif backend == "dual":
+            self.rb_backend_dual.setChecked(True)
             self.stack_backend.setCurrentIndex(1)
         else:
             self.rb_backend_firebase.setChecked(True)
@@ -792,10 +814,17 @@ class SyncConfigPanel(QWidget):
         # Preservar keys existentes que no editamos
         old_sync = cfg.get("sync", {})
 
+        # v6.8.0/v6.9.0: backend toggle: firebase / supabase / dual
+        if self.rb_backend_supabase.isChecked():
+            backend_val = "supabase"
+        elif self.rb_backend_dual.isChecked():
+            backend_val = "dual"
+        else:
+            backend_val = "firebase"
+
         cfg["sync"] = {
             "enabled": self.chk_enabled.isChecked(),
-            # v6.8.0: backend toggle
-            "backend": "supabase" if self.rb_backend_supabase.isChecked() else "firebase",
+            "backend": backend_val,
             "mode": self.cmb_modo.currentData(),
             "interval_minutes": self.spn_intervalo.value(),
             "firebase": {

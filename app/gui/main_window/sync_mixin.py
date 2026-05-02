@@ -133,20 +133,22 @@ class SyncNotificationsMixin:
     # ============================
 
     def _make_sync_manager(self, session, sucursal):
-        """v6.8.0: factory que devuelve FirebaseSyncManager o SupabaseSyncManager
-        segun `sync.backend` en config. Mantenemos el atributo `_firebase_sync`
-        en MainWindow por compat con los 30+ callsites existentes — el nombre
-        ya no refleja el backend, es solo el slot.
+        """Factory de sync manager.
+
+        v6.8.0: agrego soporte Supabase.
+        v6.9.0: delegado a sync_dispatcher.build_sync_manager para soportar
+            tambien backend='dual' (Firebase primario + Supabase secundario).
+        Mantengo `_firebase_sync` como nombre del slot por compat con los 30+
+        callsites — el nombre ya no refleja el backend, es solo el slot.
         """
         cfg = load_config()
         backend = (cfg.get("sync") or {}).get("backend", "firebase")
-        if backend == "supabase":
-            try:
-                from app.supabase_sync import SupabaseSyncManager
-                return SupabaseSyncManager(session, sucursal)
-            except Exception as e:
-                logger.error(f"[SYNC] Falla creando SupabaseSyncManager, fallback Firebase: {e}")
-        return FirebaseSyncManager(session, sucursal)
+        try:
+            from app.sync_dispatcher import build_sync_manager
+            return build_sync_manager(session, sucursal, backend)
+        except Exception as e:
+            logger.error(f"[SYNC] Falla en build_sync_manager (backend={backend}): {e}, fallback Firebase")
+            return FirebaseSyncManager(session, sucursal)
 
     def _start_supabase_realtime(self):
         """v6.8.0: arranca el QThread de Realtime contra Supabase si es posible."""

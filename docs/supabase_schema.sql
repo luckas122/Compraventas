@@ -191,13 +191,22 @@ create policy "Allow read all" on public.pagos_proveedores  for select using (tr
 -- El dashboard usa la sb_publishable_* que es anon → solo lee.
 
 -- ═══ REALTIME: habilitar replication para WebSocket ═══
--- Para que start_realtime() reciba INSERT/UPDATE/DELETE en vivo
-alter publication supabase_realtime add table public.productos;
-alter publication supabase_realtime add table public.proveedores;
-alter publication supabase_realtime add table public.compradores;
-alter publication supabase_realtime add table public.ventas;
-alter publication supabase_realtime add table public.venta_items;
-alter publication supabase_realtime add table public.pagos_proveedores;
+-- Para que start_realtime() reciba INSERT/UPDATE/DELETE en vivo.
+-- Wrap en DO blocks: alter publication add table NO es idempotente y falla
+-- con 42710 si la tabla ya esta en la publication. Los DO con catch lo
+-- hacen seguro de re-ejecutar.
+do $$ begin alter publication supabase_realtime add table public.productos;
+  exception when duplicate_object then null; end $$;
+do $$ begin alter publication supabase_realtime add table public.proveedores;
+  exception when duplicate_object then null; end $$;
+do $$ begin alter publication supabase_realtime add table public.compradores;
+  exception when duplicate_object then null; end $$;
+do $$ begin alter publication supabase_realtime add table public.ventas;
+  exception when duplicate_object then null; end $$;
+do $$ begin alter publication supabase_realtime add table public.venta_items;
+  exception when duplicate_object then null; end $$;
+do $$ begin alter publication supabase_realtime add table public.pagos_proveedores;
+  exception when duplicate_object then null; end $$;
 
 -- ═══ VIEWS de "solo activos" (v6.8.4) ═══
 -- Cada tabla soportada con soft-delete tiene su VIEW que filtra deleted_at IS NULL.
