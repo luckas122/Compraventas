@@ -115,11 +115,17 @@ class SupabaseSyncManager:
     # ─── REST helpers ────────────────────────────────────────────────
 
     def _headers(self, *, prefer: Optional[str] = None) -> dict:
-        """Headers para requests con la secret_key (escritura permitida)."""
+        """Headers para requests con la secret_key (escritura permitida).
+
+        v6.8.1: las keys nuevas de Supabase (sb_publishable_*, sb_secret_*) NO son JWTs,
+        son tokens opacos. Mandar el header `Authorization: Bearer <key>` hace que
+        PostgREST intente decodificarlo como JWT y devuelva 401. Solo `apikey` basta.
+        Para JWTs viejas (eyJ...) tambien funciona porque el server acepta `apikey` como
+        identidad valida. Asi cubrimos ambos formatos sin hardcodear deteccion.
+        """
         _, _, secret = self._get_supabase_config()
         h = {
             "apikey": secret,
-            "Authorization": f"Bearer {secret}",
             "Content-Type": "application/json",
             "Accept": "application/json",
         }
@@ -222,13 +228,15 @@ class SupabaseSyncManager:
             return False
 
     def _is_online(self) -> bool:
-        url, _, _ = self._get_supabase_config()
-        if not url:
+        url, _, secret = self._get_supabase_config()
+        if not url or not secret:
             return False
         try:
-            r = requests.get(f"{url}/rest/v1/", headers=self._headers(),
+            # v6.8.1: solo apikey, sin Authorization (las keys nuevas no son JWT)
+            r = requests.get(f"{url}/rest/v1/",
+                             headers={"apikey": secret},
                              timeout=5)
-            return r.status_code in (200, 404)  # 404 si no hay tablas, es OK
+            return r.status_code in (200, 404)
         except Exception:
             return False
 
@@ -1178,28 +1186,39 @@ class SupabaseSyncManager:
             return False, "URL de Supabase no configurada."
         if not pub or not secret:
             return False, "Faltan claves (publishable o secret)."
-        # 1) Ping con publishable
+
+        # v6.8.1: las nuevas keys (sb_publishable_*, sb_secret_*) van solo en apikey,
+        # NO en Authorization Bearer (no son JWT). Ese era el bug del 401.
+
+        # 1) Ping con publishable (lectura anon)
         try:
             r = requests.get(f"{url}/rest/v1/",
-                             headers={"apikey": pub, "Authorization": f"Bearer {pub}"},
+                             headers={"apikey": pub},
                              timeout=10)
+            if r.status_code == 401:
+                return False, ("HTTP 401 con la publishable key. "
+                               "Verifica que copiaste bien la 'sb_publishable_*' "
+                               "(NO la secret).")
             if r.status_code not in (200, 404):
-                return False, f"URL invalida (HTTP {r.status_code})"
+                return False, f"URL invalida (HTTP {r.status_code}): {r.text[:120]}"
         except requests.ConnectionError:
             return False, "No se pudo conectar. Revisa internet o la URL."
         except requests.Timeout:
             return False, "Timeout: Supabase no respondio."
+
         # 2) Test secret + schema con count en productos
         try:
             r = requests.get(f"{url}/rest/v1/productos",
                              params={"select": "id", "limit": 0},
-                             headers={**self._headers(prefer="count=exact")},
+                             headers={"apikey": secret, "Prefer": "count=exact"},
                              timeout=10)
             if r.status_code == 200:
                 cr = r.headers.get("Content-Range", "?")
-                return True, f"Conexion OK con Supabase. Productos: {cr.split('/')[-1] if '/' in cr else '?'}"
+                count = cr.split("/")[-1] if "/" in cr else "?"
+                return True, f"Conexion OK con Supabase. Productos: {count}"
             elif r.status_code == 401:
-                return False, "Secret key invalida (HTTP 401)."
+                return False, ("HTTP 401 con la secret key. "
+                               "Verifica que copiaste bien la 'sb_secret_*'.")
             elif r.status_code == 404:
                 return False, "Tabla 'productos' no existe — corre el schema SQL primero."
             return False, f"Error HTTP {r.status_code}: {r.text[:120]}"
