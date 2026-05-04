@@ -752,31 +752,52 @@ class SupabaseSyncManager:
 
     def _pull_tabla(self, tipo: str, last_cursor: Optional[str],
                     progress_callback=None, cancel_check=None) -> Tuple[int, int, Optional[str]]:
-        """Pull de una tabla con paginacion por updated_at."""
+        """Pull de una tabla con KEYSET PAGINATION compuesta (updated_at, id).
+
+        v6.9.1: arreglo el bug que dejaba a la sucursal trabada en 500 filas cuando
+        un batch insert daba el mismo `updated_at` a muchos productos. La pagina
+        siguiente filtraba `updated_at>cursor` y descartaba TODAS las filas que
+        compartian el cursor, asi se perdian las restantes.
+
+        Solucion: cursor compuesto (updated_at, id) usando el filtro `or` de
+        PostgREST:
+          WHERE  updated_at > cursor_ts
+            OR  (updated_at = cursor_ts AND id > cursor_id)
+        Sort: ORDER BY updated_at ASC, id ASC.
+
+        El cursor persistente es solo `updated_at` (string ISO). El cursor_id es
+        transitorio dentro de la sesion. Al iniciar una nueva sesion arrancamos
+        con cursor_id=0 y reprocesamos algunas filas con updated_at=cursor_ts —
+        idempotente porque `_apply_*` compara timestamps y descarta lo igual.
+        """
         tabla = TABLA_DE_TIPO[tipo]
         total_applied = 0
         total_errors = 0
-        cursor = last_cursor
+        cursor_ts = last_cursor   # iso string persistente entre sesiones
+        cursor_id = 0             # id transitorio para break ties dentro de la sesion
+        max_seen_ts = last_cursor
         page_num = 0
-        max_seen_cursor = last_cursor
 
         while True:
             if cancel_check and cancel_check():
                 break
             page_num += 1
-            # v6.8.3: SIN filtro anti-eco por sucursal_origen.
-            # En el modelo Supabase la tabla guarda el ESTADO (no eventos), y el cursor
-            # `updated_at` evita procesar lo viejo. Si llegan rows de mi propia sucursal
-            # (porque el panel web las edito y `sucursal_origen` quedo en mi nombre, o
-            # porque acabo de pushearlas yo), `_apply_producto` compara timestamps y las
-            # skipea. Mantener el filtro hacia invisible la edicion desde el panel.
+
+            # v6.8.3: SIN filtro anti-eco por sucursal_origen (la tabla guarda el
+            # estado actual, no eventos; ediciones del panel web tienen sucursal_origen
+            # del creador y deben llegar a la sucursal originaria igual).
             params = {
                 "select": "*",
-                "order": "updated_at.asc",
+                "order": "updated_at.asc,id.asc",
                 "limit": str(PAGE_SIZE),
             }
-            if cursor:
-                params["updated_at"] = f"gt.{cursor}"
+            if cursor_ts:
+                # Keyset compound: (updated_at>X) OR (updated_at=X AND id>Y)
+                params["or"] = (
+                    f"(updated_at.gt.{cursor_ts},"
+                    f"and(updated_at.eq.{cursor_ts},id.gt.{cursor_id}))"
+                )
+
             rows = self._rest_get(tabla, params)
             if rows is None:
                 self._log(f"Pull {tipo} pag{page_num}: error de red")
@@ -791,13 +812,17 @@ class SupabaseSyncManager:
                     if ok:
                         total_applied += 1
                     upd = row.get("updated_at")
-                    if upd and (not max_seen_cursor or upd > max_seen_cursor):
-                        max_seen_cursor = upd
-                    cursor = upd or cursor
+                    rid = row.get("id") or 0
+                    if upd:
+                        if not max_seen_ts or upd > max_seen_ts:
+                            max_seen_ts = upd
+                        cursor_ts = upd
+                        cursor_id = rid
                 except Exception as e:
                     total_errors += 1
                     self._log(f"Pull {tipo} apply error: {e}")
 
+            self._log(f"Pull {tipo} pag{page_num}: {len(rows)} filas, total aplicado={total_applied}")
             if progress_callback:
                 try:
                     progress_callback(tipo, page_num, total_applied, total_errors)
@@ -807,7 +832,7 @@ class SupabaseSyncManager:
             if len(rows) < PAGE_SIZE:
                 break  # ultima pagina
 
-        return total_applied, total_errors, max_seen_cursor
+        return total_applied, total_errors, max_seen_ts
 
     # ─── Aplicar cambios a SQLite local ────────────────────────────────
 
@@ -1311,11 +1336,14 @@ class SupabaseSyncManager:
 
         cursors = self._get_last_pull_cursors()
         for tipo in TIPOS_BACKEND:
-            # v6.8.3: sin filtro anti-eco (ver explicacion en _pull_tabla)
+            # v6.9.1: keyset pagination compound (updated_at, id) — ver _pull_tabla
             params = {"select": "*", "limit": str(max_per_type),
-                      "order": "updated_at.asc"}
+                      "order": "updated_at.asc,id.asc"}
             cur = cursors.get(tipo)
             if cur:
+                # Aproximacion para diagnose: solo updated_at>cursor (no tracker id
+                # entre llamadas a diagnose_pending; si subestima por ties no afecta
+                # el conteo en el rango utilizable).
                 params["updated_at"] = f"gt.{cur}"
             rows = self._rest_get(TABLA_DE_TIPO[tipo], params) or []
             result["download"][tipo] = len(rows)

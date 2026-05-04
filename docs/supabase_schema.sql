@@ -211,23 +211,32 @@ do $$ begin alter publication supabase_realtime add table public.pagos_proveedor
 -- ═══ VIEWS de "solo activos" (v6.8.4) ═══
 -- Cada tabla soportada con soft-delete tiene su VIEW que filtra deleted_at IS NULL.
 -- Para consultas desde la app o el panel: ver `productos_activos` en lugar de `productos`.
+--
+-- v6.9.1: WITH (security_invoker=true) hace que la view respete las RLS policies
+-- de la tabla subyacente (en lugar de correr como el creador, que bypassa RLS).
+-- Esto quita el badge "UNRESTRICTED" en el panel de Supabase.
 
-create or replace view public.productos_activos as
+create or replace view public.productos_activos
+  with (security_invoker=true) as
   select * from public.productos where deleted_at is null;
 
-create or replace view public.proveedores_activos as
+create or replace view public.proveedores_activos
+  with (security_invoker=true) as
   select * from public.proveedores where deleted_at is null;
 
-create or replace view public.compradores_activos as
+create or replace view public.compradores_activos
+  with (security_invoker=true) as
   select * from public.compradores where deleted_at is null;
 
-create or replace view public.ventas_activas as
+create or replace view public.ventas_activas
+  with (security_invoker=true) as
   select * from public.ventas where deleted_at is null;
 
-create or replace view public.pagos_proveedores_activos as
+create or replace view public.pagos_proveedores_activos
+  with (security_invoker=true) as
   select * from public.pagos_proveedores where deleted_at is null;
 
--- Permitir lectura anon de las views (heredan de la tabla)
+-- Permitir lectura anon de las views (la security_invoker delega a las RLS de la tabla)
 grant select on public.productos_activos          to anon, authenticated;
 grant select on public.proveedores_activos        to anon, authenticated;
 grant select on public.compradores_activos        to anon, authenticated;

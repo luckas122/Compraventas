@@ -38,10 +38,14 @@ logs/
 Thumbs.db
 desktop.ini
 
-# --- Base de datos local ---
+# --- Base de datos local (NUNCA commitear: tiene datos del usuario) ---
+*.db
+*.sqlite
+*.sqlite3
 *.db-shm
 *.db-wal
 *.db.backup_tmp.sqlite
+appcomprasventas.db
 app/backups/
 nul
 
