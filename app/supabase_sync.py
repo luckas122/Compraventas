@@ -467,54 +467,125 @@ class SupabaseSyncManager:
         }
 
     def push_venta(self, venta: Venta):
-        body = self._serialize_venta(venta)
-        # UPSERT sobre la tabla ventas. on_conflict por (sucursal, numero_ticket) es
-        # el caso comun; si numero_ticket es null y numero_ticket_cae no, usar ese.
-        if body.get("numero_ticket"):
-            on_conflict = "sucursal,numero_ticket"
-        elif body.get("numero_ticket_cae"):
-            on_conflict = "sucursal,numero_ticket_cae"
-        else:
-            # Sin identidad fuerte: insert plano (puede crear duplicados, pero raro)
-            on_conflict = None
+        """v6.9.2: SELECT-then-PATCH-or-INSERT.
 
-        ok, returned = self._rest_upsert("ventas", body, on_conflict=on_conflict,
-                                         return_minimal=False)
-        if not ok:
-            self._enqueue_change("ventas", "upsert", body,
-                                 params={"on_conflict": on_conflict or ""})
-            self._log(f"Venta #{venta.numero_ticket} encolada offline")
-            return
+        El UPSERT con `on_conflict=sucursal,numero_ticket` falla con error 42P10
+        ("there is no unique or exclusion constraint matching the ON CONFLICT
+        specification") porque nuestros unique son PARCIALES (where numero_ticket
+        IS NOT NULL). PostgREST no soporta on_conflict con partial indices.
+
+        Solucion: buscar primero la venta por cualquier identificador conocido;
+        si existe, PATCH su id; si no, INSERT plano.
+        """
+        body = self._serialize_venta(venta)
+        sucursal = body.get("sucursal")
+        nt = body.get("numero_ticket")
+        ntc = body.get("numero_ticket_cae")
+        afip_num = body.get("afip_numero_comprobante")
+
+        # Buscar existente por cualquier identidad
+        existing = self._find_venta_remota(sucursal, nt, ntc, afip_num)
 
         venta_id = None
-        if isinstance(returned, list) and returned:
-            venta_id = returned[0].get("id")
-        if venta_id:
-            # Items: borrar primero los existentes (UPSERT no dedupea hijos)
-            self._rest_patch("venta_items",
-                             {"venta_id": f"eq.{venta_id}"},
-                             {})  # no-op patch — solo verifica
-            # Mejor: DELETE explicit + INSERT bulk
+        if existing:
+            # Update via PATCH usando el id remoto
+            venta_id = existing.get("id")
+            ok = self._rest_patch("ventas", {"id": f"eq.{venta_id}"}, body)
+            if not ok:
+                self._enqueue_change("ventas", "patch", body,
+                                     params={"id": f"eq.{venta_id}"})
+                self._log(f"Venta #{nt or ntc} encolada offline (PATCH fallo)")
+                return
+            self._log(f"Venta #{nt or ntc} actualizada (id={venta_id})")
+        else:
+            # Insert plano (sin on_conflict porque rompe con partial indices)
+            url = self._rest_url("ventas")
             try:
-                requests.delete(self._rest_url("venta_items"),
-                                params={"venta_id": f"eq.{venta_id}"},
-                                headers=self._headers(prefer="return=minimal"),
-                                timeout=REQUEST_TIMEOUT)
+                resp = requests.post(
+                    url, json=[body],
+                    headers={**self._headers(prefer="return=representation")},
+                    timeout=REQUEST_TIMEOUT,
+                )
+                if resp.status_code in (200, 201):
+                    data = resp.json() or []
+                    if isinstance(data, list) and data:
+                        venta_id = data[0].get("id")
+                    self._log(f"Venta #{nt or ntc} insertada (id={venta_id})")
+                elif resp.status_code == 409:
+                    # Conflict: alguna race condition; reintentar como PATCH
+                    self._log(f"Venta #{nt or ntc} 409 conflict, reintento via SELECT+PATCH")
+                    existing = self._find_venta_remota(sucursal, nt, ntc, afip_num)
+                    if existing:
+                        venta_id = existing.get("id")
+                        self._rest_patch("ventas", {"id": f"eq.{venta_id}"}, body)
+                else:
+                    self._log(f"Venta INSERT HTTP {resp.status_code}: {resp.text[:200]}")
+                    self._enqueue_change("ventas", "upsert", body, params={})
+                    return
             except Exception as e:
-                self._log(f"DELETE venta_items prev failed: {e}")
-            items_rows = []
-            for it in (venta.items or []):
-                prod = it.producto
-                items_rows.append({
-                    "venta_id": venta_id,
-                    "codigo_barra": prod.codigo_barra if prod else "",
-                    "nombre": prod.nombre if prod else "",
-                    "cantidad": int(it.cantidad or 0),
-                    "precio_unit": float(it.precio_unit or 0),
-                })
-            if items_rows:
-                self._rest_upsert("venta_items", items_rows)
-        self._log(f"Venta #{venta.numero_ticket} publicada (id={venta_id})")
+                self._log(f"Venta INSERT error: {e}")
+                self._enqueue_change("ventas", "upsert", body, params={})
+                return
+
+        if not venta_id:
+            self._log(f"Venta sin id remoto, no inserto items")
+            return
+
+        # Items: re-crear (delete + insert) para evitar deduplicar manualmente
+        try:
+            requests.delete(
+                self._rest_url("venta_items"),
+                params={"venta_id": f"eq.{venta_id}"},
+                headers={**self._headers(prefer="return=minimal")},
+                timeout=REQUEST_TIMEOUT,
+            )
+        except Exception as e:
+            self._log(f"DELETE venta_items prev failed: {e}")
+
+        items_rows = []
+        for it in (venta.items or []):
+            prod = it.producto
+            items_rows.append({
+                "venta_id": venta_id,
+                "codigo_barra": prod.codigo_barra if prod else "",
+                "nombre": prod.nombre if prod else "",
+                "cantidad": int(it.cantidad or 0),
+                "precio_unit": float(it.precio_unit or 0),
+            })
+        if items_rows:
+            try:
+                resp = requests.post(
+                    self._rest_url("venta_items"), json=items_rows,
+                    headers={**self._headers(prefer="return=minimal")},
+                    timeout=REQUEST_TIMEOUT,
+                )
+                if resp.status_code not in (200, 201, 204):
+                    self._log(f"INSERT venta_items HTTP {resp.status_code}: {resp.text[:150]}")
+            except Exception as e:
+                self._log(f"INSERT venta_items error: {e}")
+
+    def _find_venta_remota(self, sucursal, nt, ntc, afip_num):
+        """Busca una venta en Supabase por cualquiera de sus identificadores.
+        Devuelve el dict de la fila (con id) o None."""
+        candidates = []
+        if nt is not None:
+            candidates.append(("numero_ticket", nt))
+        if ntc is not None:
+            candidates.append(("numero_ticket_cae", ntc))
+        if afip_num is not None:
+            candidates.append(("afip_numero_comprobante", afip_num))
+        for col, val in candidates:
+            try:
+                rows = self._rest_get("ventas",
+                                      {"select": "id," + col,
+                                       "sucursal": f"eq.{sucursal}",
+                                       col: f"eq.{val}",
+                                       "limit": "1"})
+                if rows:
+                    return rows[0]
+            except Exception as e:
+                self._log(f"_find_venta_remota error con {col}={val}: {e}")
+        return None
 
     def push_venta_modificada(self, venta: Venta):
         # Igual que push_venta — UPSERT aplica el update

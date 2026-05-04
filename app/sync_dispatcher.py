@@ -27,9 +27,13 @@ logger = logging.getLogger("sync_dispatcher")
 
 
 def build_sync_manager(session: Session, sucursal_local: str,
-                       backend: str = "firebase"):
-    """Factory: devuelve la instancia correcta segun backend."""
-    backend = (backend or "firebase").lower()
+                       backend: str = "supabase"):
+    """Factory: devuelve la instancia correcta segun backend.
+
+    v6.9.2: default cambiado a 'supabase' (usuario migro). Firebase queda
+    disponible si alguien explicita backend='firebase' en config.
+    """
+    backend = (backend or "supabase").lower()
     if backend == "supabase":
         from app.supabase_sync import SupabaseSyncManager
         return SupabaseSyncManager(session, sucursal_local)
@@ -39,9 +43,13 @@ def build_sync_manager(session: Session, sucursal_local: str,
         primary = FirebaseSyncManager(session, sucursal_local)
         secondary = SupabaseSyncManager(session, sucursal_local)
         return DualSyncManager(primary, secondary, sucursal_local)
-    # default: firebase
-    from app.firebase_sync import FirebaseSyncManager
-    return FirebaseSyncManager(session, sucursal_local)
+    if backend == "firebase":
+        from app.firebase_sync import FirebaseSyncManager
+        return FirebaseSyncManager(session, sucursal_local)
+
+    # default: supabase
+    from app.supabase_sync import SupabaseSyncManager
+    return SupabaseSyncManager(session, sucursal_local)
 
 
 class DualSyncManager:

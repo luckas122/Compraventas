@@ -315,11 +315,18 @@
   },
   "sync": {
     "enabled": false,
+    "backend": "supabase",
     "mode": "interval",
     "interval_minutes": 2,
     "firebase": {
       "database_url": "",
       "auth_token": ""
+    },
+    "supabase": {
+      "url": "",
+      "publishable_key": "",
+      "secret_key": "",
+      "realtime_enabled": true
     },
     "sync_productos": true,
     "sync_proveedores": true,

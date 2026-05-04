@@ -140,10 +140,15 @@ class SyncConfigPanel(QWidget):
         )
         lay_backend = QVBoxLayout(gb_backend)
 
+        # v6.9.2: UI simplificada Supabase-only. Los radios siguen existiendo en
+        # el codigo (para no romper el flujo de save/load), pero ocultos. El
+        # backend default es 'supabase'. Para volver al toggle multi-backend,
+        # cambiar self._mostrar_backend_legacy a True.
+        self._mostrar_backend_legacy = False
+
         row_radio = QHBoxLayout()
         self.rb_backend_firebase = QRadioButton("Firebase Realtime DB (legacy)")
         self.rb_backend_supabase = QRadioButton("Supabase Postgres (recomendado)")
-        # v6.9.0: modo dual para validacion previo al cutover
         self.rb_backend_dual = QRadioButton("Dual: Firebase primario + Supabase secundario")
         self.rb_backend_dual.setToolTip(
             "Modo de validacion. Cada cambio se publica a AMBOS backends.\n"
@@ -155,22 +160,37 @@ class SyncConfigPanel(QWidget):
         self._backend_group.addButton(self.rb_backend_firebase)
         self._backend_group.addButton(self.rb_backend_supabase)
         self._backend_group.addButton(self.rb_backend_dual)
-        row_radio.addWidget(self.rb_backend_firebase)
-        row_radio.addWidget(self.rb_backend_supabase)
-        row_radio.addWidget(self.rb_backend_dual)
+
+        if self._mostrar_backend_legacy:
+            row_radio.addWidget(self.rb_backend_firebase)
+            row_radio.addWidget(self.rb_backend_supabase)
+            row_radio.addWidget(self.rb_backend_dual)
+        else:
+            # Ocultar los 3 radios, dejar mensaje simple
+            self.rb_backend_firebase.setVisible(False)
+            self.rb_backend_supabase.setVisible(False)
+            self.rb_backend_dual.setVisible(False)
+            self.rb_backend_supabase.setChecked(True)  # default
+            lbl_solo_supabase = QLabel(
+                "<b style='color:#2E7D32;'>Sincronizacion via Supabase Postgres</b>"
+            )
+            row_radio.addWidget(lbl_solo_supabase)
+
         row_radio.addStretch(1)
         lay_backend.addLayout(row_radio)
 
-        lbl_backend_warn = QLabel(
-            "<span style='color:#888; font-size:10px;'>Cambiar de backend requiere "
-            "reiniciar la app para que tome efecto.</span>"
-        )
-        lbl_backend_warn.setWordWrap(True)
-        lay_backend.addWidget(lbl_backend_warn)
+        if self._mostrar_backend_legacy:
+            lbl_backend_warn = QLabel(
+                "<span style='color:#888; font-size:10px;'>Cambiar de backend requiere "
+                "reiniciar la app para que tome efecto.</span>"
+            )
+            lbl_backend_warn.setWordWrap(True)
+            lay_backend.addWidget(lbl_backend_warn)
 
-        # StackedWidget con la config de cada backend
+        # StackedWidget con la config de cada backend.
+        # v6.9.2: en modo simplificado siempre mostramos solo la pagina Supabase.
         self.stack_backend = QStackedWidget()
-        # ─ Firebase (igual que antes)
+        # ─ Firebase (page 0; oculta en modo simplificado)
         page_fb = QWidget()
         lay_fb = QFormLayout(page_fb)
         self.ed_db_url = QLineEdit()
@@ -223,6 +243,15 @@ class SyncConfigPanel(QWidget):
         self.stack_backend.addWidget(page_sb)
 
         lay_backend.addWidget(self.stack_backend)
+
+        if not self._mostrar_backend_legacy:
+            # Modo simplificado: forzar pagina Supabase y ocultar el groupbox como
+            # tal — pero seguimos mostrandolo porque tiene los campos URL/keys.
+            self.stack_backend.setCurrentIndex(1)
+            # Ocultar la opcion Firebase del stack (queda en el codigo para
+            # build_sync_manager pero nunca se ve)
+            page_fb.setVisible(False)
+
         root.addWidget(gb_backend)
 
         # Conectar cambio de radio -> mostrar la pagina correspondiente
@@ -781,8 +810,12 @@ class SyncConfigPanel(QWidget):
         self.ed_db_url.setText(fb.get("database_url", ""))
         self.ed_auth_token.setText(fb.get("auth_token", ""))
 
-        # v6.8.0/v6.9.0: backend toggle (firebase / supabase / dual)
-        backend = sync_cfg.get("backend", "firebase")
+        # v6.8.0/v6.9.0/v6.9.2: backend toggle (firebase / supabase / dual).
+        # En modo simplificado (default), siempre forzamos 'supabase' aunque la
+        # config tenga otro valor — el usuario quiere Supabase puro.
+        backend = sync_cfg.get("backend", "supabase")
+        if not self._mostrar_backend_legacy:
+            backend = "supabase"
         if backend == "supabase":
             self.rb_backend_supabase.setChecked(True)
             self.stack_backend.setCurrentIndex(1)
@@ -814,8 +847,11 @@ class SyncConfigPanel(QWidget):
         # Preservar keys existentes que no editamos
         old_sync = cfg.get("sync", {})
 
-        # v6.8.0/v6.9.0: backend toggle: firebase / supabase / dual
-        if self.rb_backend_supabase.isChecked():
+        # v6.8.0/v6.9.0/v6.9.2: backend toggle: firebase / supabase / dual.
+        # En modo simplificado siempre guardamos 'supabase'.
+        if not self._mostrar_backend_legacy:
+            backend_val = "supabase"
+        elif self.rb_backend_supabase.isChecked():
             backend_val = "supabase"
         elif self.rb_backend_dual.isChecked():
             backend_val = "dual"

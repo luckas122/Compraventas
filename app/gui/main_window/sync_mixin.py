@@ -142,13 +142,17 @@ class SyncNotificationsMixin:
         callsites — el nombre ya no refleja el backend, es solo el slot.
         """
         cfg = load_config()
-        backend = (cfg.get("sync") or {}).get("backend", "firebase")
+        backend = (cfg.get("sync") or {}).get("backend", "supabase")
         try:
             from app.sync_dispatcher import build_sync_manager
             return build_sync_manager(session, sucursal, backend)
         except Exception as e:
-            logger.error(f"[SYNC] Falla en build_sync_manager (backend={backend}): {e}, fallback Firebase")
-            return FirebaseSyncManager(session, sucursal)
+            logger.error(f"[SYNC] Falla en build_sync_manager (backend={backend}): {e}, fallback Supabase")
+            try:
+                from app.supabase_sync import SupabaseSyncManager
+                return SupabaseSyncManager(session, sucursal)
+            except Exception:
+                return FirebaseSyncManager(session, sucursal)
 
     def _start_supabase_realtime(self):
         """v6.8.0: arranca el QThread de Realtime contra Supabase si es posible."""
@@ -171,16 +175,23 @@ class SyncNotificationsMixin:
         """v6.8.0: cada evento INSERT/UPDATE/DELETE de Supabase Realtime se
         aplica al SQLite local con el mismo `_apply_*` que usa el polling.
         El cursor `last_pull_supabase` no se mueve aqui — el proximo polling
-        recoje el `updated_at` y avanza correctamente sin reaplicar."""
+        recoje el `updated_at` y avanza correctamente sin reaplicar.
+
+        v6.9.2: si el evento gatilla un pending delete (popup de confirmacion),
+        disparar `_procesar_pending_deletes` para que el popup se vea sin
+        esperar al proximo ciclo de sync.
+        """
         if not self._firebase_sync:
             return
         if not hasattr(self._firebase_sync, "_apply_row"):
             return
         try:
             # Marcar deleted_at para mapear a delete en _apply_row
-            if action == "DELETE":
+            is_delete_or_softdelete = False
+            if action == "DELETE" or (row and row.get("deleted_at")):
                 row = dict(row)
                 row["deleted_at"] = row.get("deleted_at") or "now"
+                is_delete_or_softdelete = True
             self._firebase_sync._apply_row(tipo, row)
             # Refrescos minimos en UI segun tipo
             try:
@@ -188,8 +199,16 @@ class SyncNotificationsMixin:
                     self.refrescar_productos()
                 elif tipo == "proveedores":
                     self.cargar_lista_proveedores()
+                elif tipo == "compradores" and hasattr(self, 'cargar_lista_compradores'):
+                    self.cargar_lista_compradores()
             except Exception:
                 pass
+            # v6.9.2: si fue una baja, abrir el popup pendiente al toque
+            if is_delete_or_softdelete:
+                try:
+                    QTimer.singleShot(0, self._procesar_pending_deletes)
+                except Exception as _e:
+                    logger.warning(f"[SYNC] No pude triggear popup pending: {_e}")
         except Exception as e:
             logger.warning(f"[SYNC] Realtime apply {tipo}/{action} fallo: {e}")
 
