@@ -179,7 +179,13 @@ class SupabaseSyncManager:
 
     def _rest_upsert(self, table: str, rows, *, on_conflict: Optional[str] = None,
                      return_minimal: bool = True) -> Tuple[bool, Optional[list]]:
-        """POST con Prefer: resolution=merge-duplicates. Soporta dict o lista."""
+        """POST con Prefer: resolution=merge-duplicates. Soporta dict o lista.
+
+        v6.9.3: forzar `return=representation` para verificar que la operacion
+        afecto al menos 1 fila. Si 0 filas, devolver False con warning explicito
+        (caso tipico: anon-key intentando escribir contra una tabla con RLS-only-
+        SELECT, PostgREST devuelve 204 silenciosamente).
+        """
         if isinstance(rows, dict):
             rows = [rows]
         if not rows:
@@ -190,8 +196,8 @@ class SupabaseSyncManager:
         params = {}
         if on_conflict:
             params["on_conflict"] = on_conflict
-        prefer = "resolution=merge-duplicates"
-        prefer += ",return=minimal" if return_minimal else ",return=representation"
+        # v6.9.3: SIEMPRE pedir return=representation para detectar silent fail.
+        prefer = "resolution=merge-duplicates,return=representation"
         try:
             resp = requests.post(url, params=params, json=rows,
                                  headers=self._headers(prefer=prefer),
@@ -199,28 +205,53 @@ class SupabaseSyncManager:
             if resp.status_code not in (200, 201, 204):
                 self._log(f"UPSERT {table} HTTP {resp.status_code}: {resp.text[:300]}")
                 return False, None
-            data = None
-            if not return_minimal:
-                try:
-                    data = resp.json()
-                except Exception:
-                    data = None
+            try:
+                data = resp.json()
+            except Exception:
+                data = None
+            # v6.9.3: detectar silent fail (PATCH 204 sin filas)
+            if isinstance(data, list) and len(data) == 0 and len(rows) > 0:
+                self._log(
+                    f"UPSERT {table} SILENT FAIL: HTTP {resp.status_code} pero "
+                    f"0 filas afectadas. Probablemente la secret_key es en realidad "
+                    f"sb_publishable_* (anon role) y RLS bloquea writes. "
+                    f"Revisa Configuracion > Sincronizacion."
+                )
+                return False, data
+            if return_minimal:
+                return True, None
             return True, data
         except Exception as e:
             self._log(f"UPSERT {table} error: {e}")
             return False, None
 
     def _rest_patch(self, table: str, params: dict, body: dict) -> bool:
-        """PATCH a /rest/v1/{table}?{params} con body json."""
+        """PATCH a /rest/v1/{table}?{params} con body json.
+
+        v6.9.3: usar `return=representation` para detectar 0 filas afectadas.
+        El caso tipico es: secret_key incorrecta (anon role), RLS sin policy
+        UPDATE, PostgREST devuelve 204 silenciosamente sin modificar nada.
+        """
         url = self._rest_url(table)
         if not url:
             return False
         try:
             resp = requests.patch(url, params=params, json=body,
-                                  headers=self._headers(prefer="return=minimal"),
+                                  headers=self._headers(prefer="return=representation"),
                                   timeout=REQUEST_TIMEOUT)
             if resp.status_code not in (200, 204):
                 self._log(f"PATCH {table} HTTP {resp.status_code}: {resp.text[:200]}")
+                return False
+            try:
+                data = resp.json()
+            except Exception:
+                data = None
+            if isinstance(data, list) and len(data) == 0:
+                self._log(
+                    f"PATCH {table} SILENT FAIL: HTTP {resp.status_code} con 0 filas "
+                    f"afectadas (params={params}). Probable: secret_key invalida "
+                    f"(anon role) bloqueada por RLS. Revisa Configuracion."
+                )
                 return False
             return True
         except Exception as e:
@@ -411,6 +442,9 @@ class SupabaseSyncManager:
     # ─ Compradores ─
 
     def push_comprador(self, comprador: Comprador, accion: str = "upsert"):
+        sync_cfg = self._get_sync_config()
+        if not sync_cfg.get("sync_compradores", True):
+            return
         body = {
             "cuit": (comprador.cuit or "").strip(),
             "nombre": comprador.nombre or "",
@@ -424,6 +458,9 @@ class SupabaseSyncManager:
         self._push_with_queue("compradores", body, on_conflict="cuit")
 
     def push_comprador_eliminado(self, cuit: str):
+        sync_cfg = self._get_sync_config()
+        if not sync_cfg.get("sync_compradores", True):
+            return
         body = {"deleted_at": datetime.utcnow().isoformat() + "Z",
                 "sucursal_origen": self.sucursal_local}
         params = {"cuit": f"eq.{(cuit or '').strip()}"}
@@ -467,6 +504,12 @@ class SupabaseSyncManager:
         }
 
     def push_venta(self, venta: Venta):
+        sync_cfg = self._get_sync_config()
+        if not sync_cfg.get("sync_ventas", True):
+            return
+        return self._push_venta_impl(venta)
+
+    def _push_venta_impl(self, venta: Venta):
         """v6.9.2: SELECT-then-PATCH-or-INSERT.
 
         El UPSERT con `on_conflict=sucursal,numero_ticket` falla con error 42P10
@@ -588,10 +631,15 @@ class SupabaseSyncManager:
         return None
 
     def push_venta_modificada(self, venta: Venta):
-        # Igual que push_venta — UPSERT aplica el update
-        self.push_venta(venta)
+        sync_cfg = self._get_sync_config()
+        if not sync_cfg.get("sync_ventas", True):
+            return
+        return self._push_venta_impl(venta)
 
     def push_venta_eliminada(self, venta: Venta):
+        sync_cfg = self._get_sync_config()
+        if not sync_cfg.get("sync_ventas", True):
+            return
         """Soft-delete con identificadores (sucursal + numero_ticket o cae o afip_num)."""
         body = {"deleted_at": datetime.utcnow().isoformat() + "Z",
                 "sucursal_origen": self.sucursal_local}
@@ -614,6 +662,9 @@ class SupabaseSyncManager:
     # ─ Pagos a proveedores ─
 
     def push_pago_proveedor(self, pago):
+        sync_cfg = self._get_sync_config()
+        if not sync_cfg.get("sync_pagos_proveedores", True):
+            return
         body = {
             "sucursal": getattr(pago, "sucursal", "") or self.sucursal_local,
             "numero_ticket": getattr(pago, "numero_ticket", None),
@@ -1324,15 +1375,74 @@ class SupabaseSyncManager:
             if r.status_code in (200, 206):
                 cr = r.headers.get("Content-Range", "?")
                 count = cr.split("/")[-1] if "/" in cr else "?"
-                return True, (f"Conexion OK con Supabase.\n"
-                              f"Publishable: OK\nSecret: OK\n"
-                              f"Productos en Supabase: {count}")
             elif r.status_code == 401:
                 return False, ("HTTP 401 con la secret key. "
                                "Verifica que copiaste bien la 'sb_secret_*'.")
-            return False, f"Error con secret (HTTP {r.status_code}): {r.text[:120]}"
+            else:
+                return False, f"Error con secret (HTTP {r.status_code}): {r.text[:120]}"
         except Exception as e:
             return False, f"Error: {e}"
+
+        # 3) v6.9.3: TEST DE ESCRITURA. Si la secret_key es en realidad
+        # sb_publishable_* (anon), RLS bloquea writes y el INSERT silenciosamente
+        # devuelve 0 filas. Usamos un INSERT a una fila tipo "ping" + DELETE.
+        # Asi detectamos el error temprano y evitamos el sintoma confuso de
+        # "todo parece OK pero nada se sincroniza".
+        try:
+            ping_cuit = f"__ping_{int(time.time() * 1000)}"
+            r = requests.post(
+                f"{url}/rest/v1/compradores",
+                json=[{"cuit": ping_cuit, "nombre": "__test_write__",
+                       "sucursal_origen": "__test__", "deleted_at": None}],
+                headers={"apikey": secret, "Content-Type": "application/json",
+                         "Prefer": "return=representation"},
+                timeout=10,
+            )
+            if r.status_code == 401:
+                # Sin permisos. Detectar si es publishable.
+                hint = ""
+                if secret.startswith("sb_publishable_"):
+                    hint = ("\n\n⚠ Tu 'secret_key' empieza con 'sb_publishable_'. "
+                            "Eso NO es la secret — es la publishable (anon).\n"
+                            "Buscala en Supabase Dashboard > Project Settings > API "
+                            "y copia la que empieza con 'sb_secret_*'.")
+                return False, (
+                    f"La secret_key NO tiene permisos de escritura (HTTP 401)."
+                    + hint
+                )
+            data = []
+            try: data = r.json()
+            except Exception: data = []
+            if r.status_code in (200, 201) and isinstance(data, list) and data:
+                # Cleanup: borrar la row de ping
+                try:
+                    requests.delete(
+                        f"{url}/rest/v1/compradores",
+                        params={"cuit": f"eq.{ping_cuit}"},
+                        headers={"apikey": secret, "Prefer": "return=minimal"},
+                        timeout=10,
+                    )
+                except Exception:
+                    pass
+                return True, (
+                    f"Conexion OK con Supabase.\n"
+                    f"  Publishable: OK (lectura)\n"
+                    f"  Secret: OK (escritura verificada)\n"
+                    f"  Productos en Supabase: {count}"
+                )
+            else:
+                hint = ""
+                if secret.startswith("sb_publishable_"):
+                    hint = ("\n\n⚠ Detectamos que tu 'secret_key' empieza con "
+                            "'sb_publishable_'. Eso es la publishable (anon), no "
+                            "la secret. Buscala en Supabase > Project Settings > API.")
+                return False, (
+                    f"La secret_key parece NO tener permisos de escritura "
+                    f"(HTTP {r.status_code}, devolvio {len(data)} filas)."
+                    + hint
+                )
+        except Exception as e:
+            return False, f"Error en test de escritura: {e}"
 
     def get_price_mismatches(self) -> list:
         m = self._price_mismatches

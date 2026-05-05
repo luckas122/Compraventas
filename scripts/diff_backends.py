@@ -18,9 +18,33 @@ import json
 import os
 import sys
 
+# v6.9.3: auto-detect venv (igual que bulk_migrate_to_supabase.py)
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+def _ensure_venv():
+    try:
+        import sqlalchemy  # noqa: F401
+        return
+    except ImportError:
+        pass
+    venv_python = os.path.join(ROOT, ".venv", "Scripts", "python.exe")
+    if not os.path.isfile(venv_python):
+        for alt in (".venv_311", "venv", "env"):
+            p = os.path.join(ROOT, alt, "Scripts", "python.exe")
+            if os.path.isfile(p):
+                venv_python = p
+                break
+    if not os.path.isfile(venv_python):
+        sys.stderr.write(
+            "ERROR: falta 'sqlalchemy'. Crea/activa el venv del proyecto.\n"
+        )
+        sys.exit(2)
+    os.execv(venv_python, [venv_python, os.path.abspath(__file__)] + sys.argv[1:])
+
+_ensure_venv()
+
 import requests
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
 from app.config import load as load_config             # noqa: E402

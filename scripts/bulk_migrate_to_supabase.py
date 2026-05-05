@@ -25,8 +25,48 @@ import os
 import sys
 import time
 
-# Asegurar que la app sea importable desde la raiz del repo
+# v6.9.3: auto-detect venv. Si el Python actual no tiene sqlalchemy
+# (ej: el usuario lo ejecuto con el Python del sistema o un .py asociado),
+# buscar `.venv\Scripts\python.exe` en la raiz del repo y re-lanzarse con ese.
+# Asi `python scripts/bulk_migrate_to_supabase.py` funciona desde donde sea.
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+def _ensure_venv():
+    try:
+        import sqlalchemy  # noqa: F401
+        return  # ya esta en el venv correcto
+    except ImportError:
+        pass
+    # Buscar venv del proyecto
+    venv_python = os.path.join(ROOT, ".venv", "Scripts", "python.exe")
+    if not os.path.isfile(venv_python):
+        # Tambien probar venv_311, venv, etc
+        for alt in (".venv_311", "venv", "env"):
+            p = os.path.join(ROOT, alt, "Scripts", "python.exe")
+            if os.path.isfile(p):
+                venv_python = p
+                break
+    if not os.path.isfile(venv_python):
+        sys.stderr.write(
+            "\nERROR: este Python (%s) no tiene 'sqlalchemy' instalado y no\n"
+            "encuentro el venv del proyecto en %s\\.venv\\\n"
+            "\n"
+            "Solucion 1: corre build.bat para que cree el venv automaticamente.\n"
+            "Solucion 2: crealo a mano:\n"
+            "   python -m venv .venv\n"
+            "   .venv\\Scripts\\activate\n"
+            "   pip install -r requirements.txt\n\n"
+            % (sys.executable, ROOT)
+        )
+        sys.exit(2)
+    # Re-lanzar este mismo script con el Python del venv
+    sys.stdout.write(f"[bulk_migrate] re-lanzando con venv Python: {venv_python}\n")
+    sys.stdout.flush()
+    os.execv(venv_python, [venv_python, os.path.abspath(__file__)] + sys.argv[1:])
+
+_ensure_venv()
+
+# Asegurar que la app sea importable desde la raiz del repo
 sys.path.insert(0, ROOT)
 
 from app.config import load as load_config  # noqa: E402

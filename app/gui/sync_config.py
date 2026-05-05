@@ -84,23 +84,21 @@ class SyncConfigPanel(QWidget):
         self._build_estado_panel(root)
 
         # ===== ACTIVACION =====
-        gb_act = QGroupBox("Activacion de sincronizacion")
+        gb_act = QGroupBox("Activacion")
         lay_act = QFormLayout(gb_act)
-
         self.chk_enabled = QCheckBox("Activar sincronizacion entre sucursales")
         lay_act.addRow(self.chk_enabled)
-
         info = QLabel(
-            "La sincronizacion permite compartir ventas, productos y proveedores "
-            "entre ambas sucursales automaticamente usando Firebase."
+            "La sincronizacion comparte productos, ventas, clientes y "
+            "proveedores entre todas las sucursales via Supabase."
         )
         info.setWordWrap(True)
         info.setStyleSheet("color: #888; font-size: 10px;")
         lay_act.addRow(info)
         root.addWidget(gb_act)
 
-        # ===== MODO =====
-        gb_modo = QGroupBox("Modo de sincronizacion")
+        # ===== MODO Y FRECUENCIA =====
+        gb_modo = QGroupBox("Modo y frecuencia")
         lay_modo = QFormLayout(gb_modo)
 
         self.cmb_modo = NoScrollComboBox()
@@ -108,11 +106,16 @@ class SyncConfigPanel(QWidget):
         self.cmb_modo.addItem("Manual (boton en status bar)", "manual")
         lay_modo.addRow("Modo:", self.cmb_modo)
 
-        self.lbl_intervalo = QLabel("Intervalo:")
+        self.lbl_intervalo = QLabel("Intervalo polling:")
         self.spn_intervalo = QSpinBox()
         self.spn_intervalo.setRange(1, 60)
         self.spn_intervalo.setValue(5)
         self.spn_intervalo.setSuffix(" minutos")
+        self.spn_intervalo.setToolTip(
+            "Cada cuanto la app hace un pull manual contra Supabase. Si Realtime\n"
+            "esta activo, los cambios entre sucursales aparecen en <1s y este\n"
+            "polling es solo fallback (si la WS se cae)."
+        )
         lay_modo.addRow(self.lbl_intervalo, self.spn_intervalo)
 
         self.lbl_refresh = QLabel("Refresco UI:")
@@ -121,190 +124,135 @@ class SyncConfigPanel(QWidget):
         self.spn_refresh.setValue(300)
         self.spn_refresh.setSuffix(" segundos")
         self.spn_refresh.setToolTip(
-            "Intervalo en segundos para refrescar automáticamente\n"
-            "las pestañas de Productos e Historial.\n"
-            "Valor recomendado: 60-300 segundos."
+            "Intervalo en segundos para refrescar automaticamente\n"
+            "las pestanas de Productos e Historial."
         )
         lay_modo.addRow(self.lbl_refresh, self.spn_refresh)
 
         self.cmb_modo.currentIndexChanged.connect(self._on_modo_changed)
         root.addWidget(gb_modo)
 
-        # ===== BACKEND (v6.8.0) =====
-        gb_backend = QGroupBox("Backend de sincronizacion")
-        gb_backend.setStyleSheet(
+        # ===== CONEXION SUPABASE =====
+        gb_conn = QGroupBox("Conexion Supabase")
+        gb_conn.setStyleSheet(
             "QGroupBox { border: 2px solid #2E7D32; border-radius: 6px; "
             "margin-top: 10px; padding-top: 14px; font-weight: bold; } "
             "QGroupBox::title { subcontrol-origin: margin; left: 10px; "
             "padding: 0 6px; color: #2E7D32; }"
         )
-        lay_backend = QVBoxLayout(gb_backend)
+        lay_conn = QFormLayout(gb_conn)
 
-        # v6.9.2: UI simplificada Supabase-only. Los radios siguen existiendo en
-        # el codigo (para no romper el flujo de save/load), pero ocultos. El
-        # backend default es 'supabase'. Para volver al toggle multi-backend,
-        # cambiar self._mostrar_backend_legacy a True.
-        self._mostrar_backend_legacy = False
-
-        row_radio = QHBoxLayout()
-        self.rb_backend_firebase = QRadioButton("Firebase Realtime DB (legacy)")
-        self.rb_backend_supabase = QRadioButton("Supabase Postgres (recomendado)")
-        self.rb_backend_dual = QRadioButton("Dual: Firebase primario + Supabase secundario")
-        self.rb_backend_dual.setToolTip(
-            "Modo de validacion. Cada cambio se publica a AMBOS backends.\n"
-            "La lectura es del primario (Firebase). Sirve para confirmar que\n"
-            "Supabase queda en sync antes de hacer el cutover real.\n"
-            "Si Supabase falla, no afecta a Firebase."
-        )
-        self._backend_group = QButtonGroup(self)
-        self._backend_group.addButton(self.rb_backend_firebase)
-        self._backend_group.addButton(self.rb_backend_supabase)
-        self._backend_group.addButton(self.rb_backend_dual)
-
-        if self._mostrar_backend_legacy:
-            row_radio.addWidget(self.rb_backend_firebase)
-            row_radio.addWidget(self.rb_backend_supabase)
-            row_radio.addWidget(self.rb_backend_dual)
-        else:
-            # Ocultar los 3 radios, dejar mensaje simple
-            self.rb_backend_firebase.setVisible(False)
-            self.rb_backend_supabase.setVisible(False)
-            self.rb_backend_dual.setVisible(False)
-            self.rb_backend_supabase.setChecked(True)  # default
-            lbl_solo_supabase = QLabel(
-                "<b style='color:#2E7D32;'>Sincronizacion via Supabase Postgres</b>"
-            )
-            row_radio.addWidget(lbl_solo_supabase)
-
-        row_radio.addStretch(1)
-        lay_backend.addLayout(row_radio)
-
-        if self._mostrar_backend_legacy:
-            lbl_backend_warn = QLabel(
-                "<span style='color:#888; font-size:10px;'>Cambiar de backend requiere "
-                "reiniciar la app para que tome efecto.</span>"
-            )
-            lbl_backend_warn.setWordWrap(True)
-            lay_backend.addWidget(lbl_backend_warn)
-
-        # StackedWidget con la config de cada backend.
-        # v6.9.2: en modo simplificado siempre mostramos solo la pagina Supabase.
-        self.stack_backend = QStackedWidget()
-        # ─ Firebase (page 0; oculta en modo simplificado)
-        page_fb = QWidget()
-        lay_fb = QFormLayout(page_fb)
-        self.ed_db_url = QLineEdit()
-        self.ed_db_url.setPlaceholderText("https://tu-proyecto.firebaseio.com")
-        lay_fb.addRow("URL de base de datos:", self.ed_db_url)
-        self.ed_auth_token = QLineEdit()
-        self.ed_auth_token.setEchoMode(QLineEdit.Password)
-        self.ed_auth_token.setPlaceholderText("Database secret (token de autenticacion)")
-        lay_fb.addRow("Token de autenticacion:", self.ed_auth_token)
-        help_fb = QLabel(
-            '<a href="https://console.firebase.google.com/">Abrir Firebase Console</a> '
-            '- Project Settings > Service accounts > Database secrets'
-        )
-        help_fb.setOpenExternalLinks(True)
-        help_fb.setStyleSheet("color: #4A90E2; font-size: 10px;")
-        lay_fb.addRow("", help_fb)
-        self.stack_backend.addWidget(page_fb)
-
-        # ─ Supabase (nuevo)
-        page_sb = QWidget()
-        lay_sb = QFormLayout(page_sb)
         self.ed_sb_url = QLineEdit()
         self.ed_sb_url.setPlaceholderText("https://xxxxx.supabase.co")
-        lay_sb.addRow("Project URL:", self.ed_sb_url)
+        lay_conn.addRow("Project URL:", self.ed_sb_url)
+
         self.ed_sb_publishable = QLineEdit()
         self.ed_sb_publishable.setPlaceholderText("sb_publishable_...")
-        lay_sb.addRow("Publishable key (anon):", self.ed_sb_publishable)
+        lay_conn.addRow("Publishable key (anon):", self.ed_sb_publishable)
+
         self.ed_sb_secret = QLineEdit()
         self.ed_sb_secret.setEchoMode(QLineEdit.Password)
-        self.ed_sb_secret.setPlaceholderText("sb_secret_...")
-        lay_sb.addRow("Secret key (service_role):", self.ed_sb_secret)
+        self.ed_sb_secret.setPlaceholderText("sb_secret_...  (NO la publishable)")
+        self.ed_sb_secret.setToolTip(
+            "La 'secret_key' permite escribir en Supabase. DEBE empezar con "
+            "'sb_secret_*' (no 'sb_publishable_*'). Buscala en Supabase Dashboard "
+            "> Project Settings > API."
+        )
+        lay_conn.addRow("Secret key (service_role):", self.ed_sb_secret)
+
         self.chk_sb_realtime = QCheckBox("Activar Realtime via WebSocket (recomendado)")
         self.chk_sb_realtime.setChecked(True)
         self.chk_sb_realtime.setToolTip(
-            "Cuando esta activo, los cambios entre sucursales aparecen en <1 segundo "
-            "via WebSocket. Si la conexion WS se cae, el polling cada X minutos sirve "
-            "de fallback."
+            "Cuando esta activo, los cambios entre sucursales aparecen en <1s "
+            "via WebSocket. Si la conexion WS se cae, el polling cada X minutos "
+            "sirve de fallback."
         )
-        lay_sb.addRow(self.chk_sb_realtime)
-        self.btn_sb_test = QPushButton("Probar conexion Supabase")
+        lay_conn.addRow(self.chk_sb_realtime)
+
+        # Test + Save juntos
+        row_test = QHBoxLayout()
+        self.btn_sb_test = QPushButton("Probar conexion")
         self.btn_sb_test.clicked.connect(self._test_supabase_connection)
-        lay_sb.addRow(self.btn_sb_test)
+        self.btn_sb_test.setMinimumWidth(140)
+        row_test.addWidget(self.btn_sb_test)
+
+        btn_sb_save = QPushButton("Guardar configuracion")
+        btn_sb_save.clicked.connect(self._save_config)
+        btn_sb_save.setMinimumWidth(180)
+        btn_sb_save.setStyleSheet("background:#4CAF50; color:white; font-weight:bold;")
+        row_test.addWidget(btn_sb_save)
+        row_test.addStretch(1)
+        lay_conn.addRow(row_test)
+
         help_sb = QLabel(
             '<a href="https://supabase.com/dashboard">Abrir Supabase Dashboard</a> '
             '- Project Settings > API. Schema SQL en docs/supabase_schema.sql'
         )
         help_sb.setOpenExternalLinks(True)
         help_sb.setStyleSheet("color: #2E7D32; font-size: 10px;")
-        lay_sb.addRow("", help_sb)
-        self.stack_backend.addWidget(page_sb)
+        lay_conn.addRow("", help_sb)
 
-        lay_backend.addWidget(self.stack_backend)
-
-        if not self._mostrar_backend_legacy:
-            # Modo simplificado: forzar pagina Supabase y ocultar el groupbox como
-            # tal — pero seguimos mostrandolo porque tiene los campos URL/keys.
-            self.stack_backend.setCurrentIndex(1)
-            # Ocultar la opcion Firebase del stack (queda en el codigo para
-            # build_sync_manager pero nunca se ve)
-            page_fb.setVisible(False)
-
-        root.addWidget(gb_backend)
-
-        # Conectar cambio de radio -> mostrar la pagina correspondiente
-        self.rb_backend_firebase.toggled.connect(self._on_backend_changed)
-        self.rb_backend_supabase.toggled.connect(self._on_backend_changed)
-        self.rb_backend_dual.toggled.connect(self._on_backend_changed)
+        root.addWidget(gb_conn)
 
         # ===== QUE SINCRONIZAR =====
         gb_que = QGroupBox("Que sincronizar")
-        lay_que = QFormLayout(gb_que)
-
-        lbl_ventas = QLabel("Ventas (siempre activo)")
-        lbl_ventas.setStyleSheet("color: green; font-weight: bold;")
-        lay_que.addRow(lbl_ventas)
-
-        self.chk_sync_productos = QCheckBox("Sincronizar productos")
-        self.chk_sync_productos.setToolTip(
-            "Sincroniza productos entre sucursales.\n"
-            "Se identifican por codigo de barras.\n"
-            "Si hay conflicto, gana el ultimo cambio."
+        lay_que = QVBoxLayout(gb_que)
+        lbl_que_info = QLabel(
+            "Marca los tipos de datos que se sincronizan automaticamente "
+            "entre sucursales. Si desmarcas alguno, los cambios de ese tipo "
+            "se hacen solo locales."
         )
-        lay_que.addRow(self.chk_sync_productos)
+        lbl_que_info.setWordWrap(True)
+        lbl_que_info.setStyleSheet("color: #888; font-size: 10px;")
+        lay_que.addWidget(lbl_que_info)
 
-        self.chk_sync_proveedores = QCheckBox("Sincronizar proveedores")
-        self.chk_sync_proveedores.setToolTip(
-            "Sincroniza proveedores entre sucursales.\n"
-            "Se identifican por nombre.\n"
-            "Si hay conflicto, gana el ultimo cambio."
-        )
-        lay_que.addRow(self.chk_sync_proveedores)
+        # 5 checkboxes uno por tipo
+        self.chk_sync_productos = QCheckBox("Productos (codigo de barras, nombre, precio, categoria)")
+        self.chk_sync_productos.setChecked(True)
+        lay_que.addWidget(self.chk_sync_productos)
 
-        # v6.7.1: confirmar borrado de productos recibido desde otra sucursal
+        self.chk_sync_proveedores = QCheckBox("Proveedores")
+        self.chk_sync_proveedores.setChecked(True)
+        lay_que.addWidget(self.chk_sync_proveedores)
+
+        self.chk_sync_compradores = QCheckBox("Clientes (compradores con CUIT, datos fiscales)")
+        self.chk_sync_compradores.setChecked(True)
+        lay_que.addWidget(self.chk_sync_compradores)
+
+        self.chk_sync_ventas = QCheckBox("Ventas (incluye items y notas de credito)")
+        self.chk_sync_ventas.setChecked(True)
+        lay_que.addWidget(self.chk_sync_ventas)
+
+        self.chk_sync_pagos = QCheckBox("Pagos a proveedores")
+        self.chk_sync_pagos.setChecked(True)
+        lay_que.addWidget(self.chk_sync_pagos)
+
+        # Confirmacion borrados
+        sep = QFrame()
+        sep.setFrameShape(QFrame.HLine)
+        sep.setStyleSheet("color:#ddd; margin:6px 0;")
+        lay_que.addWidget(sep)
+
         self.chk_confirm_delete_prod = QCheckBox(
-            "Confirmar al recibir borrado de producto desde otra sucursal"
+            "Confirmar al recibir borrado de producto desde otra sucursal (popup)"
         )
         self.chk_confirm_delete_prod.setToolTip(
-            "Cuando otra sucursal elimina un producto, esta sucursal mostrara un popup\n"
+            "Cuando otra sucursal elimina un producto, esta sucursal muestra un popup\n"
             "preguntando si tambien borrarlo aca:\n"
-            "  - 'Si': se elimina localmente.\n"
-            "  - 'No': se re-publica el producto a Firebase para revertir la baja en\n"
-            "    todas las sucursales (quedaria solo borrado en la que lo borro originalmente).\n"
-            "  - 'Decidir despues': queda en la cola para el proximo sync.\n\n"
-            "Si esta DESACTIVADO, los borrados se aplican automaticamente (comportamiento previo)."
+            "  - Si: se elimina localmente.\n"
+            "  - No: se re-publica el producto para revertir la baja.\n"
+            "  - Decidir despues: queda en la cola para el proximo sync.\n\n"
+            "Si esta DESACTIVADO, los borrados se aplican automaticamente."
         )
-        lay_que.addRow(self.chk_confirm_delete_prod)
+        lay_que.addWidget(self.chk_confirm_delete_prod)
 
         root.addWidget(gb_que)
 
-        # ===== LIMPIEZA AUTOMATICA DE FIREBASE (v6.6.1) =====
-        gb_cleanup = QGroupBox("Limpieza automatica de Firebase (cuota)")
+        # ===== LIMPIEZA AUTOMATICA (cleanup ciclo Firebase, no aplica a Supabase) =====
+        gb_cleanup = QGroupBox("Avanzado: limpieza automatica del bus")
         lay_cleanup = QFormLayout(gb_cleanup)
 
-        self.chk_cleanup_enabled = QCheckBox("Borrar cambios viejos de Firebase tras procesarlos")
+        self.chk_cleanup_enabled = QCheckBox("Activar cleanup automatico (hard-delete de soft-deleted viejos)")
         self.chk_cleanup_enabled.setToolTip(
             "Para no llenar la cuota gratuita de Firebase, los cambios ya replicados\n"
             "se borran de la nube tras pasar la ventana de seguridad.\n\n"
@@ -318,27 +266,28 @@ class SyncConfigPanel(QWidget):
         self.spn_safe_window.setRange(1, 365)
         self.spn_safe_window.setSuffix(" dia(s)")
         self.spn_safe_window.setToolTip(
-            "Margen antes de borrar un cambio de Firebase, por si alguna sucursal\n"
-            "estuvo offline o el dashboard necesita el historico.\n\n"
-            "Recomendado:\n"
-            "  • 30 dias (default v6.6.3): si usas el dashboard para histórico.\n"
-            "  • 7-15 dias: si solo te interesan sucursales online.\n"
-            "  • 90+ dias: si hay sucursales que se desconectan por largos periodos."
+            "Para Supabase: cantidad de dias antes de hard-delete las filas con "
+            "deleted_at != null (cleanup automatico via pg_cron). 30 dias es OK."
         )
         lay_cleanup.addRow("Margen de seguridad:", self.spn_safe_window)
-
         lbl_cleanup_info = QLabel(
-            "Esto solo borra los <b>registros de transito</b> en Firebase, "
-            "no los productos/ventas locales."
+            "El cleanup automatico hard-deletea filas con deleted_at de mas de "
+            "X dias en Supabase (vive en pg_cron). No afecta los datos locales."
         )
         lbl_cleanup_info.setWordWrap(True)
         lbl_cleanup_info.setStyleSheet("color: #888; font-size: 10px;")
         lay_cleanup.addRow(lbl_cleanup_info)
-
+        # Cleanup va colapsado por default (avanzado)
+        gb_cleanup.setVisible(False)
+        # Toggle para mostrarlo
+        chk_avanzado = QCheckBox("Mostrar opciones avanzadas")
+        chk_avanzado.setStyleSheet("color:#666; font-size:11px;")
+        chk_avanzado.toggled.connect(gb_cleanup.setVisible)
+        root.addWidget(chk_avanzado)
         root.addWidget(gb_cleanup)
 
-        # ===== SYNC INICIAL (diseño mejorado) =====
-        gb_inicial = QGroupBox("Sincronizacion inicial")
+        # ===== SYNC INICIAL: bulk push selectivo =====
+        gb_inicial = QGroupBox("Sincronizacion inicial (subir todo a Supabase)")
         gb_inicial.setStyleSheet("""
             QGroupBox {
                 font-weight: bold;
@@ -376,7 +325,15 @@ class SyncConfigPanel(QWidget):
         row_desc.addWidget(lbl_inicial, 1)
         lay_inicial.addLayout(row_desc)
 
-        # v6.7.0: 5 checkboxes para elegir qué subir (todos desmarcados por default)
+        lbl_inicial.setText(
+            "<b>¿Ya tenias datos antes de activar la sync?</b><br>"
+            "<span style='color:#666; font-size:11px;'>"
+            "Marca abajo qué tipos quieres subir a <b>Supabase</b>. La otra sucursal "
+            "los recibira automaticamente. Los items que ya existen alli se "
+            "detectan como duplicados y NO se duplican.</span>"
+        )
+
+        # 5 checkboxes para elegir que subir (todos desmarcados por default)
         self.chk_bulk_productos = QCheckBox("Productos")
         self.chk_bulk_proveedores = QCheckBox("Proveedores")
         self.chk_bulk_ventas = QCheckBox("Ventas (incluye items y notas de credito)")
@@ -415,8 +372,8 @@ class SyncConfigPanel(QWidget):
         self.lbl_sync_progress.setStyleSheet("color: #555; font-size: 11px;")
         lay_inicial.addWidget(self.lbl_sync_progress)
 
-        # Boton principal (v6.7.0: deshabilitado hasta que se marque al menos 1 checkbox)
-        self.btn_inicial = QPushButton("  Subir seleccionados a Firebase  ")
+        # Boton principal (deshabilitado hasta que se marque al menos 1 checkbox)
+        self.btn_inicial = QPushButton("  Subir seleccionados a Supabase  ")
         self.btn_inicial.setEnabled(False)
         self.btn_inicial.setCursor(Qt.PointingHandCursor)
         self.btn_inicial.setMinimumHeight(42)
@@ -446,8 +403,8 @@ class SyncConfigPanel(QWidget):
         self.btn_inicial.clicked.connect(self._push_all_existing)
         lay_inicial.addWidget(self.btn_inicial)
 
-        # v6.6.0: boton Verificar pendientes (diff Local + Firebase)
-        self.btn_verificar = QPushButton("  Verificar pendientes (Local + Firebase)  ")
+        # boton Verificar pendientes (diff Local + Supabase)
+        self.btn_verificar = QPushButton("  Verificar pendientes (Local <-> Supabase)  ")
         self.btn_verificar.setCursor(Qt.PointingHandCursor)
         self.btn_verificar.setMinimumHeight(38)
         self.btn_verificar.setStyleSheet("""
@@ -465,14 +422,14 @@ class SyncConfigPanel(QWidget):
             QPushButton:disabled { background: #f0f0f0; color: #aaa; }
         """)
         self.btn_verificar.setToolTip(
-            "Muestra cuantos cambios hay encolados localmente para subir y\n"
-            "cuantos hay en Firebase aun no aplicados aqui."
+            "Muestra cuantos items hay locales vs en Supabase, por tipo, y\n"
+            "cuantos cambios hay encolados offline pendientes de subir."
         )
         self.btn_verificar.clicked.connect(self._verificar_pendientes)
         lay_inicial.addWidget(self.btn_verificar)
 
-        # v6.6.2: boton Forzar descarga completa (resetea cursors + sync)
-        self.btn_force_pull = QPushButton("  Forzar descarga completa desde Firebase  ")
+        # boton Forzar descarga completa (resetea cursors + sync desde cero)
+        self.btn_force_pull = QPushButton("  Forzar descarga completa desde Supabase  ")
         self.btn_force_pull.setCursor(Qt.PointingHandCursor)
         self.btn_force_pull.setMinimumHeight(38)
         self.btn_force_pull.setStyleSheet("""
@@ -490,10 +447,10 @@ class SyncConfigPanel(QWidget):
             QPushButton:disabled { background: #f5f5f5; color: #999; }
         """)
         self.btn_force_pull.setToolTip(
-            "Resetea los cursores de sincronizacion y descarga TODO lo que hay en\n"
-            "Firebase desde el principio. Util si la sync se quedo trabada o si\n"
-            "faltan datos. Las ventas/productos que ya tenes localmente NO se\n"
-            "duplican: se detectan como existentes y se saltan."
+            "Resetea los cursores y descarga TODO lo que hay en Supabase desde\n"
+            "el principio. Util si la sync se quedo trabada o si faltan datos.\n"
+            "Los items que ya tenes localmente se detectan como existentes y\n"
+            "se saltan (idempotente)."
         )
         self.btn_force_pull.clicked.connect(self._force_pull)
         lay_inicial.addWidget(self.btn_force_pull)
@@ -515,9 +472,9 @@ class SyncConfigPanel(QWidget):
             QPushButton:hover { background: #ffcdd2; }
         """)
         self.btn_ver_errores.setToolTip(
-            "Muestra los cambios de Firebase que fallaron en aplicarse 3 veces y fueron\n"
-            "skipeados. Util para diagnosticar items danados (ventas duplicadas, productos\n"
-            "con codigo invalido, etc.)"
+            "Muestra los items que fallaron en aplicarse 3 veces y fueron\n"
+            "skipeados. Util para diagnosticar datos danados (ventas duplicadas,\n"
+            "productos con codigo invalido, etc.)"
         )
         self.btn_ver_errores.clicked.connect(self._ver_items_skipeados)
         lay_inicial.addWidget(self.btn_ver_errores)
@@ -525,38 +482,21 @@ class SyncConfigPanel(QWidget):
         root.addWidget(gb_inicial)
 
         # ===== LOG =====
-        gb_log = QGroupBox("Registro de sincronización")
+        gb_log = QGroupBox("Registro y diagnostico")
         lay_log = QVBoxLayout(gb_log)
-
         lbl_log_info = QLabel(
-            "Consulta el historial detallado de todas las sincronizaciones "
-            "realizadas (envíos, recepciones, errores)."
+            "Diagnostico avanzado: log completo de sincronizaciones."
         )
         lbl_log_info.setWordWrap(True)
         lbl_log_info.setStyleSheet("color: #888; font-size: 10px;")
         lay_log.addWidget(lbl_log_info)
 
-        btn_log = QPushButton("  Ver log de sincronización  ")
+        btn_log = QPushButton("Ver log completo de sincronizacion")
         btn_log.setCursor(Qt.PointingHandCursor)
         btn_log.clicked.connect(self._mostrar_log_sync)
         lay_log.addWidget(btn_log)
 
         root.addWidget(gb_log)
-
-        # ===== BOTONES =====
-        row_btns = QHBoxLayout()
-        row_btns.addStretch(1)
-
-        btn_test = QPushButton("Probar conexion")
-        btn_test.clicked.connect(self._test_connection)
-        row_btns.addWidget(btn_test)
-
-        btn_save = QPushButton("Guardar configuracion")
-        btn_save.clicked.connect(self._save_config)
-        btn_save.setMinimumWidth(180)
-        row_btns.addWidget(btn_save)
-
-        root.addLayout(row_btns)
         root.addStretch(1)
 
         self._on_modo_changed()
@@ -744,27 +684,40 @@ class SyncConfigPanel(QWidget):
         self.spn_intervalo.setVisible(visible)
 
     def _on_backend_changed(self, checked: bool):
-        """v6.8.0/v6.9.0: cambia la pagina del stack segun radio activo.
-
-        - Firebase: pagina 0 (form Firebase)
-        - Supabase: pagina 1 (form Supabase)
-        - Dual: pagina 1 (Supabase visible — la config Firebase se hereda del form;
-          el usuario debe llenar AMBOS forms; cambiamos a pagina 1 porque es la nueva)
-        """
-        if not checked:
-            return
-        if self.rb_backend_supabase.isChecked() or self.rb_backend_dual.isChecked():
-            self.stack_backend.setCurrentIndex(1)
-        else:
-            self.stack_backend.setCurrentIndex(0)
+        """v6.9.3: stub. La UI ya no tiene radios de backend (Supabase puro)."""
+        return
 
     def _test_supabase_connection(self):
-        """v6.8.0: prueba la conexion contra Supabase con los valores actuales del form."""
+        """v6.8.0+v6.9.3: prueba conexion REST + escritura.
+
+        El test del manager hace 3 cosas:
+          1) GET con publishable -> verifica URL + read access
+          2) GET con secret + count -> verifica secret + schema aplicado
+          3) INSERT/DELETE en compradores -> verifica que la secret realmente
+             tiene permisos de WRITE (detecta error tipico de pegar publishable
+             en el campo secret).
+        """
         url = self.ed_sb_url.text().strip().rstrip("/")
         pub = self.ed_sb_publishable.text().strip()
         secret = self.ed_sb_secret.text().strip()
         if not url or not pub or not secret:
             QMessageBox.warning(self, "Supabase", "Completa URL, publishable y secret antes de probar.")
+            return
+        # Validacion rapida de prefijos
+        if pub.startswith("sb_secret_"):
+            QMessageBox.warning(
+                self, "Supabase",
+                "El campo 'Publishable key' parece tener una secret_key.\n"
+                "Buscala en Project Settings > API y poné en cada campo la correcta."
+            )
+            return
+        if secret and (secret.startswith("sb_publishable_") or secret == pub):
+            QMessageBox.warning(
+                self, "Supabase",
+                "El campo 'Secret key' parece tener la publishable.\n"
+                "La secret debe empezar con 'sb_secret_*' y NO ser la misma que la publishable.\n"
+                "Buscala en Project Settings > API."
+            )
             return
         try:
             from app.supabase_sync import SupabaseSyncManager
@@ -793,6 +746,8 @@ class SyncConfigPanel(QWidget):
             QMessageBox.critical(self, "Supabase", f"Error: {e}")
 
     def _load_config(self):
+        """v6.9.3: load Supabase-only. Conserva la config Firebase legacy en disco
+        sin tocarla, pero la UI no la edita."""
         sync_cfg = self.cfg.get("sync", {})
 
         self.chk_enabled.setChecked(sync_cfg.get("enabled", False))
@@ -803,28 +758,8 @@ class SyncConfigPanel(QWidget):
             self.cmb_modo.setCurrentIndex(idx)
 
         self.spn_intervalo.setValue(sync_cfg.get("interval_minutes", 5))
-
         self.spn_refresh.setValue(self.cfg.get("refresh_seconds", 300))
 
-        fb = sync_cfg.get("firebase", {})
-        self.ed_db_url.setText(fb.get("database_url", ""))
-        self.ed_auth_token.setText(fb.get("auth_token", ""))
-
-        # v6.8.0/v6.9.0/v6.9.2: backend toggle (firebase / supabase / dual).
-        # En modo simplificado (default), siempre forzamos 'supabase' aunque la
-        # config tenga otro valor — el usuario quiere Supabase puro.
-        backend = sync_cfg.get("backend", "supabase")
-        if not self._mostrar_backend_legacy:
-            backend = "supabase"
-        if backend == "supabase":
-            self.rb_backend_supabase.setChecked(True)
-            self.stack_backend.setCurrentIndex(1)
-        elif backend == "dual":
-            self.rb_backend_dual.setChecked(True)
-            self.stack_backend.setCurrentIndex(1)
-        else:
-            self.rb_backend_firebase.setChecked(True)
-            self.stack_backend.setCurrentIndex(0)
         sb = sync_cfg.get("supabase", {}) or {}
         self.ed_sb_url.setText(sb.get("url", ""))
         self.ed_sb_publishable.setText(sb.get("publishable_key", ""))
@@ -833,40 +768,28 @@ class SyncConfigPanel(QWidget):
 
         self.chk_sync_productos.setChecked(sync_cfg.get("sync_productos", True))
         self.chk_sync_proveedores.setChecked(sync_cfg.get("sync_proveedores", True))
-        # v6.7.1: default ACTIVADO — pedir confirmacion al recibir un delete de producto
+        self.chk_sync_compradores.setChecked(sync_cfg.get("sync_compradores", True))
+        self.chk_sync_ventas.setChecked(sync_cfg.get("sync_ventas", True))
+        self.chk_sync_pagos.setChecked(sync_cfg.get("sync_pagos_proveedores", True))
         self.chk_confirm_delete_prod.setChecked(sync_cfg.get("confirm_delete_productos", True))
 
-        # v6.6.1: cleanup (v6.6.3: default 30)
         cleanup = (sync_cfg.get("cleanup") or {})
         self.chk_cleanup_enabled.setChecked(bool(cleanup.get("enabled", True)))
         self.spn_safe_window.setValue(int(cleanup.get("safe_window_days", 30)))
 
     def _save_config(self):
+        """v6.9.3: save Supabase-only. Backend siempre 'supabase'. Conserva los
+        bloques legacy de Firebase en disco para fallback."""
         cfg = load_config()
-
-        # Preservar keys existentes que no editamos
         old_sync = cfg.get("sync", {})
-
-        # v6.8.0/v6.9.0/v6.9.2: backend toggle: firebase / supabase / dual.
-        # En modo simplificado siempre guardamos 'supabase'.
-        if not self._mostrar_backend_legacy:
-            backend_val = "supabase"
-        elif self.rb_backend_supabase.isChecked():
-            backend_val = "supabase"
-        elif self.rb_backend_dual.isChecked():
-            backend_val = "dual"
-        else:
-            backend_val = "firebase"
 
         cfg["sync"] = {
             "enabled": self.chk_enabled.isChecked(),
-            "backend": backend_val,
+            "backend": "supabase",
             "mode": self.cmb_modo.currentData(),
             "interval_minutes": self.spn_intervalo.value(),
-            "firebase": {
-                "database_url": self.ed_db_url.text().strip().rstrip("/"),
-                "auth_token": self.ed_auth_token.text().strip(),
-            },
+            # Conservar bloque firebase legacy si ya existia
+            "firebase": old_sync.get("firebase", {"database_url": "", "auth_token": ""}),
             "supabase": {
                 "url": self.ed_sb_url.text().strip().rstrip("/"),
                 "publishable_key": self.ed_sb_publishable.text().strip(),
@@ -875,17 +798,19 @@ class SyncConfigPanel(QWidget):
             },
             "sync_productos": self.chk_sync_productos.isChecked(),
             "sync_proveedores": self.chk_sync_proveedores.isChecked(),
+            "sync_compradores": self.chk_sync_compradores.isChecked(),
+            "sync_ventas": self.chk_sync_ventas.isChecked(),
+            "sync_pagos_proveedores": self.chk_sync_pagos.isChecked(),
             "confirm_delete_productos": self.chk_confirm_delete_prod.isChecked(),
             "last_sync": old_sync.get("last_sync"),
             "last_processed_keys": old_sync.get("last_processed_keys", {}),
-            "last_pull_supabase": old_sync.get("last_pull_supabase", {}),  # v6.8.0
+            "last_pull_supabase": old_sync.get("last_pull_supabase", {}),
             "cleanup": {
                 "enabled": self.chk_cleanup_enabled.isChecked(),
                 "safe_window_days": int(self.spn_safe_window.value()),
             },
         }
 
-        # Guardar refresh_seconds a nivel raíz (no dentro de sync)
         cfg["refresh_seconds"] = self.spn_refresh.value()
 
         save_config(cfg)
@@ -1430,52 +1355,5 @@ class SyncConfigPanel(QWidget):
         dlg.exec_()
 
     def _test_connection(self):
-        """Prueba la conexion con Firebase via REST API."""
-        db_url = self.ed_db_url.text().strip().rstrip("/")
-        token = self.ed_auth_token.text().strip()
-
-        if not db_url:
-            QMessageBox.warning(self, "Error", "Ingresa la URL de la base de datos Firebase.")
-            return
-        if not token:
-            QMessageBox.warning(self, "Error", "Ingresa el token de autenticacion.")
-            return
-
-        try:
-            import requests
-            url = f"{db_url}/.json?auth={token}&shallow=true"
-            resp = requests.get(url, timeout=10)
-
-            if resp.status_code == 200:
-                QMessageBox.information(
-                    self, "Conexion exitosa",
-                    "Se conecto correctamente a Firebase Realtime Database."
-                )
-            elif resp.status_code == 401:
-                QMessageBox.warning(
-                    self, "Error de autenticacion",
-                    "El token es invalido. Verifica el Database Secret en Firebase Console."
-                )
-            elif resp.status_code == 404:
-                QMessageBox.warning(
-                    self, "No encontrado",
-                    "La URL de la base de datos no es valida. Verificala en Firebase Console."
-                )
-            else:
-                QMessageBox.warning(
-                    self, "Error",
-                    f"Error HTTP {resp.status_code}:\n{resp.text[:200]}"
-                )
-        except requests.ConnectionError:
-            QMessageBox.warning(
-                self, "Sin conexion",
-                "No se pudo conectar. Verifica tu conexion a internet."
-            )
-        except requests.Timeout:
-            QMessageBox.warning(
-                self, "Timeout",
-                "Firebase no respondio a tiempo. Intenta nuevamente."
-            )
-        except Exception as e:
-            from app.gui.error_messages import show_error
-            show_error(self, "probar la conexion con Firebase", e, context="firebase_test")
+        """v6.9.3: alias del test Supabase. (Firebase eliminado de la UI.)"""
+        return self._test_supabase_connection()

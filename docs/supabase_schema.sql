@@ -98,10 +98,14 @@ create table if not exists public.ventas (
   updated_at               timestamptz not null default now(),
   deleted_at               timestamptz
 );
--- Únicos parciales: solo cuando el campo no es null (admite multiples ventas con ticket=null)
-create unique index if not exists idx_ventas_uniq_ticket
+-- v6.9.3: ELIMINAR partial unique. PostgREST no soporta on_conflict con
+-- partial indices y nuestro `push_venta` ya hace SELECT-then-PATCH-or-INSERT
+-- manual (no necesita ON CONFLICT). Mantenemos solo indices para velocidad.
+drop index if exists idx_ventas_uniq_ticket;
+drop index if exists idx_ventas_uniq_ticket_cae;
+create index if not exists idx_ventas_ticket
   on public.ventas(sucursal, numero_ticket) where numero_ticket is not null;
-create unique index if not exists idx_ventas_uniq_ticket_cae
+create index if not exists idx_ventas_ticket_cae
   on public.ventas(sucursal, numero_ticket_cae) where numero_ticket_cae is not null;
 create index if not exists idx_ventas_updated  on public.ventas(updated_at);
 create index if not exists idx_ventas_fecha    on public.ventas(fecha);
@@ -186,9 +190,32 @@ create policy "Allow read all" on public.ventas             for select using (tr
 create policy "Allow read all" on public.venta_items        for select using (true);
 create policy "Allow read all" on public.pagos_proveedores  for select using (true);
 
--- Escritura: solo service_role (que bypassa RLS sin policies adicionales)
--- Nota: la app usa la sb_secret_* que es service_role → puede escribir todo.
--- El dashboard usa la sb_publishable_* que es anon → solo lee.
+-- v6.9.3: policies WRITE explicitas para service_role como defensa en profundidad.
+-- Aunque service_role normalmente bypassa RLS, hacerlo explicito evita sorpresas
+-- si la role mapping cambia. Anon (publishable) NO tiene policy de WRITE — eso es
+-- intencional: el dashboard usa publishable y no debe poder escribir.
+
+drop policy if exists "Service role write" on public.productos;
+drop policy if exists "Service role write" on public.proveedores;
+drop policy if exists "Service role write" on public.compradores;
+drop policy if exists "Service role write" on public.ventas;
+drop policy if exists "Service role write" on public.venta_items;
+drop policy if exists "Service role write" on public.pagos_proveedores;
+
+create policy "Service role write" on public.productos          for all to service_role using (true) with check (true);
+create policy "Service role write" on public.proveedores        for all to service_role using (true) with check (true);
+create policy "Service role write" on public.compradores        for all to service_role using (true) with check (true);
+create policy "Service role write" on public.ventas             for all to service_role using (true) with check (true);
+create policy "Service role write" on public.venta_items        for all to service_role using (true) with check (true);
+create policy "Service role write" on public.pagos_proveedores  for all to service_role using (true) with check (true);
+
+-- Tambien grant a la role
+grant all on public.productos          to service_role;
+grant all on public.proveedores        to service_role;
+grant all on public.compradores        to service_role;
+grant all on public.ventas             to service_role;
+grant all on public.venta_items        to service_role;
+grant all on public.pagos_proveedores  to service_role;
 
 -- ═══ REALTIME: habilitar replication para WebSocket ═══
 -- Para que start_realtime() reciba INSERT/UPDATE/DELETE en vivo.

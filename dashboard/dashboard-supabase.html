@@ -929,11 +929,41 @@
     }
 
     async function supabaseGet(table, query = '') {
+        // v6.9.3: paginacion automatica con Range header. PostgREST tiene cap
+        // server-side de 1000 filas (max-rows config) sin importar `limit=`.
+        // Usamos `Range: 0-999`, `1000-1999`, ... hasta que devuelva menos del
+        // chunk size. Asi traemos todo el dataset.
+        const PAGE = 1000;
         const sep = query.startsWith('?') || query === '' ? '' : '?';
         const url = `${SB_URL}/rest/v1/${table}${sep}${query}`;
-        const resp = await fetch(url, { headers: _supaHeaders(false) });
-        if (!resp.ok) throw new Error(`HTTP ${resp.status} en ${table}`);
-        return await resp.json();
+        const all = [];
+        let offset = 0;
+        while (true) {
+            const headers = {
+                ..._supaHeaders(false),
+                'Range-Unit': 'items',
+                'Range': `${offset}-${offset + PAGE - 1}`,
+            };
+            const resp = await fetch(url, { headers });
+            if (!resp.ok && resp.status !== 206) {
+                throw new Error(`HTTP ${resp.status} en ${table}`);
+            }
+            let chunk = [];
+            try {
+                chunk = await resp.json();
+            } catch (e) {
+                chunk = [];
+            }
+            if (!Array.isArray(chunk)) {
+                // si la respuesta no es array (ej: error inesperado), salir con lo acumulado
+                break;
+            }
+            all.push(...chunk);
+            if (chunk.length < PAGE) break;  // ultima pagina
+            offset += chunk.length;
+            if (offset > 200000) break;       // safety cap
+        }
+        return all;
     }
 
     async function supabasePatch(table, filter, body) {
