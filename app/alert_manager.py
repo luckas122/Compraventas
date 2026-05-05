@@ -17,18 +17,25 @@ _instance = None
 class AlertManager:
     """Gestor centralizado de alertas por email."""
 
-    VALID_TYPES = {"afip_error", "sync_offline", "db_error", "critical"}
+    VALID_TYPES = {"afip_error", "sync_offline", "sync_write_fail",
+                   "sync_quota", "db_error", "critical"}
 
     TYPE_SUBJECTS = {
         "afip_error": "[ALERTA] Error de facturacion AFIP",
-        "sync_offline": "[ALERTA] Sincronizacion Firebase offline",
+        "sync_offline": "[ALERTA] Sincronizacion Supabase offline",
+        "sync_write_fail": "[ALERTA] Sincronizacion Supabase no escribe (verifica secret_key)",
+        "sync_quota": "[ALERTA] Cuota Supabase alta (>80%)",
         "db_error": "[ALERTA] Error de base de datos",
         "critical": "[ALERTA CRITICA] Error critico en el sistema",
     }
 
     TYPE_DESCRIPTIONS = {
         "afip_error": "Error al comunicarse con AFIP para facturacion electronica.",
-        "sync_offline": "La sincronizacion con Firebase ha fallado o esta offline.",
+        "sync_offline": "La sincronizacion con Supabase ha fallado o esta offline.",
+        "sync_write_fail": ("Supabase rechaza writes silenciosamente. Probablemente "
+                            "la secret_key configurada no es service_role (puede ser "
+                            "la publishable). Verifica Configuracion > Sincronizacion."),
+        "sync_quota": "El proyecto Supabase esta cerca del limite del free tier.",
         "db_error": "Se detecto un error en la base de datos local.",
         "critical": "Se produjo un error critico inesperado en la aplicacion.",
     }

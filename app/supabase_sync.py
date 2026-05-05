@@ -211,12 +211,23 @@ class SupabaseSyncManager:
                 data = None
             # v6.9.3: detectar silent fail (PATCH 204 sin filas)
             if isinstance(data, list) and len(data) == 0 and len(rows) > 0:
-                self._log(
+                msg = (
                     f"UPSERT {table} SILENT FAIL: HTTP {resp.status_code} pero "
                     f"0 filas afectadas. Probablemente la secret_key es en realidad "
                     f"sb_publishable_* (anon role) y RLS bloquea writes. "
                     f"Revisa Configuracion > Sincronizacion."
                 )
+                self._log(msg)
+                # v6.9.4: alerta por email (con cooldown)
+                try:
+                    from app.alert_manager import AlertManager
+                    AlertManager.get_instance().send_alert(
+                        "sync_write_fail",
+                        f"Supabase rechaza writes en tabla '{table}'.",
+                        details=msg,
+                    )
+                except Exception:
+                    pass
                 return False, data
             if return_minimal:
                 return True, None

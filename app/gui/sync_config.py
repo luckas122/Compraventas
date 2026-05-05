@@ -29,13 +29,13 @@ class _ForcePullWorker(QThread):
 
     def run(self):
         try:
-            from app.firebase_sync import FirebaseSyncManager
+            # v6.9.4: dispatcher respeta backend en config
+            from app.sync_dispatcher import build_sync_manager
+            from app.config import load as _load_cfg
             from app.database import SessionLocal
             from sqlalchemy import text as _sa_text
             session = SessionLocal()
-            # v6.6.4: PRAGMA synchronous=NORMAL hace los commits ~10x mas rapidos
-            # (1 fsync por checkpoint, no por commit). Seguro en WAL mode.
-            # busy_timeout reducido a 5s porque ahora retry interno es rapido.
+            # PRAGMA synchronous=NORMAL hace los commits ~10x mas rapidos.
             try:
                 session.execute(_sa_text("PRAGMA busy_timeout=5000"))
                 session.execute(_sa_text("PRAGMA synchronous=NORMAL"))
@@ -44,7 +44,8 @@ class _ForcePullWorker(QThread):
             except Exception:
                 pass
             try:
-                mgr = FirebaseSyncManager(session, self.sucursal)
+                backend = (_load_cfg().get("sync") or {}).get("backend", "supabase")
+                mgr = build_sync_manager(session, self.sucursal, backend)
                 resultado = mgr.force_pull_all(
                     progress_callback=lambda tipo, page, applied, errors: self.progress.emit(tipo, page, applied, errors),
                     cancel_check=lambda: self._cancel,
@@ -479,6 +480,38 @@ class SyncConfigPanel(QWidget):
         self.btn_ver_errores.clicked.connect(self._ver_items_skipeados)
         lay_inicial.addWidget(self.btn_ver_errores)
 
+        # v6.9.4: boton "Vaciar Supabase" (movido desde Backups)
+        self.btn_vaciar_sb = QPushButton("  ⚠  Vaciar TODOS los datos en Supabase  ")
+        self.btn_vaciar_sb.setCursor(Qt.PointingHandCursor)
+        self.btn_vaciar_sb.setMinimumHeight(34)
+        self.btn_vaciar_sb.setStyleSheet("""
+            QPushButton {
+                background: #b71c1c;
+                color: white;
+                font-size: 11px;
+                font-weight: bold;
+                border: none;
+                border-radius: 6px;
+                padding: 6px 16px;
+            }
+            QPushButton:hover { background: #c62828; }
+            QPushButton:pressed { background: #8e0000; }
+        """)
+        self.btn_vaciar_sb.setToolTip(
+            "PELIGRO: borra TODOS los datos en las tablas de Supabase\n"
+            "(productos, proveedores, compradores, ventas, venta_items, pagos).\n\n"
+            "NO afecta los datos locales de ninguna sucursal — solo limpia el\n"
+            "backend remoto. Util para reset total cuando algo se rompe.\n\n"
+            "Despues de vaciar:\n"
+            " 1) Una sucursal corre 'Subir todos los datos a Supabase' para\n"
+            "    repoblar.\n"
+            " 2) Las otras sucursales corren 'Forzar descarga completa' para\n"
+            "    sincronizar.\n\n"
+            "Solo admins."
+        )
+        self.btn_vaciar_sb.clicked.connect(self._vaciar_supabase)
+        lay_inicial.addWidget(self.btn_vaciar_sb)
+
         root.addWidget(gb_inicial)
 
         # ===== LOG =====
@@ -562,6 +595,40 @@ class SyncConfigPanel(QWidget):
             grid.addWidget(l_err, row, 3)
             self._estado_grid_labels[key] = (l_sent, l_recv, l_err)
         lay.addLayout(grid)
+
+        # v6.9.4: contadores reales (Local SQLite vs Supabase) — datos absolutos
+        # mas utiles que los deltas. Se refrescan al click del boton.
+        sep_counts = QLabel("<b>Contadores reales (Local vs Supabase)</b>")
+        sep_counts.setStyleSheet("color:#37474f; font-size:11px; margin-top:6px;")
+        lay.addWidget(sep_counts)
+
+        grid_counts = QGridLayout()
+        grid_counts.setHorizontalSpacing(10)
+        grid_counts.setVerticalSpacing(2)
+        for col, txt in enumerate(("Tipo", "Local", "Supabase", "Diff")):
+            h = QLabel(f"<b>{txt}</b>")
+            h.setStyleSheet("color:#455a64; font-size:11px;")
+            grid_counts.addWidget(h, 0, col)
+        self._counts_grid_labels = {}
+        for row, (key, label) in enumerate(self._ESTADO_TIPOS, start=1):
+            grid_counts.addWidget(QLabel(label), row, 0)
+            l_local = QLabel("?"); l_remote = QLabel("?"); l_diff = QLabel("?")
+            for w in (l_local, l_remote, l_diff):
+                w.setStyleSheet("font-family: Consolas, monospace; font-size:11px;")
+            grid_counts.addWidget(l_local, row, 1)
+            grid_counts.addWidget(l_remote, row, 2)
+            grid_counts.addWidget(l_diff, row, 3)
+            self._counts_grid_labels[key] = (l_local, l_remote, l_diff)
+        lay.addLayout(grid_counts)
+
+        btn_refresh_counts = QPushButton("Refrescar contadores")
+        btn_refresh_counts.setStyleSheet(
+            "QPushButton { background:#eceff1; border:1px solid #b0bec5; "
+            "border-radius:4px; padding:4px 10px; font-size:11px; } "
+            "QPushButton:hover { background:#cfd8dc; }"
+        )
+        btn_refresh_counts.clicked.connect(self._refrescar_contadores_estado)
+        lay.addWidget(btn_refresh_counts)
 
         # Tabla pequeña: ultimas 10 sincronizaciones
         self.tbl_historial_sync = QTableWidget(0, 5)
@@ -682,6 +749,50 @@ class SyncConfigPanel(QWidget):
         visible = (self.cmb_modo.currentData() == "interval")
         self.lbl_intervalo.setVisible(visible)
         self.spn_intervalo.setVisible(visible)
+
+    def _refrescar_contadores_estado(self):
+        """v6.9.4: Calcula y muestra contadores Local vs Supabase por tipo.
+        Usa diagnose_full() del manager activo (Supabase)."""
+        mw = self._find_main_window()
+        sync_mgr = getattr(mw, "_firebase_sync", None) if mw else None
+        if sync_mgr is None:
+            session = getattr(mw, "session", None) if mw else None
+            if session is None:
+                return
+            try:
+                from app.sync_dispatcher import build_sync_manager
+                sucursal = getattr(mw, "sucursal", "Sarmiento") if mw else "Sarmiento"
+                backend = (load_config().get("sync") or {}).get("backend", "supabase")
+                sync_mgr = build_sync_manager(session, sucursal, backend)
+            except Exception:
+                return
+        try:
+            diag = sync_mgr.diagnose_full()
+        except Exception:
+            return
+        if not diag.get("ok"):
+            return
+        local = diag.get("local") or {}
+        # diagnose_full puede usar "supabase" o "firebase" como key remota
+        remote = diag.get("supabase") or diag.get("firebase") or {}
+        for key, _label in self._ESTADO_TIPOS:
+            l_local, l_remote, l_diff = self._counts_grid_labels[key]
+            # ventas: dict {total, por_sucursal}
+            if key == "ventas":
+                lv = local.get("ventas") or {}
+                ln = lv.get("total", 0) if isinstance(lv, dict) else int(lv or 0)
+            else:
+                ln = int(local.get(key, 0) or 0)
+            rn = remote.get(key, -1)
+            l_local.setText(str(ln))
+            l_remote.setText("?" if rn == -1 else str(rn))
+            if rn == -1:
+                l_diff.setText("?")
+                l_diff.setStyleSheet("color:#999;")
+            else:
+                d = ln - rn
+                l_diff.setText(("+" if d > 0 else "") + str(d))
+                l_diff.setStyleSheet("color:#2e7d32;" if d == 0 else "color:#c62828;font-weight:bold;")
 
     def _on_backend_changed(self, checked: bool):
         """v6.9.3: stub. La UI ya no tiene radios de backend (Supabase puro)."""
@@ -853,9 +964,11 @@ class SyncConfigPanel(QWidget):
                 )
                 return
             try:
-                from app.firebase_sync import FirebaseSyncManager
+                # v6.9.4: usar dispatcher (respeta backend en config)
+                from app.sync_dispatcher import build_sync_manager
                 sucursal = getattr(mw, "sucursal", "Sarmiento") if mw else "Sarmiento"
-                sync_mgr = FirebaseSyncManager(session, sucursal)
+                backend = sync_cfg.get("backend", "supabase")
+                sync_mgr = build_sync_manager(session, sucursal, backend)
             except Exception as e:
                 QMessageBox.warning(
                     self, "Verificar pendientes",
@@ -863,10 +976,10 @@ class SyncConfigPanel(QWidget):
                 )
                 return
 
-        # v6.6.3: usar diagnose_full que compara local DB vs Firebase
+        # diagnose_full: compara local DB vs el backend configurado
         try:
             from app.gui.progress_helpers import busy_dialog
-            with busy_dialog(self, "Verificando pendientes", "Contando local + Firebase..."):
+            with busy_dialog(self, "Verificando pendientes", "Contando local + Supabase..."):
                 diag = sync_mgr.diagnose_full()
         except Exception as e:
             from app.gui.error_messages import show_error
@@ -1115,9 +1228,12 @@ class SyncConfigPanel(QWidget):
                                         "No se pudo acceder a la sesion. Reabri la ventana.")
                 return
             try:
-                from app.firebase_sync import FirebaseSyncManager
+                # v6.9.4: dispatcher respeta backend
+                from app.sync_dispatcher import build_sync_manager
+                from app.config import load as _load
                 sucursal = getattr(mw, "sucursal", "Sarmiento") if mw else "Sarmiento"
-                sync_mgr = FirebaseSyncManager(session, sucursal)
+                backend = (_load().get("sync") or {}).get("backend", "supabase")
+                sync_mgr = build_sync_manager(session, sucursal, backend)
             except Exception as e:
                 QMessageBox.warning(self, "Items skipeados", f"Error: {e}")
                 return
@@ -1178,7 +1294,9 @@ class SyncConfigPanel(QWidget):
         self.btn_inicial.setEnabled(bool(self._seleccion_bulk_push()))
 
     def _push_all_existing(self):
-        """v6.7.0: Sube los tipos seleccionados con checkboxes a Firebase (bulk push selectivo)."""
+        """v6.7.0/v6.9.4: Sube los tipos seleccionados a Supabase (bulk push selectivo).
+        Usa el dispatcher para respetar el backend configurado (default supabase).
+        """
         cfg = load_config()
         sync_cfg = cfg.get("sync", {})
         if not sync_cfg.get("enabled", False):
@@ -1221,13 +1339,13 @@ class SyncConfigPanel(QWidget):
             QMessageBox.critical(self, "Error", f"No se pudieron contar items locales:\n{e}")
             return
 
-        lineas_conf = ["Subiras a Firebase:", ""]
+        lineas_conf = ["Subiras a Supabase:", ""]
         for tipo in ("productos", "proveedores", "ventas", "pagos_proveedores", "compradores"):
             if tipo in seleccion:
                 lineas_conf.append(f"  • {ETIQUETAS[tipo][0]}: {counts.get(tipo, 0)}")
         lineas_conf += [
             "",
-            "Los items que ya existen en Firebase se detectan como duplicados.",
+            "Los items que ya existen en Supabase se detectan como duplicados.",
             "Puede tardar varios minutos si hay muchos datos.",
             "",
             "¿Continuar?",
@@ -1238,10 +1356,12 @@ class SyncConfigPanel(QWidget):
         ) != QMessageBox.Yes:
             return
 
-        from app.firebase_sync import FirebaseSyncManager
+        # v6.9.4: usar el dispatcher en lugar de hardcodear FirebaseSyncManager
+        from app.sync_dispatcher import build_sync_manager
         from PyQt5.QtWidgets import QApplication
 
-        sync = FirebaseSyncManager(session, sucursal)
+        backend = sync_cfg.get("backend", "supabase")
+        sync = build_sync_manager(session, sucursal, backend)
 
         # Mostrar barra de progreso y deshabilitar boton
         self.progress_bar.setVisible(True)
@@ -1357,3 +1477,117 @@ class SyncConfigPanel(QWidget):
     def _test_connection(self):
         """v6.9.3: alias del test Supabase. (Firebase eliminado de la UI.)"""
         return self._test_supabase_connection()
+
+    def _vaciar_supabase(self):
+        """v6.9.4: Hard-delete de TODAS las filas en las tablas Supabase.
+        Mantiene el schema. Permite repoblar despues con bulk push.
+
+        Solo admin + confirmacion con password + confirmacion adicional.
+        """
+        mw = self._find_main_window()
+        if not mw:
+            QMessageBox.critical(self, "Error", "No se pudo acceder a la ventana principal.")
+            return
+        if not getattr(mw, 'es_admin', False):
+            QMessageBox.warning(self, "Acceso Denegado",
+                              "Solo los administradores pueden hacer esto.")
+            return
+
+        cfg = load_config()
+        sb = (cfg.get("sync") or {}).get("supabase", {}) or {}
+        url = (sb.get("url") or "").rstrip("/")
+        secret = sb.get("secret_key") or ""
+        if not url or not secret:
+            QMessageBox.warning(self, "Supabase",
+                "Configura URL + secret_key de Supabase antes de vaciar.")
+            return
+
+        # Confirmacion fuerte
+        reply = QMessageBox.warning(
+            self, "Vaciar Supabase",
+            "PELIGRO: esto eliminara TODAS las filas en las tablas de Supabase:\n\n"
+            "  - productos\n"
+            "  - proveedores\n"
+            "  - compradores\n"
+            "  - ventas + venta_items\n"
+            "  - pagos_proveedores\n\n"
+            "El SCHEMA queda intacto (tablas, indices, policies).\n"
+            "Los datos LOCALES de cada sucursal NO se tocan.\n\n"
+            "Para repoblar despues:\n"
+            "  1) Una sucursal corre 'Subir todos los datos a Supabase'.\n"
+            "  2) Las otras corren 'Forzar descarga completa'.\n\n"
+            "¿Continuar?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        # Confirmacion con password admin
+        try:
+            from PyQt5.QtWidgets import QInputDialog
+            from app.repository import UsuarioRepo
+            session = mw.session
+            repo = UsuarioRepo(session)
+            usuarios_admin = [u for u in repo.listar() if u.es_admin]
+            if usuarios_admin:
+                admin_user = usuarios_admin[0]
+                pw, ok = QInputDialog.getText(
+                    self, "Confirmacion final",
+                    f"Contraseña de '{admin_user.username}':",
+                    QLineEdit.Password
+                )
+                if not ok or not pw:
+                    return
+                if not repo.verificar(admin_user.username, pw):
+                    QMessageBox.critical(self, "Error", "Contraseña incorrecta.")
+                    return
+        except Exception as e:
+            QMessageBox.warning(self, "Error", f"No se pudo validar admin: {e}")
+            return
+
+        # Ejecutar wipe
+        self.btn_vaciar_sb.setEnabled(False)
+        self.btn_vaciar_sb.setText("Vaciando...")
+        try:
+            import requests
+            tablas = ["venta_items", "ventas", "pagos_proveedores",
+                      "compradores", "proveedores", "productos"]
+            errores = []
+            eliminados = []
+            for tabla in tablas:
+                try:
+                    # DELETE WHERE id > 0 (matchea todas las filas en bigserial)
+                    resp = requests.delete(
+                        f"{url}/rest/v1/{tabla}",
+                        params={"id": "gt.0"},
+                        headers={"apikey": secret, "Prefer": "return=minimal"},
+                        timeout=60,
+                    )
+                    if resp.status_code in (200, 204):
+                        eliminados.append(tabla)
+                    else:
+                        errores.append(f"{tabla}: HTTP {resp.status_code} {resp.text[:80]}")
+                except Exception as e:
+                    errores.append(f"{tabla}: {e}")
+
+            # Resetear cursores locales para que el siguiente pull traiga todo
+            cfg2 = load_config()
+            sync2 = cfg2.setdefault("sync", {})
+            sync2["last_pull_supabase"] = {}
+            sync2["last_processed_keys"] = {}
+            save_config(cfg2)
+
+            if errores:
+                QMessageBox.warning(self, "Vaciado parcial",
+                    f"Eliminados: {', '.join(eliminados)}\n\n"
+                    f"Errores:\n" + "\n".join(errores))
+            else:
+                QMessageBox.information(self, "Supabase vaciado",
+                    f"Se vaciaron las tablas:\n  - " + "\n  - ".join(eliminados) +
+                    "\n\nLos cursores locales se resetearon. La proxima sync\n"
+                    "no traera nada (porque Supabase esta vacio). Para\n"
+                    "repoblar, una sucursal debe correr 'Subir todos los\n"
+                    "datos a Supabase'.")
+        finally:
+            self.btn_vaciar_sb.setEnabled(True)
+            self.btn_vaciar_sb.setText("  ⚠  Vaciar TODOS los datos en Supabase  ")

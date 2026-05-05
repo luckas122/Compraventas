@@ -141,39 +141,8 @@ class BackupConfigPanel(QWidget):
         row_actions.addWidget(self.btn_restore)
         root.addLayout(row_actions)
 
-        # --- Firebase: mantenimiento ---
-        box_firebase = QGroupBox("Mantenimiento Firebase (sync)", self)
-        lay_fb = QVBoxLayout(box_firebase)
-
-        lbl_fb = QLabel(
-            "Firebase acumula todos los cambios sincronizados (ventas, productos, proveedores).\n"
-            "Vaciar Firebase elimina esos registros y resetea los cursores de sync.\n"
-            "Ambas sucursales deben estar sincronizadas antes de vaciar.",
-            box_firebase
-        )
-        lbl_fb.setWordWrap(True)
-        lbl_fb.setStyleSheet("color: #666; font-size: 9pt;")
-        lay_fb.addWidget(lbl_fb)
-
-        row_fb = QHBoxLayout()
-        self.btn_vaciar_firebase = QPushButton("Vaciar Firebase", box_firebase)
-        self.btn_vaciar_firebase.setStyleSheet("""
-            QPushButton {
-                background-color: #e65100;
-                color: white;
-                padding: 6px 14px;
-                font-size: 9pt;
-            }
-            QPushButton:hover {
-                background-color: #bf360c;
-            }
-        """)
-        self.btn_vaciar_firebase.clicked.connect(self._vaciar_firebase)
-        row_fb.addWidget(self.btn_vaciar_firebase)
-        row_fb.addStretch()
-        lay_fb.addLayout(row_fb)
-
-        root.addWidget(box_firebase)
+        # v6.9.4: el bloque "Mantenimiento Firebase" se movio a la pestana
+        # Sincronizacion. La sync ahora va por Supabase y el wipe vive ahi.
 
         # Botón de acción peligrosa (discreto)
         row_danger = QHBoxLayout()
@@ -451,147 +420,10 @@ del "%~f0"
         os._exit(0)
 
     def _vaciar_firebase(self):
+        """v6.9.4: stub. La funcion 'Vaciar Supabase' vive ahora en
+        Configuracion > Sincronizacion > 'Vaciar TODOS los datos en Supabase'.
         """
-        Elimina todos los registros de cambios en Firebase y resetea los cursores.
-        Requiere ser admin. Ambas sucursales deben estar sincronizadas antes.
-        """
-        main_window = self.get_main_window()
-        if not main_window:
-            QMessageBox.critical(self, "Error", "No se pudo acceder a la ventana principal.")
-            return
-
-        # Solo admin
-        if not getattr(main_window, 'es_admin', False):
-            QMessageBox.warning(self, "Acceso Denegado",
-                              "Solo los administradores pueden hacer esto.")
-            return
-
-        # Verificar que sync esté habilitada y firebase_sync exista
-        firebase_sync = getattr(main_window, '_firebase_sync', None)
-        if not firebase_sync:
-            QMessageBox.warning(self, "Firebase",
-                "La sincronización no está habilitada.\n"
-                "Actívala en Configuración > Sincronización primero.")
-            return
-
-        # Advertencia
-        reply = QMessageBox.warning(
-            self, "Vaciar Firebase",
-            "Esta acción eliminará TODOS los registros de sincronización en Firebase:\n\n"
-            "- Historial de ventas sincronizadas\n"
-            "- Historial de productos sincronizados\n"
-            "- Historial de proveedores sincronizados\n"
-            "- Cursores de sincronización (last_processed_keys)\n\n"
-            "⚠ IMPORTANTE: Ambas sucursales deben estar sincronizadas\n"
-            "antes de vaciar, o se perderán cambios pendientes.\n\n"
-            "La sincronización seguirá funcionando normalmente después.\n"
-            "¿Continuar?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
+        QMessageBox.information(
+            self, "Movido",
+            "Esta accion se movio a Configuracion > Sincronizacion > 'Vaciar Supabase'."
         )
-        if reply != QMessageBox.Yes:
-            return
-
-        # Confirmar con contraseña admin
-        from PyQt5.QtWidgets import QInputDialog
-        from app.repository import UsuarioRepo
-        session = main_window.session
-        repo = UsuarioRepo(session)
-        usuarios_admin = [u for u in repo.listar() if u.es_admin]
-
-        if usuarios_admin:
-            admin_user = usuarios_admin[0]
-            pw, ok = QInputDialog.getText(
-                self, "Confirmación",
-                f"Contraseña de '{admin_user.username}':",
-                QLineEdit.Password
-            )
-            if not ok or not pw:
-                return
-            if not repo.verificar(admin_user.username, pw):
-                QMessageBox.critical(self, "Error", "Contraseña incorrecta.")
-                return
-
-        # Ejecutar vaciado
-        self.btn_vaciar_firebase.setEnabled(False)
-        self.btn_vaciar_firebase.setText("Vaciando...")
-
-        try:
-            import requests
-            from app.config import load as load_config, save as save_config
-
-            cfg = load_config()
-            sync_cfg = cfg.get("sync", {})
-            fb = sync_cfg.get("firebase", {})
-            db_url = fb.get("database_url", "").rstrip("/")
-            token = fb.get("auth_token", "")
-
-            if not db_url or not token:
-                QMessageBox.warning(self, "Firebase",
-                    "No hay URL o token de Firebase configurados.")
-                return
-
-            errores = []
-            eliminados = []
-
-            # 1) Eliminar cambios/ventas
-            url = f"{db_url}/cambios/ventas.json?auth={token}"
-            resp = requests.delete(url, timeout=30)
-            if resp.status_code == 200:
-                eliminados.append("ventas")
-            else:
-                errores.append(f"ventas: HTTP {resp.status_code}")
-
-            # 2) Eliminar cambios/productos
-            url = f"{db_url}/cambios/productos.json?auth={token}"
-            resp = requests.delete(url, timeout=30)
-            if resp.status_code == 200:
-                eliminados.append("productos")
-            else:
-                errores.append(f"productos: HTTP {resp.status_code}")
-
-            # 3) Eliminar cambios/proveedores
-            url = f"{db_url}/cambios/proveedores.json?auth={token}"
-            resp = requests.delete(url, timeout=30)
-            if resp.status_code == 200:
-                eliminados.append("proveedores")
-            else:
-                errores.append(f"proveedores: HTTP {resp.status_code}")
-
-            # 4) Eliminar meta/last_processed
-            url = f"{db_url}/meta/last_processed.json?auth={token}"
-            resp = requests.delete(url, timeout=30)
-            if resp.status_code == 200:
-                eliminados.append("cursores remotos")
-            else:
-                errores.append(f"cursores: HTTP {resp.status_code}")
-
-            # 5) Resetear cursores locales en config
-            sync_cfg.pop("last_processed_keys", None)
-            sync_cfg.pop("last_processed_key", None)
-            cfg["sync"] = sync_cfg
-            save_config(cfg)
-            eliminados.append("cursores locales")
-
-            if errores:
-                QMessageBox.warning(self, "Vaciado parcial",
-                    f"Eliminados: {', '.join(eliminados)}\n\n"
-                    f"Errores:\n" + "\n".join(errores))
-            else:
-                QMessageBox.information(self, "Firebase vaciado",
-                    f"Se eliminaron correctamente:\n"
-                    f"- {', '.join(eliminados)}\n\n"
-                    "Firebase está limpio. La sincronización\n"
-                    "seguirá funcionando normalmente con los\n"
-                    "próximos cambios que se hagan.")
-
-        except requests.ConnectionError:
-            QMessageBox.critical(self, "Error",
-                "No se pudo conectar a Firebase.\n"
-                "Verificá tu conexión a internet.")
-        except Exception as e:
-            QMessageBox.critical(self, "Error",
-                f"Error al vaciar Firebase:\n{e}")
-        finally:
-            self.btn_vaciar_firebase.setEnabled(True)
-            self.btn_vaciar_firebase.setText("Vaciar Firebase")

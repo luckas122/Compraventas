@@ -13,17 +13,18 @@ import tempfile
 logger = logging.getLogger(__name__)
 
 import pandas as pd
-from PyQt5.QtCore import Qt, QTimer, QDate,QTime
+from PyQt5.QtCore import Qt, QTimer, QDate, QTime, QSize
 
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, QLineEdit, QPushButton,
     QDateEdit, QTableWidget, QTableWidgetItem, QHeaderView, QCheckBox,
-    QFileDialog, QMessageBox, QDialog, QDialogButtonBox, QTableWidgetSelectionRange,QTimeEdit, QSpinBox,
+    QFileDialog, QMessageBox, QDialog, QDialogButtonBox, QTableWidgetSelectionRange, QTimeEdit, QSpinBox,
     QTabWidget, QScrollArea, QFrame, QGroupBox, QGridLayout
 )
 
 from app.config import load as load_config, save as save_config   # ← config existente :contentReference[oaicite:1]{index=1}
 from app.gui.qt_helpers import NoScrollComboBox
+from app.gui.common import icon  # v6.9.4: para los botones de accion en cada fila
 from app.models import Venta, VentaItem
 from app.repository import VentaRepo                               # ← repo existente (listar_por_rango, listar_items) :contentReference[oaicite:2]{index=2}
 
@@ -220,12 +221,14 @@ class HistorialVentasWidget(QWidget):
 
         # --- Tabla ---
         # v6.6.0: agregada columna "Nº Comprobante" en posicion 14 (antes de ID).
-        # Se pone al final para no romper indices existentes (11=CAE, 12=Vto CAE, 13=Comentario).
-        self.tbl = QTableWidget(0, 16)
+        # v6.9.4: agregada columna "Acciones" en posicion 15 (Reimprimir/WhatsApp/Eliminar).
+        # ID corre a 16.
+        self.tbl = QTableWidget(0, 17)
         self.tbl.setHorizontalHeaderLabels([
             "Nº Ticket", "Fecha/Hora", "Sucursal", "Forma Pago",
-            "Cuotas","Interés", "Descuento", "Monto x cuota", "Total", "Pagado", "Vuelto", "CAE", "Vto CAE", "Comentario",
+            "Cuotas", "Interés", "Descuento", "Monto x cuota", "Total", "Pagado", "Vuelto", "CAE", "Vto CAE", "Comentario",
             "Nº Comprobante",  # v6.6.0: AFIP comprobante o # ticket si no hay CAE
+            "Acciones",        # v6.9.4: Reimprimir / WhatsApp / Eliminar
             "ID"
         ])
         hdr = self.tbl.horizontalHeader()
@@ -246,8 +249,9 @@ class HistorialVentasWidget(QWidget):
         self.tbl.setColumnWidth(12, 100) # Vto CAE
         self.tbl.setColumnWidth(13, 120) # Comentario
         self.tbl.setColumnWidth(14, 130) # v6.6.0: Nº Comprobante
-        # ID oculto (ahora pos 15)
-        self.tbl.setColumnHidden(15, True)
+        self.tbl.setColumnWidth(15, 130) # v6.9.4: Acciones
+        # ID oculto (ahora pos 16)
+        self.tbl.setColumnHidden(16, True)
         self.tbl.verticalHeader().setVisible(False)
         self.tbl.setSelectionBehavior(QTableWidget.SelectRows)
         self.tbl.setEditTriggers(QTableWidget.NoEditTriggers)
@@ -898,16 +902,88 @@ class HistorialVentasWidget(QWidget):
         self._pagos_cache = pagos_prov
         self._pintar_tabla()
 
+    def _find_main_window(self):
+        """v6.9.4: sube por la jerarquia de parents hasta encontrar el MainWindow
+        (lo identifico por tener `session` y `sucursal`). Necesario para llamar a
+        los metodos de accion (reimprimir / whatsapp / eliminar venta)."""
+        w = self.parent()
+        while w is not None:
+            if hasattr(w, 'session') and hasattr(w, '_eliminar_venta_by_id'):
+                return w
+            w = w.parent()
+        return None
+
+    def _poner_acciones_fila(self, row: int, venta_id):
+        """v6.9.4: Crea un widget con 3 botones (Reimprimir, WhatsApp, Eliminar)
+        y lo pone en la columna 15 de la fila `row`. Reusa los metodos del
+        MainWindow (mismos que la tabla 'Ventas Realizadas Hoy').
+        El boton Eliminar solo se muestra si el usuario es admin.
+        """
+        mw = self._find_main_window()
+        if mw is None or venta_id is None:
+            return
+
+        actions = QWidget()
+        ah = QHBoxLayout(actions)
+        ah.setContentsMargins(0, 0, 0, 0)
+        ah.setSpacing(4)
+        ah.setAlignment(Qt.AlignCenter)
+        row_h = self.tbl.verticalHeader().defaultSectionSize()
+        btn_sz = max(26, row_h - 6)
+
+        def _mk_btn(ico_name, tip, slot):
+            b = QPushButton()
+            b.setProperty("role", "cell")
+            b.setIcon(icon(ico_name))
+            b.setToolTip(tip)
+            b.setFixedSize(btn_sz, btn_sz)
+            b.setIconSize(QSize(btn_sz - 12, btn_sz - 12))
+            b.setFocusPolicy(Qt.NoFocus)
+            b.clicked.connect(slot)
+            return b
+
+        # Reimprimir ticket
+        btn_imp = _mk_btn(
+            'print.svg', 'Reimprimir ticket',
+            lambda _, _vid=venta_id: mw._reimprimir_ticket_by_id(_vid)
+        )
+        ah.addWidget(btn_imp)
+
+        # WhatsApp
+        btn_wa = _mk_btn(
+            'wtsp.svg', 'Enviar por WhatsApp Web',
+            lambda _, _vid=venta_id: mw._enviar_ticket_whatsapp_by_id(_vid)
+        )
+        ah.addWidget(btn_wa)
+
+        # Eliminar (solo admin). Despues de eliminar, recargamos el historial para
+        # que la fila desaparezca y el resumen total se recalcule.
+        if getattr(self, 'es_admin', False) or getattr(mw, 'es_admin', False):
+            def _on_delete_click(_, _vid=venta_id):
+                mw._eliminar_venta_by_id(_vid)
+                # Recargar la tabla para reflejar la baja inmediatamente
+                try:
+                    self.recargar_historial()
+                except Exception:
+                    pass
+
+            btn_del = _mk_btn('delete.svg', 'Eliminar venta', _on_delete_click)
+            ah.addWidget(btn_del)
+
+        self.tbl.setItem(row, 15, QTableWidgetItem(""))
+        self.tbl.setCellWidget(row, 15, actions)
+
     def _pintar_tabla(self):
-        # v6.6.0: 16 columnas (agregada Nº Comprobante en pos 14, ID corrido a 15)
-        if self.tbl.columnCount() != 16:
-            self.tbl.setColumnCount(16)
+        # v6.6.0: 16 cols. v6.9.4: 17 (Acciones en pos 15, ID en pos 16).
+        if self.tbl.columnCount() != 17:
+            self.tbl.setColumnCount(17)
             self.tbl.setHorizontalHeaderLabels([
                 "Nº Ticket", "Fecha/Hora", "Sucursal", "Forma Pago",
                 "Cuotas", "Interés", "Descuento", "Monto x cuota",
                 "Total", "Pagado", "Vuelto", "CAE", "Vto CAE", "Comentario",
-                "Nº Comprobante", "ID"
+                "Nº Comprobante", "Acciones", "ID"
             ])
+            self.tbl.setColumnHidden(16, True)
 
         self.tbl.setRowCount(0)
 
@@ -1024,13 +1100,19 @@ class HistorialVentasWidget(QWidget):
                 str(cae_vto) if cae_vto else "-",     # 12 Vto CAE
                 "",                                   # 13 Nota Crédito (placeholder)
                 comprobante_txt,                      # 14 Nº Comprobante (v6.6.0)
-                str(getattr(v, "id", ""))             # 15 ID
+                "",                                   # 15 Acciones (placeholder, se rellena con widget)
+                str(getattr(v, "id", ""))             # 16 ID (v6.9.4: shifted)
             ]
 
             for c, val in enumerate(data):
                 it = QTableWidgetItem(val)
                 it.setTextAlignment(Qt.AlignCenter)
                 self.tbl.setItem(row, c, it)
+
+            # v6.9.4: Widget de acciones (Reimprimir / WhatsApp / Eliminar) en pos 15.
+            # Reusa los metodos del MainWindow que ya existen
+            # (_reimprimir_ticket_by_id, _enviar_ticket_whatsapp_by_id, _eliminar_venta_by_id).
+            self._poner_acciones_fila(row, getattr(v, "id", None))
 
             # Columna CAE: botón reintentar si hay error, o texto normal
             if has_error:
@@ -1120,8 +1202,8 @@ class HistorialVentasWidget(QWidget):
             f" — Total CAE ${total_cae:.2f} — IVA Ventas ${iva_ventas:.2f} — IVA Compras ${iva_compras:.2f}{pagos_txt}"
         )
 
-        # Ocultar ID (última columna, ahora 15 con la columna Nº Comprobante en v6.6.0)
-        self.tbl.setColumnHidden(15, True)
+        # Ocultar ID. v6.6.0: pos 15 (Nº Comprobante agregada). v6.9.4: pos 16 (Acciones agregada).
+        self.tbl.setColumnHidden(16, True)
 
     def _obtener_comentario(self, v) -> str:
         # 1) Atributos directos de la venta
