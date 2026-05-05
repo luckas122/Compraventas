@@ -578,7 +578,11 @@
                     <option value="efec">Efectivo</option>
                     <option value="tarj">Tarjeta</option>
                 </select>
-                <button class="btn btn-outline btn-sm" onclick="cargarDatos()">Actualizar</button>
+                <button class="btn btn-outline btn-sm" onclick="setFiltroRango('hoy')" title="Filtrar solo hoy">Hoy</button>
+                <button class="btn btn-outline btn-sm" onclick="setFiltroRango('7dias')" title="Ultimos 7 dias">7 dias</button>
+                <button class="btn btn-outline btn-sm" onclick="setFiltroRango('mes')" title="Mes actual">Mes</button>
+                <button class="btn btn-outline btn-sm" onclick="setFiltroRango('todo')" title="Todas las ventas (ultimos 365 dias)">Todo</button>
+                <button class="btn btn-primary btn-sm" onclick="cargarDatos()">Actualizar</button>
                 <button class="btn btn-outline btn-sm" onclick="exportarPDF()" title="Exportar a PDF">PDF</button>
                 <button class="btn btn-outline btn-sm" onclick="exportarExcel()" title="Exportar a Excel">Excel</button>
                 <label style="margin-left: auto;">
@@ -904,9 +908,17 @@
             document.getElementById('dashboard').classList.remove('hidden');
             actualizarStatus('Conectado a Supabase', true);
 
-            // Setear fechas de hoy
-            document.getElementById('filterDateDesde').value = hoy();
-            document.getElementById('filterDateHasta').value = hoy();
+            // v6.9.5: por default mostrar los ULTIMOS 7 DIAS (antes era solo "hoy",
+            // y si las ventas eran de antes, el dashboard se veia vacio confundiendo
+            // al usuario). Pueden cambiar a "Hoy" desde el filtro.
+            const _hoy = new Date();
+            const _hace7 = new Date();
+            _hace7.setDate(_hace7.getDate() - 7);
+            const _fmt = d => d.getFullYear() + '-' +
+                String(d.getMonth() + 1).padStart(2, '0') + '-' +
+                String(d.getDate()).padStart(2, '0');
+            document.getElementById('filterDateDesde').value = _fmt(_hace7);
+            document.getElementById('filterDateHasta').value = _fmt(_hoy);
 
             // Cargar config del dashboard + datos
             await cargarDashboardConfig();
@@ -999,6 +1011,35 @@
     // Stubs para mantener compat con codigo viejo (si quedo alguno) — todos lanzan
     function firebaseGet() { throw new Error('firebaseGet llamado en dashboard-supabase'); }
     function firebasePost() { throw new Error('firebasePost llamado en dashboard-supabase'); }
+
+    // v6.9.5: filtros rapidos de rango de fecha
+    function setFiltroRango(rango) {
+        const fmt = d => d.getFullYear() + '-' +
+            String(d.getMonth() + 1).padStart(2, '0') + '-' +
+            String(d.getDate()).padStart(2, '0');
+        const hoyD = new Date();
+        const desdeEl = document.getElementById('filterDateDesde');
+        const hastaEl = document.getElementById('filterDateHasta');
+        if (rango === 'hoy') {
+            desdeEl.value = fmt(hoyD);
+            hastaEl.value = fmt(hoyD);
+        } else if (rango === '7dias') {
+            const d = new Date();
+            d.setDate(d.getDate() - 7);
+            desdeEl.value = fmt(d);
+            hastaEl.value = fmt(hoyD);
+        } else if (rango === 'mes') {
+            const d = new Date(hoyD.getFullYear(), hoyD.getMonth(), 1);
+            desdeEl.value = fmt(d);
+            hastaEl.value = fmt(hoyD);
+        } else if (rango === 'todo') {
+            const d = new Date();
+            d.setDate(d.getDate() - 365);
+            desdeEl.value = fmt(d);
+            hastaEl.value = fmt(hoyD);
+        }
+        cargarDatos();
+    }
 
     // ==================== Cargar datos (Ventas) ====================
     // En Supabase la tabla `ventas` ya guarda el ESTADO FINAL (incluyendo NCs,

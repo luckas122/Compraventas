@@ -58,7 +58,11 @@ class Venta(Base):
     pagado          = Column(Float, nullable=True)
     vuelto          = Column(Float, nullable=True)
     items      = relationship("VentaItem", back_populates="venta")
-    numero_ticket = Column(Integer, index=True, nullable=False)  # secuencia independiente por sucursal (ventas sin CAE)
+    # v6.9.5: numero_ticket pasa a nullable=True. Las ventas tarjeta+CAE tienen
+    # numero_ticket=null y numero_ticket_cae=N. Al pull-ear ventas de otra
+    # sucursal con esa forma, el NOT NULL anterior rechazaba la insercion en
+    # silencio (IntegrityError -> rollback -> ventas perdidas).
+    numero_ticket = Column(Integer, index=True, nullable=True)  # secuencia independiente por sucursal (ventas sin CAE)
     numero_ticket_cae = Column(Integer, index=True, nullable=True)  # secuencia independiente por sucursal (ventas con CAE)
     # Campos AFIP
     afip_cae = Column(String, nullable=True)

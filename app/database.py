@@ -273,6 +273,77 @@ def _run_migrations():
                 except Exception:
                     pass
 
+        # ─────────────────────────────────────────────────────────────────
+        # v6.9.5: numero_ticket NOT NULL → nullable.
+        # Las ventas tarjeta+CAE de OTRAS sucursales tienen numero_ticket=null,
+        # numero_ticket_cae=N. Al pull-ear, el INSERT fallaba por NOT NULL y se
+        # tragaba el error en silencio (rollback en _apply_venta).
+        # SQLite no permite ALTER COLUMN, asi que detectamos el NOT NULL
+        # haciendo INSERT de prueba con NULL; si falla, recreamos la tabla.
+        # ─────────────────────────────────────────────────────────────────
+        if "ventas" in inspector.get_table_names():
+            _ventas_pragma = conn.execute(text("PRAGMA table_info(ventas)")).fetchall()
+            # Cada row: (cid, name, type, notnull, dflt_value, pk)
+            _nt_row = next((r for r in _ventas_pragma if r[1] == "numero_ticket"), None)
+            if _nt_row and _nt_row[3] == 1:  # notnull == 1
+                logger.info("[MIGRATION v6.9.5] Recreando tabla ventas para hacer numero_ticket NULLABLE...")
+                conn.execute(text("PRAGMA foreign_keys = OFF"))
+                old_cols = [c["name"] for c in inspector.get_columns("ventas")]
+                conn.execute(text("ALTER TABLE ventas RENAME TO _ventas_old_v695"))
+                conn.execute(text("""
+                    CREATE TABLE ventas (
+                        id INTEGER NOT NULL PRIMARY KEY,
+                        sucursal VARCHAR NOT NULL,
+                        fecha DATETIME NOT NULL,
+                        modo_pago VARCHAR NOT NULL,
+                        cuotas INTEGER,
+                        total FLOAT NOT NULL,
+                        subtotal_base FLOAT NOT NULL DEFAULT 0.0,
+                        interes_pct FLOAT NOT NULL DEFAULT 0.0,
+                        interes_monto FLOAT NOT NULL DEFAULT 0.0,
+                        descuento_pct FLOAT NOT NULL DEFAULT 0.0,
+                        descuento_monto FLOAT NOT NULL DEFAULT 0.0,
+                        pagado FLOAT,
+                        vuelto FLOAT,
+                        numero_ticket INTEGER,
+                        numero_ticket_cae INTEGER,
+                        afip_cae VARCHAR,
+                        afip_cae_vencimiento VARCHAR,
+                        afip_numero_comprobante INTEGER,
+                        afip_error VARCHAR,
+                        tipo_comprobante VARCHAR,
+                        cuit_cliente VARCHAR,
+                        nombre_cliente VARCHAR,
+                        domicilio_cliente VARCHAR,
+                        localidad_cliente VARCHAR,
+                        codigo_postal_cliente VARCHAR,
+                        condicion_cliente VARCHAR,
+                        vendedor VARCHAR,
+                        nota_credito_cae VARCHAR,
+                        nota_credito_numero INTEGER
+                    )
+                """))
+                new_cols_v695 = [
+                    "id", "sucursal", "fecha", "modo_pago", "cuotas", "total",
+                    "subtotal_base", "interes_pct", "interes_monto",
+                    "descuento_pct", "descuento_monto", "pagado", "vuelto",
+                    "numero_ticket", "numero_ticket_cae",
+                    "afip_cae", "afip_cae_vencimiento", "afip_numero_comprobante",
+                    "afip_error", "tipo_comprobante",
+                    "cuit_cliente", "nombre_cliente", "domicilio_cliente",
+                    "localidad_cliente", "codigo_postal_cliente", "condicion_cliente",
+                    "vendedor", "nota_credito_cae", "nota_credito_numero",
+                ]
+                common = [c for c in new_cols_v695 if c in old_cols]
+                cols_csv = ", ".join(common)
+                conn.execute(text(f"INSERT INTO ventas ({cols_csv}) SELECT {cols_csv} FROM _ventas_old_v695"))
+                conn.execute(text("DROP TABLE _ventas_old_v695"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ventas_numero_ticket ON ventas (numero_ticket)"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ventas_numero_ticket_cae ON ventas (numero_ticket_cae)"))
+                conn.execute(text("CREATE INDEX IF NOT EXISTS ix_ventas_sucursal_fecha ON ventas (sucursal, fecha)"))
+                conn.execute(text("PRAGMA foreign_keys = ON"))
+                logger.info("[MIGRATION v6.9.5] OK: numero_ticket ahora es NULLABLE")
+
         conn.commit()
 
 

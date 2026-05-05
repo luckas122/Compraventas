@@ -174,16 +174,19 @@ class SyncNotificationsMixin:
     def _on_realtime_event(self, tipo, action, row):
         """v6.8.0: cada evento INSERT/UPDATE/DELETE de Supabase Realtime se
         aplica al SQLite local con el mismo `_apply_*` que usa el polling.
-        El cursor `last_pull_supabase` no se mueve aqui — el proximo polling
-        recoje el `updated_at` y avanza correctamente sin reaplicar.
 
-        v6.9.2: si el evento gatilla un pending delete (popup de confirmacion),
-        disparar `_procesar_pending_deletes` para que el popup se vea sin
-        esperar al proximo ciclo de sync.
+        v6.9.2: si el evento gatilla un pending delete (popup), disparar
+        `_procesar_pending_deletes` para que el popup se vea sin esperar al
+        proximo ciclo de sync.
+        v6.9.5: agregar logging explicito (action + tipo + key) para
+        diagnosticar el bug del popup asimetrico (Salta->Sarmiento no
+        muestra popup pero al reves si).
         """
         if not self._firebase_sync:
+            logger.info(f"[REALTIME] {tipo}/{action} ignorado: _firebase_sync=None")
             return
         if not hasattr(self._firebase_sync, "_apply_row"):
+            logger.info(f"[REALTIME] {tipo}/{action} ignorado: backend sin _apply_row")
             return
         try:
             # Marcar deleted_at para mapear a delete en _apply_row
@@ -192,6 +195,16 @@ class SyncNotificationsMixin:
                 row = dict(row)
                 row["deleted_at"] = row.get("deleted_at") or "now"
                 is_delete_or_softdelete = True
+            # v6.9.5: log explicito del evento recibido
+            try:
+                _key = (row.get("codigo_barra") or row.get("cuit")
+                        or row.get("numero_ticket") or row.get("id") or "?")
+                logger.info(
+                    f"[REALTIME] {tipo}/{action} recv key={_key} delete={is_delete_or_softdelete} "
+                    f"sucursal_origen={row.get('sucursal_origen', '?')}"
+                )
+            except Exception:
+                pass
             self._firebase_sync._apply_row(tipo, row)
             # Refrescos minimos en UI segun tipo
             try:

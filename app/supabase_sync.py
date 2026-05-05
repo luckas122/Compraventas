@@ -1046,24 +1046,34 @@ class SupabaseSyncManager:
     def _apply_producto_delete(self, data: dict) -> bool:
         codigo = data.get("codigo_barra")
         if not codigo:
+            self._log("_apply_producto_delete SKIP: data sin codigo_barra")
             return False
         prod = self.session.query(Producto).filter_by(codigo_barra=codigo).first()
         if not prod:
+            # v6.9.5: log explicito para diagnosticar "popup no aparece"
+            self._log(
+                f"_apply_producto_delete SKIP '{codigo}': producto NO existe localmente. "
+                f"(origen={data.get('_sucursal_origen', '?')}). El delete se ignora."
+            )
             return False
         sync_cfg = self._get_sync_config()
-        if bool(sync_cfg.get("confirm_delete_productos", True)):
-            origen = data.get("_sucursal_origen", "")
+        confirm = bool(sync_cfg.get("confirm_delete_productos", True))
+        origen = data.get("_sucursal_origen", "")
+        if confirm:
             self._enqueue_pending_delete("productos", {
                 "codigo_barra": codigo, "nombre": prod.nombre, "precio": prod.precio,
                 "categoria": prod.categoria, "telefono": getattr(prod, "telefono", None),
                 "numero_cuenta": getattr(prod, "numero_cuenta", None),
                 "cbu": getattr(prod, "cbu", None),
             }, origen)
-            self._log(f"Producto '{codigo}' delete recibido — pendiente confirmacion")
+            self._log(
+                f"Producto '{codigo}' delete recibido (origen={origen}) "
+                f"— ENCOLADO pending confirmacion"
+            )
             return True
         self.session.delete(prod)
         self.session.commit()
-        self._log(f"Producto '{codigo}' eliminado por sync")
+        self._log(f"Producto '{codigo}' eliminado por sync (sin popup, confirm_delete=False)")
         return True
 
     def _apply_proveedor(self, data: dict, timestamp: int) -> bool:
@@ -1203,7 +1213,16 @@ class SupabaseSyncManager:
         self.session.add(venta)
         try:
             self.session.flush()
-        except IntegrityError:
+        except IntegrityError as ie:
+            # v6.9.5: NO atrapar en silencio. Loguear el error real para
+            # diagnostico (caso comun: NOT NULL en numero_ticket que ahora
+            # esta resuelto via migration v6.9.5; otros constraints como
+            # numero_ticket_cae duplicado tambien son utiles de saber).
+            self._log(f"_apply_venta IntegrityError: {ie} | data={dict(numero_ticket=numero_ticket, numero_ticket_cae=numero_ticket_cae, afip_num=afip_num, sucursal=sucursal)}")
+            self.session.rollback()
+            return False
+        except Exception as e:
+            self._log(f"_apply_venta Exception: {type(e).__name__}: {e}")
             self.session.rollback()
             return False
 
